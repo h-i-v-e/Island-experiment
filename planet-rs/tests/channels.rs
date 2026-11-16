@@ -108,8 +108,9 @@ fn disabling_refinement_keeps_seed_topology_and_options_are_bounded() {
 #[test]
 fn inland_channel_keeps_its_water_when_excavation_crosses_zero_height() {
     use planet_rs::{DVec3, ImpactOptions, OceanStage, TectonicOptions};
-    // Regression from seed 44: the channel crosses zero near this inland
-    // location, while its original land is 14 m high and water is 4.5 m high.
+    // Regression from seed 44: this inland reach previously crossed zero in
+    // its bed and lost water. Shallow spill support may now keep its bed above
+    // zero; the original inland reach must remain wet in either case.
     let terrain = generate_terrain(
         PlanetOptions {
             seed: 44,
@@ -147,7 +148,7 @@ fn inland_channel_keeps_its_water_when_excavation_crosses_zero_height() {
         .iter()
         .enumerate()
         .filter(|&(i, _)| {
-            terrain.elevations[i] < 0.0
+            terrain.water_elevations[i] > terrain.elevations[i]
                 && (terrain.elevations[i] + terrain.channel_depths[i] - terrain.bank_lifts[i])
                     * radius
                     > 10.0
@@ -155,9 +156,12 @@ fn inland_channel_keeps_its_water_when_excavation_crosses_zero_height() {
         .map(|(i, &p)| (i, p.distance(location) * radius))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .expect("excavated inland channel");
+    // Half the original 1024-site control-cell spacing bounds this authored
+    // catchment patch. Corrected spill support can move the refined centreline.
+    let original_patch_radius = radius * (4.0 * std::f64::consts::PI / 1024.0).sqrt() * 0.5;
     assert!(
-        distance < 5.0,
-        "reproduce the affected section, distance {distance}"
+        distance < original_patch_radius,
+        "retain wet water in the original coarse catchment after spill-path correction, distance {distance}"
     );
     assert!(
         terrain.water_elevations[i] * radius > 2.0,

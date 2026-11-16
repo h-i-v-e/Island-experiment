@@ -32,6 +32,7 @@ pub(super) struct Footprints<'a> {
     reach_waterfalls: Vec<Vec<usize>>,
     fall_stations: Vec<Option<BankStation>>,
     tapered: bool,
+    ancestry: Vec<[usize; 2]>,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +89,7 @@ impl<'a> Footprints<'a> {
             reach_waterfalls: Vec::new(),
             fall_stations: Vec::new(),
             tapered: !widths.is_empty() && settings.river_taper > 0.0,
+            ancestry: Vec::new(),
         };
         let threshold = settings.river_catchment * 4.0 * std::f64::consts::PI;
         for river in rivers {
@@ -125,6 +127,7 @@ impl<'a> Footprints<'a> {
             }
         }
         result.measure_rivers();
+        result.measure_ancestry();
         result
     }
 
@@ -156,6 +159,60 @@ impl<'a> Footprints<'a> {
                 distances.insert(reach.from, (distance, outlet));
             }
         }
+    }
+
+    /// Euler intervals distinguish separate tributary arms from successive
+    /// reaches of the same channel without walking a river per terrain vertex.
+    fn measure_ancestry(&mut self) {
+        let downstream: HashMap<_, _> = self
+            .reaches
+            .iter()
+            .enumerate()
+            .map(|(id, reach)| (reach.from, id))
+            .collect();
+        let mut incoming = vec![Vec::new(); self.reaches.len()];
+        let mut roots = Vec::new();
+        for (id, reach) in self.reaches.iter().enumerate() {
+            if let Some(&parent) = downstream.get(&reach.to) {
+                incoming[parent].push(id);
+            } else {
+                roots.push(id);
+            }
+        }
+        self.ancestry = vec![[0; 2]; self.reaches.len()];
+        let mut serial = 0;
+        let mut stack: Vec<_> = roots.into_iter().map(|id| (id, false)).collect();
+        while let Some((id, leaving)) = stack.pop() {
+            if leaving {
+                self.ancestry[id][1] = serial;
+            } else {
+                self.ancestry[id][0] = serial;
+                serial += 1;
+                stack.push((id, true));
+                stack.extend(incoming[id].iter().map(|&child| (child, false)));
+            }
+        }
+    }
+
+    fn same_channel(&self, a: usize, b: usize) -> bool {
+        let [start_a, end_a] = self.ancestry[a];
+        let [start_b, end_b] = self.ancestry[b];
+        (start_a <= start_b && start_b < end_a) || (start_b <= start_a && start_a < end_b)
+    }
+
+    /// Widths cannot excavate a dry watershed divide into a false confluence.
+    /// A ridge above both unrelated overlapping channel profiles stays dry;
+    /// actual channel beds and supported waterfall faces retain their shaping.
+    fn dry_divide(&self, point: DVec3, height: f64, owner: Sample) -> bool {
+        !owner.protected
+            && owner.distance < owner.width
+            && height > owner.water + owner.depth
+            && self.samples(point).any(|other| {
+                other.distance < other.width
+                    && !other.protected
+                    && !self.same_channel(owner.reach, other.reach)
+                    && height > other.water + other.depth
+            })
     }
 
     /// Freeze hydraulic coordinates for the water contact and dry bank apron.
@@ -551,6 +608,11 @@ impl<'a> Footprints<'a> {
     pub fn bed_target(&self, direction: DVec3, original: f64) -> (f64, bool) {
         let mut target = original;
         let mut core = false;
+        if let Some(owner) = self.owner(direction)
+            && self.dry_divide(direction, original, owner)
+        {
+            return (original, false);
+        }
         if let Some(Sample {
             distance,
             width,
@@ -572,7 +634,15 @@ impl<'a> Footprints<'a> {
                 } else {
                     depth * (1.0 - x.powi(4))
                 };
-                target = target.min(water - clearance);
+                // A filled spill grade can stand above an old pit. Support
+                // that local grade instead of leaving deep water over the pit.
+                // Only the actual sea-level outlet retains a submerged bed.
+                let bed = water - clearance;
+                target = if water <= 0.0 || original < 0.0 {
+                    target.min(bed)
+                } else {
+                    bed.max(0.0_f64.next_up())
+                };
             } else if x < 2.5 {
                 let t = ((x - 1.0) / 1.5).clamp(0.0, 1.0);
                 let blend = t * t * (3.0 - 2.0 * t);
@@ -613,6 +683,13 @@ impl<'a> Footprints<'a> {
 
     pub fn bank_pins(&self, mesh: &PlanetMesh, graph: &SurfaceGraph, heights: &[f64]) -> BankPins {
         let samples = self.field_samples(mesh, graph);
+        let divides: Vec<_> = samples
+            .iter()
+            .enumerate()
+            .map(|(i, sample)| {
+                sample.is_some_and(|sample| self.dry_divide(mesh.directions[i], heights[i], sample))
+            })
+            .collect();
         let levels = samples
             .iter()
             .zip(heights)
@@ -620,7 +697,14 @@ impl<'a> Footprints<'a> {
             .collect();
         let distances: Vec<_> = samples
             .iter()
-            .map(|s| s.map_or(-1.0, |s| s.width - s.distance))
+            .zip(&divides)
+            .map(|(s, &divide)| {
+                if divide {
+                    -1.0
+                } else {
+                    s.map_or(-1.0, |s| s.width - s.distance)
+                }
+            })
             .collect();
         let widths = samples.iter().map(|s| s.map_or(0.0, |s| s.width)).collect();
         let support = samples
@@ -643,6 +727,7 @@ impl<'a> Footprints<'a> {
             })
             .collect();
         BankPins::new(graph, levels, &distances, widths, support)
+            .with_divides(divides)
             .with_blends(blends)
             .with_flows(flows)
     }
@@ -710,7 +795,9 @@ impl<'a> Footprints<'a> {
                 (patch[i]
                     && !pins.sea_openings[i]
                     && !pins.boundary[i]
-                    && !samples[i].is_some_and(|s| s.protected)
+                    && !samples[i].is_some_and(|s| {
+                        s.protected || self.dry_divide(mesh.directions[i], heights[i], s)
+                    })
                     && neighbours.iter().all(|&j| patch[j]))
                 .then_some(i)
             })
@@ -744,6 +831,38 @@ impl<'a> Footprints<'a> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shallow_grade_supports_an_old_pit_and_preserves_the_original_ocean_floor() {
+        let mesh = PlanetMesh {
+            directions: (0..5)
+                .map(|i| DVec3::new(f64::from(i) * 0.01, 0.0, 1.0).normalize())
+                .collect(),
+            triangles: Vec::new(),
+            radius: 1000.0,
+        };
+        let settings = TerrainOptions::default();
+        let catchment = settings.river_catchment * 4.0 * std::f64::consts::PI;
+        let rivers: Vec<_> = (0..4)
+            .map(|from| RiverSegment {
+                from,
+                to: from + 1,
+                catchment,
+            })
+            .collect();
+        let levels = [0.04, 0.04, 0.04, 0.0, 0.0];
+        let footprint = Footprints::new(&mesh, &rivers, &levels, &settings, 0.0);
+        let mut heights = [0.039, 0.001, 0.039, -0.01, -0.02];
+        let mut soil = [0.0; 5];
+        footprint.carve(&mesh, &mut heights, &mut soil);
+        assert!((levels[1] - heights[1] - settings.river_depth).abs() < 1e-12);
+        assert!(
+            soil[1] > 0.03,
+            "filled hydraulic grade needs local bed support"
+        );
+        assert_eq!(heights[3].to_bits(), (-0.01_f64).to_bits());
+        assert_eq!(heights[4].to_bits(), (-0.02_f64).to_bits());
+    }
+
     #[test]
     fn upstream_grading_includes_dry_shoulders_behind_the_water_contact() {
         use super::super::drainage;
@@ -1154,7 +1273,11 @@ mod tests {
         pins.preserve_ocean(&original);
         pins.lift(&mesh, &graph, &original, &mut heights, &mut soil);
         for &i in &route[4..7] {
-            assert!(pins.sea_openings[i]);
+            assert_eq!(
+                pins.sea_openings[i],
+                original[i] < 0.0,
+                "only the original ocean defines a sea opening"
+            );
             assert!(
                 heights[i] < -settings.river_depth * 0.5,
                 "waterfall support dammed its receiving channel"

@@ -823,8 +823,10 @@ cargo run -- --seed 666 --view mountain --terrain-lod 1 --lod-surface-maps on --
 
 Use `--terrain-lod 2` for the second atlas, and `--terrain-lod auto` for normal
 distance-based selection. Capture sidecars record both comparison settings.
-The viewer cache contract is version 18; older entries regenerate with the maps
-and retained river sources across terrain LODs. The native feature is opt-in
+The viewer cache contract is version 23; older entries regenerate with the maps
+and adaptive river profiles. River candidates are covered in decreasing
+catchment order, following the strongest headwater into each main stem, without a fixed count limit; increase the catchment threshold
+to reduce branch density. The native feature is opt-in
 (`surface-atlas`), so existing Unity exports and native island snapshots retain
 their current layout.
 

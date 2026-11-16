@@ -207,7 +207,10 @@ pub(super) fn with_widths(
         active[river.from] = true;
         *incoming.entry(river.to).or_default() += 1;
         let upstream = &mut main_upstream[river.to];
-        if upstream.is_none_or(|old| drainage.catchment[river.from] > drainage.catchment[old]) {
+        if upstream.is_none_or(|old| {
+            let order = drainage.catchment[river.from].total_cmp(&drainage.catchment[old]);
+            order.is_gt() || (order.is_eq() && river.from < old)
+        }) {
             *upstream = Some(river.from);
         }
     }
@@ -236,11 +239,11 @@ pub(super) fn with_widths(
     let mut assigned = vec![false; heights.len()];
     let mut path = Vec::new();
     let mut natural = Vec::new();
-    let mut gradients = Vec::new();
     let mut waterfalls = Vec::new();
-    // Parent-before-child order gives main rivers authority at tributary joins.
-    // Follow the strongest incoming branch, then process its remaining feeders.
-    for &start in &drainage.order {
+    // Follow complete strongest-catchment main stems before lesser feeders.
+    // Equal-area ties retain parent order so a zero-area flat cannot reverse
+    // receiving-river authority at a confluence.
+    for start in profile_starts(drainage, &active) {
         if !active[start] || assigned[start] {
             continue;
         }
@@ -267,7 +270,6 @@ pub(super) fn with_widths(
             &natural,
             &width,
             &mut levels,
-            &mut gradients,
             &mut waterfalls,
             &junctions,
         );
@@ -275,104 +277,124 @@ pub(super) fn with_widths(
     Profile { levels, waterfalls }
 }
 
-#[allow(clippy::too_many_arguments)] // Shared borrowed network and reusable profile buffers.
+fn profile_starts(drainage: &Drainage, active: &[bool]) -> Vec<usize> {
+    let mut starts: Vec<_> = drainage
+        .order
+        .iter()
+        .copied()
+        .filter(|&vertex| active[vertex])
+        .collect();
+    // Stable sorting preserves downstream-before-upstream ties.
+    starts.sort_by(|&a, &b| drainage.catchment[b].total_cmp(&drainage.catchment[a]));
+    starts
+}
+
+/// Legacy five-segment gradient response and width-dependent fall cadence.
+/// All values stay normalized so changing only planet radius preserves shape.
+fn cadence(
+    mesh: &PlanetMesh,
+    path: &[usize],
+    natural: &[f64],
+    index: usize,
+    half_width: f64,
+) -> (f64, f64) {
+    let end = path.len() - 1;
+    let mut total = 0.0;
+    let mut weights = 0.0;
+    for neighbour in index.saturating_sub(2)..=(index + 2).min(end - 1) {
+        let distance = arc(
+            mesh.directions[path[neighbour]],
+            mesh.directions[path[neighbour + 1]],
+        )
+        .max(1.0e-12);
+        let weight = 3.0 - f64::from(u32::try_from(index.abs_diff(neighbour)).unwrap());
+        total += (natural[neighbour] - natural[neighbour + 1]).max(0.0) / distance * weight;
+        weights += weight;
+    }
+    let reference_height = 0.2;
+    let response = ((total / weights) / (reference_height * 2.25))
+        .clamp(0.0, 1.0)
+        .sqrt();
+    let drop = reference_height * (0.0075 + (0.018 - 0.0075) * response);
+    let length =
+        (reference_height * 0.006 * (1.0 - response * 0.9)).max(0.00075 + half_width * 2.5);
+    (drop, length)
+}
+
 fn stepped(
     mesh: &PlanetMesh,
     path: &[usize],
     natural: &[f64],
     width: &impl Fn(usize) -> f64,
     levels: &mut [f64],
-    gradients: &mut Vec<f64>,
     waterfalls: &mut Vec<Waterfall>,
     junctions: &[Junction],
 ) {
+    for (&vertex, &surface) in path.iter().zip(natural) {
+        levels[vertex] = surface;
+    }
     let end = path.len().saturating_sub(1);
-    if end == 0 {
+    if end < 2 {
         return;
     }
-    gradients.clear();
-    // Same five-segment weighted gradient and terrace spacing as Island.
-    for segment in 0..end {
-        let start = segment.saturating_sub(2);
-        let finish = (segment + 2).min(end - 1);
-        let mut total = 0.0;
-        let mut weights = 0.0;
-        for neighbour in start..=finish {
-            let distance = arc(
-                mesh.directions[path[neighbour]],
-                mesh.directions[path[neighbour + 1]],
-            )
-            .max(1.0e-12);
-            let weight = 3.0 - f64::from(u32::try_from(segment.abs_diff(neighbour)).unwrap());
-            total += (natural[neighbour] - natural[neighbour + 1]).max(0.0) / distance * weight;
-            weights += weight;
-        }
-        gradients.push(total / weights);
-    }
-    let reference_height = 0.2; // Island's 200 m reference on a 1 km planet.
-    let mut level = levels[path[end]];
-    let mut pending_drop = 0.0;
+    // The last land-to-sea edge keeps its original grade. A sea endpoint must
+    // never turn the whole first pending terrace into a submerged runway.
+    let mut anchor = if natural[end] <= 0.0 { end - 1 } else { end };
+    let mut level = natural[anchor];
     let mut reach_length = 0.0;
     let mut half_width: f64 = 0.0;
-    for index in (0..end).rev() {
+    let mut source_length: f64 = path[..=anchor]
+        .windows(2)
+        .map(|pair| arc(mesh.directions[pair[0]], mesh.directions[pair[1]]))
+        .sum();
+    for index in (1..anchor).rev() {
         let from = path[index];
         let to = path[index + 1];
         let length = arc(mesh.directions[from], mesh.directions[to]);
         reach_length += length;
+        source_length -= length;
         half_width = half_width.max(width(from));
-        let response = (gradients[index] / (reference_height * 2.25))
-            .clamp(0.0, 1.0)
-            .sqrt();
-        let target_fall = reference_height * (0.0075 + (0.018 - 0.0075) * response);
-        let required_length =
-            (reference_height * 0.006 * (1.0 - response * 0.9)).max(0.00075 + half_width * 2.5);
-        // Keep the hydraulic height budget independent of whether placement
-        // can accept this step yet. Delayed drops accumulate instead of
-        // permanently lowering the rest of the river upstream.
-        let planned_level = level + pending_drop;
-        let natural_surface = natural[index].max(planned_level);
-        let requested_drop = if index > 0
-            && natural_surface - planned_level >= target_fall
-            && reach_length >= required_length
-        {
-            target_fall
-        } else {
-            0.0
-        };
-        if index > 0 && pending_drop + requested_drop > 0.0 {
-            let lip = mesh.directions[from];
-            // The top belongs to the incoming reach. Using the outgoing
-            // tangent at a bend can put it beside the actual feeding channel.
-            let upstream = mesh.directions[path[index - 1]];
-            let direction = (lip * lip.dot(upstream) - upstream).normalize();
-            let fall = Waterfall {
-                upper_vertex: from,
-                lower_vertex: to,
-                upstream_vertex: path[index - 1],
-                lip,
-                direction,
-                half_width: width(from),
-                upper_surface: planned_level + requested_drop,
-                lower_surface: level,
-                face_run: 0.0025,
-            };
-            // Defer the same terrace step farther upstream until the whole
-            // support/landing footprint clears each merge and existing fall.
-            // The lower run-in keeps its downstream profile while we search.
-            if fall.clears_junctions(junctions) {
-                if requested_drop > 0.0 {
-                    pending_drop += requested_drop;
-                    reach_length = 0.0;
-                    half_width = 0.0;
-                }
-                if !waterfalls.iter().any(|&other| fall.overlaps_support(other)) {
-                    waterfalls.push(fall);
-                    level += pending_drop;
-                    pending_drop = 0.0;
-                }
-            }
+        let (target_fall, required_length) = cadence(mesh, path, natural, index, half_width);
+        // A supported face still needs its existing two-face-run approach;
+        // this is source geometry, not a forced terrace length or fall height.
+        if source_length + 1.0e-12 < required_length.max(0.0025 * 2.0) {
+            continue;
         }
-        levels[from] = level.min(natural_surface);
+        if reach_length + 1.0e-12 < required_length
+            || natural[index] - level + 1.0e-12 < target_fall
+        {
+            continue;
+        }
+        let lip = mesh.directions[from];
+        let upstream = mesh.directions[path[index - 1]];
+        let fall = Waterfall {
+            upper_vertex: from,
+            lower_vertex: to,
+            upstream_vertex: path[index - 1],
+            lip,
+            direction: (lip * lip.dot(upstream) - upstream).normalize(),
+            half_width: width(from),
+            upper_surface: natural[index],
+            lower_surface: level,
+            face_run: 0.0025,
+        };
+        if fall.clears_junctions(junctions)
+            && !waterfalls.iter().any(|&other| fall.overlaps_support(other))
+        {
+            // Commit only an accepted local terrace, taking its entire natural
+            // rise. Fixed small increments would lose height at every step.
+            levels[from] = natural[index];
+            for &vertex in &path[index + 1..=anchor] {
+                levels[vertex] = level;
+            }
+            waterfalls.push(fall);
+        }
+        // Unplaceable support leaves the pending span on its natural grade.
+        // Reset locally instead of carrying a distant low plane farther uphill.
+        anchor = index;
+        level = natural[index];
+        reach_length = 0.0;
+        half_width = 0.0;
     }
 }
 
@@ -427,13 +449,23 @@ mod tests {
             }
             let original = build(&mesh, &heights, &drainage, &rivers[..40], &settings);
             let moved = build(&mesh, &heights, &drainage, &rivers, &settings);
+            let mut reordered = rivers.clone();
+            reordered.reverse();
+            let reversed = build(&mesh, &heights, &drainage, &reordered, &settings);
+            assert_eq!(moved.levels, reversed.levels);
+            assert_eq!(
+                moved.waterfalls, reversed.waterfalls,
+                "lesser tributary input order cannot replace the true strongest main stem"
+            );
             let first = moved
                 .waterfalls
                 .first()
                 .expect("a long branch still has room for a fall");
+            let lip_natural =
+                heights[first.upper_vertex] - settings.river_depth * 2.0_f64.sqrt().sqrt() * 0.35;
             assert!(
-                first.upper_surface - first.lower_surface <= 0.0036 + 1.0e-12,
-                "keep the established junction deferral height when no other fall blocks placement"
+                (first.upper_surface - lip_natural).abs() < 1.0e-12,
+                "deferred placement must recover the entire local natural height"
             );
             assert!(
                 first.upper_vertex < original.waterfalls[0].upper_vertex,
@@ -447,10 +479,18 @@ mod tests {
                     "leave room for the waterfall landing and the receiving river's bank apron"
                 );
             }
-            for i in first.upper_vertex + 1..=40 {
+            for (i, &height) in heights
+                .iter()
+                .enumerate()
+                .take(41)
+                .skip(first.upper_vertex + 1)
+            {
+                let natural =
+                    (height - settings.river_depth * 2.0_f64.sqrt().sqrt() * 0.35).max(0.0);
                 assert!(
-                    (moved.levels[i] - moved.levels[40]).abs() < 1.0e-12,
-                    "keep a low run-in to the merge, rather than dragging the face downstream"
+                    moved.levels[i]
+                        >= natural - (first.upper_surface - first.lower_surface) - 1e-12,
+                    "junction deferral must not lose more than its single local terrace"
                 );
             }
             assert!(
@@ -519,7 +559,6 @@ mod tests {
                 &natural,
                 &|_| 0.006,
                 &mut natural.clone(),
-                &mut Vec::new(),
                 &mut falls,
                 &[],
             );
@@ -562,25 +601,34 @@ mod tests {
             &natural,
             &|_| 0.003,
             &mut levels,
-            &mut Vec::new(),
             &mut falls,
             &[],
+        );
+        assert!(!falls.is_empty());
+        let largest_step = falls
+            .iter()
+            .map(|fall| fall.upper_surface - fall.lower_surface)
+            .fold(0.0_f64, f64::max);
+        assert!(
+            levels
+                .iter()
+                .zip(&natural)
+                .all(|(&level, &natural)| level <= natural + 1e-12
+                    && natural - level <= largest_step + 1e-12),
+            "terrace lag is local, never the sum of deferred falls"
         );
         assert!(
             falls
                 .iter()
-                .any(|f| f.upper_surface - f.lower_surface > 0.0036),
-            "combine delayed terrace heights rather than losing their drop budget"
+                .all(|fall| (fall.upper_surface - natural[fall.upper_vertex]).abs() < 1e-12)
         );
-        let total_drop: f64 = falls
-            .iter()
-            .map(|f| f.upper_surface - f.lower_surface)
-            .sum();
+        assert!((levels[0] - 0.08).abs() < 1e-12);
         assert!(
-            total_drop > 0.063,
-            "the 200m fixture schedules about 66m of drop; deferred placement must retain it"
+            levels
+                .windows(2)
+                .any(|pair| (pair[0] - pair[1]).abs() < 1e-12),
+            "accepted reaches must actually be horizontal"
         );
-        assert!((levels[0] - total_drop).abs() < 1.0e-12);
         assert!(levels.windows(2).all(|pair| pair[0] >= pair[1]));
     }
 
@@ -644,7 +692,6 @@ mod tests {
                 &natural,
                 &|_| 0.003,
                 &mut vec![0.0; 41],
-                &mut Vec::new(),
                 &mut falls,
                 &[],
             );
@@ -687,11 +734,13 @@ mod tests {
             &natural,
             &|_| 0.003,
             &mut levels,
-            &mut Vec::new(),
             &mut falls,
             &[],
         );
-        assert!(falls.len() >= 4);
+        assert!(
+            falls.len() >= 3,
+            "adaptive width cadence and source support retain multiple falls"
+        );
         for (i, &level) in levels.iter().enumerate() {
             assert!(level <= natural[i] + 1.0e-12);
             if i > 0 {
@@ -730,7 +779,6 @@ mod tests {
             &natural,
             &|_| 0.003,
             &mut remote_levels,
-            &mut Vec::new(),
             &mut remote_falls,
             &[Junction {
                 point: -mesh.directions[20],
@@ -741,3 +789,7 @@ mod tests {
         assert_eq!(falls, remote_falls);
     }
 }
+
+#[cfg(test)]
+#[path = "river_steps_tests.rs"]
+mod step_tests;

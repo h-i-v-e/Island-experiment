@@ -783,7 +783,7 @@ fn meander_noise_scale_is_directly_proportional_to_average_edge_length() {
 }
 
 #[test]
-fn sources_are_the_upstream_boundary_of_local_candidates() {
+fn candidates_include_every_qualifying_vertex_in_descending_catchment_order() {
     let mesh = Mesh {
         vertices: vec![
             Vec3::new(0.0, 0.0, 0.2),
@@ -806,15 +806,15 @@ fn sources_are_the_upstream_boundary_of_local_candidates() {
         RiverSourceRule::new(1.0, 1.0, 0.0, 0.2),
     );
 
-    assert_eq!(sources, [1, 0]);
+    assert_eq!(sources, [3, 2, 1, 0]);
 }
 
 #[test]
 fn low_elevation_sources_require_more_catchment_instead_of_being_excluded() {
     let mesh = Mesh {
         vertices: vec![
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, f32::EPSILON),
+            Vec3::new(1.0, 0.0, f32::EPSILON),
             Vec3::new(0.0, 1.0, 0.2),
         ],
         triangles: vec![0, 1, 2],
@@ -1042,52 +1042,409 @@ fn submerged_river_carves_accumulate_only_lowered_covered_vertices() {
     );
 }
 
-#[test]
-fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
-    let mut surface = 0.0_f32;
-    let mut nodes = Vec::new();
-    for index in (0..=20).rev() {
-        if index < 20 {
-            surface += if index < 10 { 0.002 } else { 0.0002 };
-        }
-        nodes.push(RiverNode {
-            vertex: index,
-            flow: 10,
-            surface,
-            position: Vec3::new(index as f32 * 0.02, 0.5, surface),
-        });
-    }
-    nodes.reverse();
-    let outlet_surface = nodes[20].surface;
-    let mut waterfalls = vec![false; nodes.len()];
-    let mut scratch = Vec::new();
-
-    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 20, &mut scratch);
-
-    let mut gentle = Vec::new();
-    let mut steep = Vec::new();
-    for (index, pair) in nodes.windows(2).enumerate() {
-        let drop = pair[0].surface - pair[1].surface;
-        if waterfalls[index] {
-            if index < 10 {
-                steep.push(drop);
-            } else {
-                gentle.push(drop);
+fn stepped_profile_fixture(length_metres: usize, grade: f32) -> Vec<RiverNode> {
+    (0..=length_metres)
+        .map(|vertex| {
+            let surface = (20.0 + (length_metres - vertex) as f32 * grade) / ISLAND_WORLD_METRES;
+            RiverNode {
+                vertex,
+                flow: 10,
+                surface,
+                position: Vec3::new(vertex as f32 / ISLAND_WORLD_METRES, 0.5, surface),
             }
-        } else {
-            assert!(drop.abs() < 1.0e-7);
+        })
+        .collect()
+}
+
+#[test]
+fn legacy_gradient_profile_restores_adaptive_falls_and_flat_reaches() {
+    let mut gentle = stepped_profile_fixture(1_000, 0.02);
+    let mut steep = stepped_profile_fixture(1_000, 0.4);
+    let mut gentle_falls = vec![false; gentle.len()];
+    let mut steep_falls = vec![false; steep.len()];
+    form_stepped_profile(&mut gentle, &mut gentle_falls, &[], 1_000, &mut Vec::new());
+    form_stepped_profile(&mut steep, &mut steep_falls, &[], 1_000, &mut Vec::new());
+    let drops = |nodes: &[RiverNode], falls: &[bool]| {
+        nodes
+            .windows(2)
+            .zip(falls)
+            .filter_map(|(pair, &fall)| fall.then_some(pair[0].surface - pair[1].surface))
+            .collect::<Vec<_>>()
+    };
+    let gentle_drops = drops(&gentle, &gentle_falls);
+    let steep_drops = drops(&steep, &steep_falls);
+    assert!(!gentle_drops.is_empty());
+    assert!(steep_drops.len() > gentle_drops.len() * 5);
+    let average = |drops: &[f32]| drops.iter().sum::<f32>() / drops.len() as f32;
+    assert!(average(&steep_drops) > average(&gentle_drops) * 1.3);
+    assert!(
+        steep
+            .windows(2)
+            .filter(|pair| (pair[0].surface - pair[1].surface).abs() < 1.0e-7)
+            .count()
+            > 800,
+        "legacy terraces must not become the quarter-depth continuous grade"
+    );
+    let lips: Vec<_> = steep_falls
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &fall)| fall.then_some(i))
+        .collect();
+    assert!(
+        lips.windows(2).any(|pair| pair[1] - pair[0] < 10),
+        "there is no forced ten metre cadence"
+    );
+}
+
+#[test]
+fn legacy_gentle_profile_waits_for_its_gradient_dependent_fall_budget() {
+    let mut nodes = stepped_profile_fixture(1_000, 0.02);
+    let natural_source = nodes[0].surface;
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 1_000, &mut Vec::new());
+    let drops: Vec<_> = nodes
+        .windows(2)
+        .zip(&falls)
+        .filter_map(|(pair, &fall)| {
+            fall.then_some((pair[0].surface - pair[1].surface) * ISLAND_WORLD_METRES)
+        })
+        .collect();
+    assert!(drops.len() >= 5);
+    assert!(
+        drops.iter().all(|&drop| drop > 2.0 && drop < 2.3),
+        "use legacy slope response, not a forced one metre fall: {drops:?}"
+    );
+    assert_eq!(nodes[0].surface.to_bits(), natural_source.to_bits());
+}
+
+#[test]
+fn stepped_profile_never_accumulates_channel_wide_elevation_lag() {
+    for length in [100, 1_000] {
+        let mut nodes = stepped_profile_fixture(length, 0.5);
+        let natural: Vec<_> = nodes.iter().map(|node| node.surface).collect();
+        let mut falls = vec![false; nodes.len()];
+        form_stepped_profile(&mut nodes, &mut falls, &[], length, &mut Vec::new());
+        assert!(falls.iter().any(|&fall| fall));
+        assert_eq!(nodes[0].surface.to_bits(), natural[0].to_bits());
+        for (index, node) in nodes.iter().enumerate() {
+            let cut_metres = (natural[index] - node.surface) * ISLAND_WORLD_METRES;
+            assert!(
+                (-0.001..=4.001).contains(&cut_metres),
+                "local natural step is the entire lowering budget: {cut_metres}"
+            );
+            if falls[index] {
+                assert_eq!(node.surface.to_bits(), natural[index].to_bits());
+                assert!((node.surface - nodes[index + 1].surface) * ISLAND_WORLD_METRES >= 3.499);
+            }
+        }
+        assert!(
+            nodes
+                .windows(2)
+                .all(|pair| pair[0].surface >= pair[1].surface)
+        );
+    }
+}
+
+#[test]
+fn incomplete_source_and_actual_ocean_approaches_keep_their_natural_grade() {
+    let mut nodes = stepped_profile_fixture(37, 0.4);
+    let natural: Vec<_> = nodes.iter().map(|node| node.surface).collect();
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 35, &mut Vec::new());
+    let first_lip = falls
+        .iter()
+        .position(|&fall| fall)
+        .expect("legacy falls remain enabled");
+    for (node, &surface) in nodes[..=first_lip].iter().zip(&natural) {
+        assert_eq!(node.surface.to_bits(), surface.to_bits());
+    }
+    for (node, &surface) in nodes[35..].iter().zip(&natural[35..]) {
+        assert_eq!(node.surface.to_bits(), surface.to_bits());
+    }
+}
+
+#[test]
+fn waterfall_planning_uses_current_terrain_xy_after_jiggling() {
+    let mut nodes = stepped_profile_fixture(30, 0.4);
+    let mesh = Mesh {
+        vertices: nodes.iter().map(|node| node.position).collect(),
+        ..Mesh::default()
+    };
+    let adjacency = mesh.adjacency();
+    for node in &mut nodes {
+        node.position.x *= 100.0;
+    }
+    let sections = vec![
+        RiverCrossSection {
+            required_depth: 0.0001,
+            ..RiverCrossSection::default()
+        };
+        nodes.len()
+    ];
+    let mut falls = vec![false; nodes.len()];
+    form_river_profile(
+        RiverProfileEnvironment {
+            mesh: &mesh,
+            adjacency: &adjacency,
+            ocean: &[false; 31],
+        },
+        &mut nodes,
+        &mut falls,
+        WaterfallPlacement::Enabled,
+        RiverCarveParameters {
+            max_height: 1.0,
+            max_flow: 10,
+            depth_multiplier: 1.0,
+            downstream_surface: f32::NEG_INFINITY,
+            terminal_ocean: false,
+            cross_sections: &sections,
+        },
+        &mut Vec::new(),
+    );
+    assert!(falls.iter().any(|&fall| fall));
+    let mut expected = stepped_profile_fixture(30, 0.4);
+    let mut expected_falls = vec![false; 31];
+    form_stepped_profile(&mut expected, &mut expected_falls, &[], 30, &mut Vec::new());
+    assert_eq!(falls, expected_falls);
+    for node in &nodes {
+        assert_eq!(
+            node.position.x.to_bits(),
+            mesh.vertices[node.vertex].x.to_bits()
+        );
+    }
+}
+
+#[test]
+fn relocation_preserves_unfinished_source_grade_and_the_entire_elevation_budget() {
+    let mut nodes = stepped_profile_fixture(47, 0.4);
+    let mesh = Mesh {
+        vertices: nodes.iter().map(|node| node.position).collect(),
+        ..Mesh::default()
+    };
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 47, &mut Vec::new());
+    let original: Vec<_> = nodes.iter().map(|node| node.surface).collect();
+    let first_lip = falls.iter().position(|&fall| fall).unwrap();
+    let rivers = [River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.0001);
+    relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        47,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut Vec::new(),
+            site: None,
+            river: 0,
+        },
+        &[],
+        &mut Vec::new(),
+    );
+    assert!((nodes[0].surface - original[0]).abs() < 1.0e-7);
+    assert_eq!(nodes[47].surface.to_bits(), original[47].to_bits());
+    assert!(
+        nodes[..=first_lip]
+            .windows(2)
+            .all(|pair| pair[0].surface > pair[1].surface)
+    );
+}
+
+#[test]
+fn unsupported_local_fall_keeps_its_drop_and_other_supported_cascades() {
+    let mut nodes = stepped_profile_fixture(60, 0.4);
+    let mesh = Mesh {
+        vertices: nodes.iter().map(|node| node.position).collect(),
+        ..Mesh::default()
+    };
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 60, &mut Vec::new());
+    let original: Vec<_> = nodes.iter().map(|node| node.surface).collect();
+    let rivers = [River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.0001);
+    let first_lip = falls.iter().position(|&fall| fall).unwrap();
+    let blocker = WaterfallPatch::for_segment(&mesh, &nodes, first_lip, 0.002, &[]).unwrap();
+    let mut patches = vec![blocker];
+    assert!(!relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        60,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut patches,
+            site: None,
+            river: 0
+        },
+        &[],
+        &mut Vec::new(),
+    ));
+    assert!(
+        !falls[first_lip],
+        "only the blocked optional face loses its waterfall flag"
+    );
+    assert!(
+        falls.iter().any(|&fall| fall),
+        "other supported cascades survive"
+    );
+    assert!(patches.len() > 1);
+    assert!((nodes[0].surface - original[0]).abs() < 1.0e-7);
+    assert_eq!(nodes[60].surface.to_bits(), original[60].to_bits());
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    );
+}
+
+#[test]
+fn legacy_confluence_profile_keeps_a_positive_sub_metre_fall_without_forced_filtering() {
+    let mut nodes = stepped_profile_fixture(40, 0.4);
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 40, &mut Vec::new());
+    let lip = falls.iter().position(|&fall| fall).unwrap();
+    let target = nodes[lip + 1].surface + 0.3 / ISLAND_WORLD_METRES;
+    lower_profile_reach_through_confluence(&mut nodes, &mut falls, lip, target);
+    assert!(
+        falls[lip],
+        "rollback removes the imposed one metre filtering policy"
+    );
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    );
+}
+
+#[test]
+fn crowded_local_sites_cannot_merge_or_transport_drop_budgets_across_terraces() {
+    let mut nodes = stepped_profile_fixture(200, 0.4);
+    let mesh = Mesh {
+        vertices: nodes.iter().map(|node| node.position).collect(),
+        ..Mesh::default()
+    };
+    let mut falls = vec![false; nodes.len()];
+    form_stepped_profile(&mut nodes, &mut falls, &[], 200, &mut Vec::new());
+    let planned: Vec<_> = nodes.iter().map(|node| node.surface).collect();
+    let max_local_drop = nodes
+        .windows(2)
+        .map(|pair| pair[0].surface - pair[1].surface)
+        .fold(0.0_f32, f32::max);
+    let rivers = [River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.0001);
+    let mut patches: Vec<_> = (10..190)
+        .step_by(21)
+        .map(|segment| WaterfallPatch::for_segment(&mesh, &nodes, segment, 0.002, &[]).unwrap())
+        .collect();
+    relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        200,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut patches,
+            site: None,
+            river: 0,
+        },
+        &[],
+        &mut Vec::new(),
+    );
+    assert!(
+        falls.iter().any(|&fall| fall),
+        "retain supported local cascades"
+    );
+    assert!((nodes[0].surface - planned[0]).abs() < 1.0e-7);
+    for ((pair, &fall), &planned_upper) in nodes.windows(2).zip(&falls).zip(&planned) {
+        let extra_cut = planned_upper - pair[0].surface;
+        assert!(
+            (-1.0e-7..=max_local_drop + 1.0e-7).contains(&extra_cut),
+            "disjoint original terrace windows permit at most one local drop deficit: {extra_cut}"
+        );
+        if fall {
+            assert!(
+                pair[0].surface - pair[1].surface <= max_local_drop + 1.0e-7,
+                "independent drop budgets must never combine into a source cliff"
+            );
         }
     }
-    assert!(!gentle.is_empty());
-    assert!(!steep.is_empty());
-    assert!(steep.len() > gentle.len());
-    assert!(steep.len() >= 8);
-    let gentle_average = gentle.iter().sum::<f32>() / gentle.len() as f32;
-    let steep_average = steep.iter().sum::<f32>() / steep.len() as f32;
-    assert!(steep_average > gentle_average * 1.35);
-    let maximum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.018;
-    assert!(steep.iter().all(|height| *height <= maximum_fall + 1.0e-7));
-    assert!((nodes[20].surface - outlet_surface).abs() < f32::EPSILON);
+}
+
+#[test]
+fn unplaceable_optional_waterfalls_preserve_the_river_and_its_tributary_outlet() {
+    let mut main = stepped_profile_fixture(60, 0.4);
+    for node in &mut main {
+        node.surface -= 20.0 / ISLAND_WORLD_METRES;
+        node.position.z = node.surface;
+    }
+    main[60].position.z = -0.0005;
+    let mut mesh = Mesh {
+        vertices: main.iter().map(|node| node.position).collect(),
+        ..Mesh::default()
+    };
+    let mut tributary = stepped_profile_fixture(30, 0.2);
+    for node in tributary.iter_mut().take(30) {
+        node.vertex = mesh.vertices.len();
+        node.surface = main[30].surface
+            + (30.0 - node.position.x * ISLAND_WORLD_METRES) * 0.2 / ISLAND_WORLD_METRES;
+        node.position.y += 0.01;
+        node.position.z = node.surface;
+        mesh.vertices.push(node.position);
+    }
+    tributary[30] = main[30];
+    let section = RiverCrossSection {
+        required_depth: 0.1 / ISLAND_WORLD_METRES,
+        target_half_width: 1.0 / ISLAND_WORLD_METRES,
+        ..RiverCrossSection::default()
+    };
+    let mut network = RiverNetwork {
+        rivers: vec![
+            River {
+                nodes: main,
+                join: None,
+            },
+            River {
+                nodes: tributary,
+                join: Some(0),
+            },
+        ],
+        join_vertices: vec![None, Some(30)],
+        waterfalls: vec![vec![false; 61], vec![false; 31]],
+        river_mesh_ends: vec![None; 2],
+        cross_sections: vec![vec![section; 61], vec![section; 31]],
+        max_flow: 10,
+        max_height: 0.1,
+        ocean: vec![false; mesh.vertices.len()],
+        perimeter: vec![false; mesh.vertices.len()],
+    };
+    network.ocean[60] = true;
+    let rejected: HashSet<_> = (0..mesh.vertices.len()).collect();
+    assert!(network.prepare_valid_channel_profiles(
+        &mesh,
+        &mesh.adjacency(),
+        0.0005,
+        RiverCarveOptions {
+            form_deltas: false,
+            waterfall_placement: WaterfallPlacement::Enabled,
+            channel_settings: RiverChannelSettings::default(),
+            rejected_waterfall_vertices: &rejected
+        }
+    ));
+    assert_eq!(network.rivers.len(), 2);
+    assert_eq!(network.rivers[1].join, Some(0));
+    assert_eq!(network.join_vertices[1], Some(30));
+    assert_eq!(network.rivers[0].nodes.last().unwrap().vertex, 60);
+    assert_eq!(network.rivers[1].nodes.last().unwrap().vertex, 30);
+    assert!(network.waterfalls.iter().flatten().all(|&fall| !fall));
 }
 
 #[test]
@@ -1171,7 +1528,7 @@ fn waterfall_spacing_contains_the_full_channel_width_patch() {
 }
 
 #[test]
-fn waterfall_profile_keeps_the_source_segment_on_a_supported_terrace() {
+fn unsupported_source_drop_keeps_its_grade_without_inventing_a_waterfall() {
     let mut nodes = vec![
         RiverNode {
             vertex: 0,
@@ -1198,7 +1555,8 @@ fn waterfall_profile_keeps_the_source_segment_on_a_supported_terrace() {
     form_stepped_profile(&mut nodes, &mut waterfalls, &[], 2, &mut scratch);
 
     assert!(!waterfalls[0]);
-    assert_eq!(nodes[0].surface.to_bits(), nodes[1].surface.to_bits());
+    assert!(nodes[0].surface >= 0.10 - RIVER_SURFACE_OFFSET - 1.0e-7);
+    assert!(nodes[0].surface > nodes[1].surface + 0.08);
     assert!(
         nodes
             .windows(2)
@@ -1261,6 +1619,37 @@ fn final_profile_limits_bed_grade_without_creating_late_waterfalls() {
     assert!(!waterfalls[1]);
     assert_eq!(sections[2].required_depth.to_bits(), 0.50_f32.to_bits());
     assert_eq!(adjusted, 1);
+}
+
+#[test]
+fn confluence_correction_preserves_the_incoming_reachs_longitudinal_grade() {
+    let original = [0.12, 0.10, 0.08, 0.06, 0.04];
+    let mut nodes: Vec<_> = original
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(vertex, surface)| RiverNode {
+            vertex,
+            flow: 10,
+            surface,
+            position: Vec3::new(vertex as f32 * 0.1, 0.5, surface),
+        })
+        .collect();
+    let mut waterfalls = vec![false; nodes.len()];
+    let reached_terminal =
+        lower_profile_reach_through_confluence(&mut nodes, &mut waterfalls, 2, 0.07);
+
+    assert!(!reached_terminal);
+    for (index, &surface) in original[..3].iter().enumerate() {
+        assert!((nodes[index].surface - (surface - 0.01)).abs() < 1.0e-7);
+    }
+    assert_eq!(nodes[3].surface.to_bits(), original[3].to_bits());
+    assert_eq!(nodes[4].surface.to_bits(), original[4].to_bits());
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface > pair[1].surface)
+    );
 }
 
 #[test]
@@ -1392,7 +1781,7 @@ fn confluence_lowering_crosses_and_clears_consumed_waterfalls() {
 }
 
 #[test]
-fn confluence_lowering_propagates_through_a_join_chain() {
+fn receiver_authority_propagates_upstream_through_a_join_chain() {
     let node = |vertex, surface| RiverNode {
         vertex,
         flow: 10,
@@ -1424,30 +1813,41 @@ fn confluence_lowering_propagates_through_a_join_chain() {
         cross_sections: vec![vec![RiverCrossSection::default(); 2]; 3],
     };
 
-    network.reconcile_confluence_profile(2);
-
-    assert!(
+    network.reconcile_confluence_profiles();
+    assert_eq!(
         network.rivers[0]
             .nodes
             .iter()
-            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7]
     );
-    assert!(
+    assert_eq!(
         network.rivers[1]
             .nodes
             .iter()
-            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.9, 0.7]
     );
-    assert!(
+    assert_eq!(
         network.rivers[2]
             .nodes
             .iter()
-            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7]
     );
+    assert!(network.rivers.iter().all(|river| {
+        river
+            .nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    }));
 }
 
 #[test]
-fn tributary_hands_off_to_sea_when_it_joins_inside_a_submerged_receiver_mouth() {
+fn a_joined_sea_handoff_submerges_only_the_tributarys_terminal_node() {
     let node = |vertex, surface| RiverNode {
         vertex,
         flow: 10,
@@ -1541,19 +1941,33 @@ fn tributary_hands_off_to_sea_when_it_joins_inside_a_submerged_receiver_mouth() 
     );
 
     assert!(changed);
-    assert_eq!(network.river_mesh_ends, [Some(2), Some(2), Some(2)]);
+    assert_eq!(network.river_mesh_ends, [Some(3), Some(2), Some(2)]);
     assert!(network.river_hands_off_to_sea(2));
     assert!(network.waterfalls.iter().all(|waterfalls| waterfalls[1]));
-    assert!(
-        network
-            .rivers
-            .iter()
-            .all(|river| river.nodes[2].surface < 0.0)
+    assert_eq!(
+        network.rivers[0].nodes[2].surface.to_bits(),
+        0.01_f32.to_bits()
     );
-    assert!(mesh.vertices[2].z < 0.0);
+    assert_eq!(mesh.vertices[2].z.to_bits(), 0.01_f32.to_bits());
+    for (river, source, middle) in [(1, 0.5_f32, 0.2_f32), (2, 0.6_f32, 0.3_f32)] {
+        assert_eq!(
+            network.rivers[river].nodes[0].surface.to_bits(),
+            source.to_bits()
+        );
+        assert_eq!(
+            network.rivers[river].nodes[1].surface.to_bits(),
+            middle.to_bits()
+        );
+        assert!(network.rivers[river].nodes[2].surface < 0.0);
+    }
+    assert_eq!(mesh.vertices[4].z.to_bits(), 0.5_f32.to_bits());
+    assert_eq!(mesh.vertices[5].z.to_bits(), 0.2_f32.to_bits());
+    assert_eq!(mesh.vertices[7].z.to_bits(), 0.6_f32.to_bits());
+    assert_eq!(mesh.vertices[8].z.to_bits(), 0.3_f32.to_bits());
     assert!(mesh.vertices[6].z < 0.0);
     assert!(mesh.vertices[9].z < 0.0);
-    assert!(budgets.iter().all(|budget| budget.carried > 0.0));
+    assert_eq!(budgets[0].carried.to_bits(), 0.0_f64.to_bits());
+    assert!(budgets[1..].iter().all(|budget| budget.carried > 0.0));
 }
 
 #[test]
@@ -1639,7 +2053,7 @@ fn submerged_river_floor_uses_channel_depth_below_sea_not_below_its_profile() {
 }
 
 #[test]
-fn lower_sibling_tributary_sets_the_shared_confluence_level() {
+fn lower_sibling_pools_to_the_established_mainstem_without_lowering_it() {
     let node = |vertex, surface| RiverNode {
         vertex,
         flow: 10,
@@ -1672,13 +2086,35 @@ fn lower_sibling_tributary_sets_the_shared_confluence_level() {
     };
 
     network.reconcile_confluence_profiles();
-
+    assert_eq!(
+        network.rivers[0]
+            .nodes
+            .iter()
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7]
+    );
+    assert_eq!(
+        network.rivers[1]
+            .nodes
+            .iter()
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.8, 0.7]
+    );
+    assert_eq!(
+        network.rivers[2]
+            .nodes
+            .iter()
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7]
+    );
     assert!(
         network
             .rivers
             .iter()
-            .flat_map(|river| &river.nodes)
-            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+            .all(|river| river.nodes.last().unwrap().surface.to_bits() == 0.7_f32.to_bits())
     );
 }
 
@@ -1741,7 +2177,7 @@ fn confluence_is_reconciled_after_independent_vertical_displacement() {
 }
 
 #[test]
-fn final_shared_surface_lowering_pulls_the_receiver_bed_downhill() {
+fn a_later_local_bed_correction_does_not_pull_the_established_receiver_down() {
     let node = |vertex, surface| RiverNode {
         vertex,
         flow: 10,
@@ -1800,24 +2236,28 @@ fn final_shared_surface_lowering_pulls_the_receiver_bed_downhill() {
         &mut budgets,
     );
 
-    assert_eq!(lowered, 5);
+    assert_eq!(lowered, 1);
     assert_eq!(
-        network.rivers[1].nodes[1].surface.to_bits(),
-        0.4_f32.to_bits()
-    );
-    assert!(
         network.rivers[0]
             .nodes
             .iter()
-            .all(|node| node.surface.to_bits() == 0.4_f32.to_bits())
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7, 0.5]
     );
-    assert!(
+    assert_eq!(
         network.rivers[1]
             .nodes
             .iter()
-            .all(|node| node.surface.to_bits() == 0.4_f32.to_bits())
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        [0.7, 0.7]
     );
-    assert!(mesh.vertices.iter().all(|vertex| vertex.z <= 0.4));
+    assert_eq!(mesh.vertices[0].z.to_bits(), 0.7_f32.to_bits());
+    assert_eq!(mesh.vertices[1].z.to_bits(), 0.7_f32.to_bits());
+    assert_eq!(mesh.vertices[2].z.to_bits(), 0.5_f32.to_bits());
+    assert!((mesh.vertices[3].z - 0.7).abs() < 1.0e-7);
+    assert_eq!(mesh.vertices[4].z.to_bits(), 0.7_f32.to_bits());
     assert!(budgets.iter().any(|budget| budget.bedrock_eroded > 0.0));
 }
 
@@ -1897,7 +2337,13 @@ fn relocation_preserves_landing_space_between_same_river_waterfalls() {
         .map(|vertex| RiverNode {
             vertex,
             flow: 10,
-            surface: 0.2 - vertex as f32 * 0.01,
+            surface: if vertex <= 3 {
+                0.2
+            } else if vertex <= 6 {
+                0.15
+            } else {
+                0.1
+            },
             position: mesh.vertices[vertex],
         })
         .collect::<Vec<_>>();
@@ -1969,7 +2415,7 @@ fn bent_same_river_waterfalls_relocate_without_overlapping_support_or_losing_hei
         .map(|vertex| RiverNode {
             vertex,
             flow: 10,
-            surface: 0.16 - vertex as f32 * 0.003,
+            surface: 0.16 - (vertex.saturating_sub(1) / 8).min(4) as f32 * 0.003,
             position: mesh.vertices[vertex],
         })
         .collect();
@@ -2052,7 +2498,7 @@ fn bent_same_river_waterfalls_relocate_without_overlapping_support_or_losing_hei
 }
 
 #[test]
-fn waterfall_support_reservations_span_rivers_and_rejected_rivers_release_them() {
+fn waterfall_support_reservations_span_rivers_and_survive_another_local_failure() {
     let mesh = Mesh {
         vertices: (0..2)
             .flat_map(|row| (0..9).map(move |i| Vec3::new(i as f32 * 0.01, row as f32 * 0.03, 0.2)))
@@ -2145,13 +2591,13 @@ fn waterfall_support_reservations_span_rivers_and_rejected_rivers_release_them()
     ));
     assert_eq!(
         provisional.len(),
-        previous,
-        "an invalid river must release any provisional support rectangles"
+        previous + 1,
+        "an unsupported local face must retain successfully placed support rectangles"
     );
 }
 
 #[test]
-fn crowded_waterfalls_merge_upstream_and_keep_all_recorded_drop_height() {
+fn crowded_waterfalls_keep_local_drops_without_merging_a_source_cliff() {
     let mesh = Mesh {
         vertices: (0..9)
             .map(|i| Vec3::new(i as f32 * 0.01, 0.0, 0.3))
@@ -2181,7 +2627,7 @@ fn crowded_waterfalls_merge_upstream_and_keep_all_recorded_drop_height() {
     let mut falls = vec![false; 9];
     falls[1..=3].fill(true);
     let mut accepted = Vec::new();
-    assert!(relocate_conflicting_waterfalls(
+    assert!(!relocate_conflicting_waterfalls(
         &mesh,
         &mut nodes,
         &mut falls,
@@ -2196,9 +2642,9 @@ fn crowded_waterfalls_merge_upstream_and_keep_all_recorded_drop_height() {
         &mut Vec::new()
     ));
     assert_eq!(falls.iter().filter(|&&fall| fall).count(), 1);
-    assert!(falls[1]);
+    assert!(falls[3]);
     assert_eq!(accepted.len(), 1);
-    assert!((accepted[0].upper_surface - accepted[0].lower_surface - 0.15).abs() < 1e-6);
+    assert!((accepted[0].upper_surface - accepted[0].lower_surface - 0.05).abs() < 1e-6);
     assert!((nodes[0].surface - nodes[8].surface - 0.15).abs() < 1e-6);
     assert!(
         nodes
@@ -2430,48 +2876,6 @@ fn side_bypass_pushes_a_waterfall_to_the_next_complete_cross_channel_cut() {
         &mut scratch,
     ));
     assert!(!waterfalls.iter().any(|&waterfall| waterfall));
-}
-
-#[test]
-fn removing_an_invalid_parent_also_removes_its_dependent_tributaries() {
-    let node = |vertex| RiverNode {
-        vertex,
-        flow: 1,
-        surface: 1.0,
-        position: Vec3::new(vertex as f32, 0.0, 1.0),
-    };
-    let mut network = RiverNetwork {
-        rivers: vec![
-            River {
-                nodes: vec![node(0), node(1)],
-                join: None,
-            },
-            River {
-                nodes: vec![node(2), node(1)],
-                join: Some(0),
-            },
-            River {
-                nodes: vec![node(3), node(4)],
-                join: None,
-            },
-        ],
-        join_vertices: vec![None, Some(1), None],
-        waterfalls: vec![vec![false; 2]; 3],
-        river_mesh_ends: vec![None; 3],
-        max_flow: 1,
-        max_height: 1.0,
-        ocean: vec![false; 5],
-        perimeter: vec![false; 5],
-        cross_sections: vec![vec![RiverCrossSection::default(); 2]; 3],
-    };
-
-    assert_eq!(network.remove_invalid_rivers(&[true, false, false]), 2);
-    assert_eq!(network.rivers.len(), 1);
-    assert_eq!(network.rivers[0].nodes[0].vertex, 3);
-    assert_eq!(network.join_vertices, [None]);
-    assert_eq!(network.waterfalls.len(), 1);
-    assert_eq!(network.river_mesh_ends.len(), 1);
-    assert_eq!(network.cross_sections.len(), 1);
 }
 
 #[test]
@@ -4298,7 +4702,7 @@ fn channel_nodes_keep_their_individual_floor_targets() {
             &bedrock_rates,
             &control_areas,
         );
-        carve_bed_reach(&mut terrain, &nodes, &[0.09, 0.04], false, &mut budget);
+        carve_bed_reach(&mut terrain, &nodes, &[0.09, 0.04], &mut budget);
     }
 
     assert!((mesh.vertices[0].z - 0.09).abs() < 1.0e-6);
@@ -5126,7 +5530,7 @@ fn river_mesh_extraction_repairs_an_isolated_sharp_bed_point() {
 }
 
 #[test]
-fn fitted_channel_depth_starts_the_mouth_before_the_ocean_mask() {
+fn inland_below_sea_bed_does_not_move_the_actual_ocean_entry() {
     let nodes = (0..6)
         .map(|vertex| RiverNode {
             vertex,
@@ -5145,18 +5549,22 @@ fn fitted_channel_depth_starts_the_mouth_before_the_ocean_mask() {
     let waterfalls = [false, true, false, false, false, false];
 
     let entry = river_ocean_entry(&nodes, &ocean, &cross_sections).unwrap();
-    assert_eq!(entry, 3);
+    assert_eq!(entry, 5);
     assert_eq!(
         river_mouth_transition(entry, &waterfalls),
         RiverMouthTransition {
-            waterfall_segment: Some(1),
-            river_mesh_end: 2,
+            waterfall_segment: None,
+            river_mesh_end: 5,
         }
+    );
+    assert_eq!(
+        river_ocean_entry(&nodes, &[false; 6], &cross_sections),
+        None
     );
 }
 
 #[test]
-fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
+fn river_mouth_preserves_the_dry_reach_after_a_distant_waterfall() {
     let mut mesh = Mesh {
         vertices: (0..12)
             .map(|index| {
@@ -5170,6 +5578,7 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
             .collect(),
         ..Mesh::default()
     };
+    let original_vertices = mesh.vertices.clone();
     let mut nodes: Vec<RiverNode> = mesh
         .vertices
         .iter()
@@ -5182,7 +5591,7 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
             position,
         })
         .collect();
-    let original_waterfall_lip = mesh.vertices[6].z;
+    let original_surfaces: Vec<_> = nodes.iter().map(|node| node.surface).collect();
     let mut material = SurfaceMaterial::empty(mesh.vertices.len());
     let bedrock_rates = vec![1.0; mesh.vertices.len()];
     let control_areas = vec![1.0; mesh.vertices.len()];
@@ -5205,8 +5614,17 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
     assert_eq!(
         mouth,
         RiverMouthTransition {
-            waterfall_segment: Some(6),
-            river_mesh_end: 7,
+            waterfall_segment: None,
+            river_mesh_end: 8,
+        }
+    );
+    let mut coastal_waterfall = waterfalls.clone();
+    coastal_waterfall[7] = true;
+    assert_eq!(
+        river_mouth_transition(ocean_entry, &coastal_waterfall),
+        RiverMouthTransition {
+            waterfall_segment: Some(7),
+            river_mesh_end: 8,
         }
     );
 
@@ -5229,107 +5647,20 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
         );
     }
 
+    assert_eq!(&mesh.vertices[..8], &original_vertices[..8]);
     assert_eq!(
-        mesh.vertices[6].z.to_bits(),
-        original_waterfall_lip.to_bits()
+        nodes[..8]
+            .iter()
+            .map(|node| node.surface)
+            .collect::<Vec<_>>(),
+        original_surfaces[..8]
     );
     assert!(waterfalls[3]);
     assert!(waterfalls[6]);
-    assert!(waterfalls[7..].iter().all(|&waterfall| !waterfall));
-    assert!(nodes[7..].iter().all(|node| node.surface < 0.0));
+    assert!(waterfalls[8..].iter().all(|&waterfall| !waterfall));
+    assert!(nodes[8..].iter().all(|node| node.surface < 0.0));
     assert!(
-        nodes[7..]
-            .windows(2)
-            .all(|pair| pair[0].surface + f32::EPSILON >= pair[1].surface)
-    );
-    assert!(
-        nodes[7..]
-            .iter()
-            .all(|node| { node.surface.to_bits() == (-RIVER_SURFACE_OFFSET).to_bits() })
-    );
-    assert!(
-        mesh.vertices[7..]
-            .iter()
-            .zip(&nodes[7..])
-            .all(|(vertex, _)| vertex.z <= -channel_depth + f32::EPSILON)
-    );
-    assert!(budget.carried > 0.0);
-}
-
-#[test]
-fn river_without_a_waterfall_is_carved_entirely_below_the_sea_plane() {
-    let mut mesh = Mesh {
-        vertices: (0..6)
-            .map(|index| Vec3::new(index as f32 * 0.01, 0.5, 0.06 - index as f32 * 0.008))
-            .collect(),
-        ..Mesh::default()
-    };
-    let mut nodes: Vec<RiverNode> = mesh
-        .vertices
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(vertex, position)| RiverNode {
-            vertex,
-            flow: 10,
-            surface: position.z,
-            position,
-        })
-        .collect();
-    let already_deep = -0.02;
-    mesh.vertices[5].z = already_deep;
-    nodes[5].surface = already_deep;
-    let mut waterfalls = vec![false; nodes.len()];
-    let channel_depth = 0.004;
-    let cross_sections = vec![
-        RiverCrossSection {
-            required_depth: channel_depth,
-            ..RiverCrossSection::default()
-        };
-        nodes.len()
-    ];
-    let mouth = river_mouth_transition(4, &waterfalls);
-    assert_eq!(
-        mouth,
-        RiverMouthTransition {
-            waterfall_segment: None,
-            river_mesh_end: 0,
-        }
-    );
-
-    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
-    let bedrock_rates = vec![1.0; mesh.vertices.len()];
-    let control_areas = vec![1.0; mesh.vertices.len()];
-    let mut budget = RiverSedimentBudget::default();
-    {
-        let adjacency = mesh.adjacency();
-        let mut terrain = test_river_terrain(
-            &mut mesh,
-            &adjacency,
-            &mut material,
-            &bedrock_rates,
-            &control_areas,
-        );
-        carve_submerged_river_mouth(
-            &mut terrain,
-            &mut nodes,
-            &mut waterfalls,
-            mouth,
-            &cross_sections,
-            &mut budget,
-        );
-    }
-
-    assert!(waterfalls.iter().all(|&waterfall| !waterfall));
-    assert!(
-        nodes[..5]
-            .iter()
-            .all(|node| { node.surface.to_bits() == (-RIVER_SURFACE_OFFSET).to_bits() })
-    );
-    assert_eq!(nodes[5].surface.to_bits(), already_deep.to_bits());
-    assert_eq!(mesh.vertices[5].z.to_bits(), already_deep.to_bits());
-    assert!(
-        mesh.vertices
+        mesh.vertices[8..]
             .iter()
             .all(|vertex| vertex.z <= -channel_depth + f32::EPSILON)
     );
@@ -5337,15 +5668,22 @@ fn river_without_a_waterfall_is_carved_entirely_below_the_sea_plane() {
 }
 
 #[test]
-fn intermediate_pass_does_not_carve_the_submerged_river_mouth() {
-    let original_vertices: Vec<Vec3> = (0..6)
-        .map(|index| Vec3::new(index as f32 * 0.01, 0.5, 0.06 - index as f32 * 0.008))
-        .collect();
+fn a_long_gently_graded_river_without_waterfalls_keeps_its_inland_channel() {
     let mut mesh = Mesh {
-        vertices: original_vertices.clone(),
+        vertices: (0..6)
+            .map(|index| {
+                let height = if index == 5 {
+                    -0.0005
+                } else {
+                    0.006 - index as f32 * 0.0012
+                };
+                Vec3::new(index as f32 * 0.1, 0.5, height)
+            })
+            .collect(),
         ..Mesh::default()
     };
-    let mut nodes: Vec<RiverNode> = mesh
+    let original_vertices = mesh.vertices.clone();
+    let mut nodes: Vec<_> = mesh
         .vertices
         .iter()
         .copied()
@@ -5357,9 +5695,15 @@ fn intermediate_pass_does_not_carve_the_submerged_river_mouth() {
             position,
         })
         .collect();
-    let original_surfaces: Vec<f32> = nodes.iter().map(|node| node.surface).collect();
     let mut waterfalls = vec![false; nodes.len()];
-    let ocean: Vec<bool> = (0..nodes.len()).map(|index| index >= 4).collect();
+    let channel_depth = 0.0002;
+    let sections = vec![
+        RiverCrossSection {
+            required_depth: channel_depth,
+            ..RiverCrossSection::default()
+        };
+        nodes.len()
+    ];
     let mut material = SurfaceMaterial::empty(mesh.vertices.len());
     let bedrock_rates = vec![1.0; mesh.vertices.len()];
     let control_areas = vec![1.0; mesh.vertices.len()];
@@ -5375,26 +5719,180 @@ fn intermediate_pass_does_not_carve_the_submerged_river_mouth() {
         &mut terrain,
         &mut nodes,
         &mut waterfalls,
-        &mut RiverCarveScratch::new(original_vertices.len()),
-        &ocean,
+        &mut RiverCarveScratch::new(6),
+        &[false, false, false, false, false, true],
+        true,
+        RiverCarveParameters {
+            downstream_surface: f32::NEG_INFINITY,
+            terminal_ocean: true,
+            max_height: 0.1,
+            max_flow: 10,
+            depth_multiplier: 1.0,
+            cross_sections: &sections,
+        },
+    );
+
+    assert_eq!(result.river_mesh_end, Some(5));
+    assert!(waterfalls.iter().all(|&waterfall| !waterfall));
+    for (index, original) in original_vertices[..5].iter().enumerate() {
+        assert_eq!(nodes[index].surface.to_bits(), original.z.to_bits());
+        assert!((terrain.mesh.vertices[index].z - (original.z - channel_depth)).abs() < 1.0e-7);
+        assert!(terrain.mesh.vertices[index].z > 0.0);
+    }
+    assert!(
+        nodes[..5]
+            .windows(2)
+            .all(|pair| pair[0].surface > pair[1].surface)
+    );
+    assert_eq!(terrain.mesh.vertices[5], original_vertices[5]);
+    assert!(result.budget.carried > 0.0);
+}
+
+fn graded_channel_mesh(heights: &[f32]) -> Mesh {
+    let mut mesh = Mesh::default();
+    let count = heights.len();
+    for (y, rise) in [(0.5, 0.0), (0.51, 0.01)] {
+        mesh.vertices.extend(
+            heights
+                .iter()
+                .enumerate()
+                .map(|(index, &height)| Vec3::new(index as f32 * 0.1, y, height + rise)),
+        );
+    }
+    for index in 0..count - 1 {
+        let [a, b, c, d] = [index, index + 1, count + index, count + index + 1].map(|i| i as u32);
+        mesh.triangles.extend([a, b, c, b, d, c]);
+    }
+    mesh
+}
+
+#[test]
+fn intermediate_pass_carves_graded_land_without_forcing_a_submerged_mouth() {
+    let heights = [0.06, 0.05, 0.04, 0.03, -0.001, -0.002];
+    let mut mesh = graded_channel_mesh(&heights);
+    let mut nodes: Vec<_> = mesh.vertices[..heights.len()]
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(vertex, position)| RiverNode {
+            vertex,
+            flow: 10,
+            surface: position.z,
+            position,
+        })
+        .collect();
+    let mut waterfalls = vec![false; nodes.len()];
+    let adjacency = mesh.adjacency();
+    let targets: Vec<_> = nodes
+        .iter()
+        .copied()
+        .map(|node| node.surface - unfitted_river_depth(&mesh, &adjacency, node, 0.1, 10, 1.0))
+        .collect();
+    let original_vertices = mesh.vertices.clone();
+    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let bedrock_rates = vec![1.0; mesh.vertices.len()];
+    let control_areas = vec![1.0; mesh.vertices.len()];
+    let mut terrain = test_river_terrain(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        &bedrock_rates,
+        &control_areas,
+    );
+    let result = shape_and_carve_river(
+        &mut terrain,
+        &mut nodes,
+        &mut waterfalls,
+        &mut RiverCarveScratch::new(heights.len()),
+        &[
+            false, false, false, false, true, true, false, false, false, false, false, false,
+        ],
         false,
         RiverCarveParameters {
             downstream_surface: f32::NEG_INFINITY,
             terminal_ocean: true,
-            max_height: 0.2,
+            max_height: 0.1,
             max_flow: 10,
             depth_multiplier: 1.0,
             cross_sections: &[],
         },
     );
 
-    assert_eq!(terrain.mesh.vertices, original_vertices);
-    assert_eq!(
-        nodes.iter().map(|node| node.surface).collect::<Vec<_>>(),
-        original_surfaces
-    );
     assert_eq!(result.river_mesh_end, None);
-    assert_eq!(result.budget.carried.to_bits(), 0.0_f64.to_bits());
+    assert!(
+        result.budget.carried > 0.0,
+        "intermediate land still needs a shallow channel"
+    );
+    for (index, &target) in targets[..4].iter().enumerate() {
+        assert!((terrain.mesh.vertices[index].z - target).abs() < 1.0e-7);
+        assert_eq!(nodes[index].surface.to_bits(), heights[index].to_bits());
+    }
+    assert_eq!(&terrain.mesh.vertices[4..], &original_vertices[4..]);
+}
+
+#[test]
+fn intermediate_joined_reach_keeps_each_nodes_own_graded_bed_target() {
+    let heights = [0.06, 0.05, 0.04, 0.03, 0.02, 0.01];
+    let mut mesh = graded_channel_mesh(&heights);
+    let mut nodes: Vec<_> = mesh.vertices[..heights.len()]
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(vertex, position)| RiverNode {
+            vertex,
+            flow: 10,
+            surface: position.z,
+            position,
+        })
+        .collect();
+    let mut waterfalls = vec![false; nodes.len()];
+    let adjacency = mesh.adjacency();
+    let targets: Vec<_> = nodes
+        .iter()
+        .copied()
+        .map(|node| node.surface - unfitted_river_depth(&mesh, &adjacency, node, 0.1, 10, 1.0))
+        .collect();
+    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let bedrock_rates = vec![1.0; mesh.vertices.len()];
+    let control_areas = vec![1.0; mesh.vertices.len()];
+    let mut terrain = test_river_terrain(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        &bedrock_rates,
+        &control_areas,
+    );
+    let result = shape_and_carve_river(
+        &mut terrain,
+        &mut nodes,
+        &mut waterfalls,
+        &mut RiverCarveScratch::new(heights.len()),
+        &[false; 12],
+        false,
+        RiverCarveParameters {
+            downstream_surface: heights[5],
+            terminal_ocean: false,
+            max_height: 0.1,
+            max_flow: 10,
+            depth_multiplier: 1.0,
+            cross_sections: &[],
+        },
+    );
+
+    assert_eq!(result.river_mesh_end, None);
+    for (index, &target) in targets.iter().enumerate() {
+        assert!(
+            (terrain.mesh.vertices[index].z - target).abs() < 1.0e-7,
+            "node {index} must use its own depth, not the reach minimum"
+        );
+        assert_eq!(nodes[index].surface.to_bits(), heights[index].to_bits());
+    }
+    assert!(terrain.mesh.vertices[0].z > terrain.mesh.vertices[5].z + 0.04);
+    assert!(
+        terrain.mesh.vertices[..heights.len()]
+            .windows(2)
+            .all(|pair| pair[0].z > pair[1].z)
+    );
 }
 
 #[test]
@@ -5589,23 +6087,7 @@ fn routed_rivers_have_monotonic_surfaces_and_valid_joins() {
 }
 
 #[test]
-fn self_contact_index_ignores_the_local_tail_but_detects_a_return() {
-    let mesh = Mesh {
-        vertices: vec![Vec3::ZERO; 9],
-        triangles: vec![0, 6, 7, 6, 7, 8],
-        ..Mesh::default()
-    };
-    let adjacency = mesh.adjacency();
-    let mut contact = RiverSelfContactIndex::new(mesh.vertices.len());
-    contact.register(0, 0);
-    contact.register(6, 6);
-
-    assert!(contact.touches_earlier(&adjacency, 7, 1, 4));
-    assert!(!contact.touches_earlier(&adjacency, 8, 1, 4));
-}
-
-#[test]
-fn rivers_join_when_their_mesh_rings_touch_before_their_centrelines() {
+fn exact_tracing_follows_the_resolved_graph_before_contact_planning() {
     let main = [0, 1, 2, 3, 4];
     let tributary = [5, 6, 7, 8, 9];
     let shared_bank = 18;
@@ -5645,28 +6127,23 @@ fn rivers_join_when_their_mesh_rings_touch_before_their_centrelines() {
     );
 
     assert_eq!(rivers.len(), 2);
-    assert_eq!(rivers[1].join, Some(0));
+    assert_eq!(rivers[1].join, None);
     assert_eq!(
         rivers[1].nodes.last().map(|node| node.vertex),
-        Some(tributary[4])
+        Some(main[4])
     );
-    assert!(!main.contains(&tributary[4]));
-    assert_eq!(join_vertices[1], Some(main[4]));
-    assert_eq!(rivers[0].nodes.last().map(|node| node.flow), Some(2));
-
-    let mut main_footprint = RiverFootprintIndex::new(mesh.vertices.len());
-    main_footprint.register_river(0, &rivers[0], &adjacency, 100);
     assert!(
-        main_footprint
-            .touching(&mesh, &adjacency, tributary[4], 1)
-            .is_some()
+        rivers[1]
+            .nodes
+            .iter()
+            .any(|node| node.vertex == tributary[4])
     );
-    assert!(adjacency[tributary[4]].contains(&shared_bank));
-    assert!(adjacency[main[4]].contains(&shared_bank));
+    assert_eq!(join_vertices[1], None);
+    assert_eq!(rivers[0].nodes.last().map(|node| node.flow), Some(1));
 }
 
 #[test]
-fn later_river_sources_are_rejected_near_an_accepted_river_path() {
+fn nearby_independent_qualified_channels_are_both_covered() {
     let separation = 20.0 / ISLAND_WORLD_METRES;
     let mut mesh = Mesh {
         vertices: vec![
@@ -5690,9 +6167,10 @@ fn later_river_sources_are_rejected_near_an_accepted_river_path() {
 
     let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0, 4], &ocean, 0);
 
-    assert_eq!(rivers.len(), 1);
+    assert_eq!(rivers.len(), 2);
     assert_eq!(rivers[0].nodes.first().map(|node| node.vertex), Some(0));
-    assert_eq!(join_vertices, [None]);
+    assert_eq!(rivers[1].nodes.first().map(|node| node.vertex), Some(4));
+    assert_eq!(join_vertices, [None, None]);
 }
 
 #[test]

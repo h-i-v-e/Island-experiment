@@ -11,6 +11,7 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub(super) struct WaterfallDrop {
     pub(super) segment: usize,
+    original_segment: usize,
     pub(super) height: f32,
     pub(super) placed: bool,
 }
@@ -271,7 +272,7 @@ pub(super) fn shape_and_carve_river(
     );
     let bed_end = mouth.map_or_else(
         || nodes.len().checked_sub(1),
-        |mouth| mouth.waterfall_segment,
+        |mouth| mouth.river_mesh_end.checked_sub(1),
     );
     if let Some(bed_end) = bed_end {
         carve_stepped_bed(
@@ -314,6 +315,7 @@ pub(super) fn form_river_profile(
     let mut water_surface = parameters.downstream_surface;
     for (index, node) in nodes.iter_mut().enumerate().rev() {
         let vertex = environment.mesh.vertices[node.vertex];
+        node.position = vertex;
         surface = surface.max(vertex.z).max(0.0);
         let depth = river_depth(
             environment.mesh,
@@ -431,7 +433,6 @@ pub(super) fn carve_stepped_bed(
                 terrain,
                 &nodes[reach_start..=segment],
                 &bed_targets[reach_start..=segment],
-                parameters.cross_sections.is_empty(),
                 budget,
             );
             reach_start = segment + 1;
@@ -441,7 +442,6 @@ pub(super) fn carve_stepped_bed(
         terrain,
         &nodes[reach_start..=end],
         &bed_targets[reach_start..=end],
-        parameters.cross_sections.is_empty(),
         budget,
     );
 }
@@ -450,16 +450,8 @@ pub(super) fn carve_bed_reach(
     terrain: &mut RiverTerrain<'_>,
     nodes: &[RiverNode],
     targets: &[f32],
-    flatten: bool,
     budget: &mut RiverSedimentBudget,
 ) {
-    if flatten {
-        let floor = targets.iter().copied().fold(f32::INFINITY, f32::min);
-        for node in nodes {
-            terrain.carve_vertex(node.vertex, floor, RIVER_CHANNEL_DRAINAGE_FLOOR, budget);
-        }
-        return;
-    }
     for (node, &target) in nodes.iter().zip(targets) {
         terrain.carve_vertex(node.vertex, target, RIVER_CHANNEL_DRAINAGE_FLOOR, budget);
     }
@@ -503,46 +495,48 @@ pub(super) fn form_stepped_profile(
     let maximum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.018;
     let gentle_reach_length = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.006;
     let steep_gradient = WATERFALL_REFERENCE_ISLAND_HEIGHT * 2.25;
+    let mut terrace_end = end;
     let mut level = nodes[end].surface;
     let mut reach_length = 0.0_f32;
     let mut reach_half_width = 0.0_f32;
-    for index in (0..end).rev() {
-        let segment_length =
-            (nodes[index].position.truncate() - nodes[index + 1].position.truncate()).length();
-        reach_length += segment_length;
+    for index in (1..end).rev() {
+        reach_length += nodes[index]
+            .position
+            .truncate()
+            .distance(nodes[index + 1].position.truncate());
         reach_half_width = reach_half_width.max(
             cross_sections
                 .get(index)
                 .map_or(0.0, |section| section.target_half_width),
         );
-        let natural_surface = nodes[index].surface.max(level);
-        let available_rise = natural_surface - level;
         let gradient_response = (gradient_scratch[index] / steep_gradient)
             .clamp(0.0, 1.0)
             .sqrt();
         let target_fall = (maximum_fall - minimum_fall).mul_add(gradient_response, minimum_fall);
         let profile_reach_length = gentle_reach_length * (1.0 - gradient_response * 0.9);
-        let patch_reach_length =
+        let support_length =
             WATERFALL_SUPPORT_RUN + reach_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
-        let required_reach_length = profile_reach_length.max(patch_reach_length);
-        // The waterfall face extends upstream from its upper node. Segment
-        // zero has no upstream reach to support or feed that face, so placing
-        // a fall there creates a free-standing water curtain and drags the
-        // source-side bank down to the lower terrace.
-        if index > 0 && available_rise >= target_fall && reach_length >= required_reach_length {
-            level += target_fall;
-            waterfalls[index] = true;
-            reach_length = 0.0;
-            reach_half_width = 0.0;
+        let available_rise = nodes[index].surface - level;
+        if reach_length < profile_reach_length.max(support_length) || available_rise < target_fall {
+            continue;
         }
-        nodes[index].surface = level.min(natural_surface);
+        // Retain legacy adaptive fall selection, but consume the full natural
+        // rise instead of accumulating capped increments from the outlet.
+        // Unfinished source/shore approaches remain on their original grade.
+        for node in &mut nodes[index + 1..terrace_end] {
+            node.surface = level;
+        }
+        waterfalls[index] = true;
+        level = nodes[index].surface;
+        terrace_end = index;
+        reach_length = 0.0;
+        reach_half_width = 0.0;
     }
 }
 
-/// Lowers the terrace containing `anchor` back to its preceding waterfall or
-/// source. If the new level would make the receiver rise downstream, the
-/// correction crosses successive terraces until the original profile is no
-/// higher than `target_surface` again.
+/// Shifts the reach containing `anchor` down by its junction correction while
+/// preserving its slope. Lower downstream nodes only until the existing grade
+/// falls below the new junction level.
 ///
 /// Returns whether the correction reached the river's terminal node.
 pub(super) fn lower_profile_reach_through_confluence(
@@ -574,7 +568,11 @@ pub(super) fn lower_profile_reach_through_confluence(
         return false;
     }
 
-    for node in &mut nodes[reach_start..=reach_end] {
+    let correction = anchor_surface - target_surface;
+    for node in &mut nodes[reach_start..=anchor] {
+        node.surface -= correction;
+    }
+    for node in &mut nodes[anchor + 1..=reach_end] {
         node.surface = node.surface.min(target_surface);
     }
 
@@ -861,8 +859,6 @@ struct WaterfallSearch<'a> {
     mesh: &'a Mesh,
     nodes: &'a [RiverNode],
     sections: &'a [RiverCrossSection],
-    end: usize,
-    first_patch: usize,
 }
 
 impl WaterfallSearch<'_> {
@@ -881,16 +877,23 @@ impl WaterfallSearch<'_> {
         relocation: &WaterfallRelocation<'_>,
         drop: WaterfallDrop,
         limit: usize,
+        earliest: usize,
         downstream: Option<usize>,
     ) -> Option<usize> {
         let original = drop.segment.min(limit);
         let spacing = |segment| {
             has_downstream_waterfall_spacing(self.nodes, self.sections, segment, downstream)
         };
-        (1..=original)
+        (earliest.max(1)..=original)
             .rev()
             .find(|&segment| {
-                spacing(segment)
+                // A moved face stays in its own flat terrace. Moving across
+                // another lip or residual source grade would accumulate a
+                // channel-wide elevation deficit or combine unrelated rises.
+                (segment == drop.original_segment
+                    || (self.nodes[segment].surface - self.nodes[segment + 1].surface).abs()
+                        <= f32::EPSILON)
+                    && spacing(segment)
                     && self.clear(relocation, segment, drop.height)
                     && !relocation.clearance.conflicts(
                         relocation.river,
@@ -927,55 +930,6 @@ impl WaterfallSearch<'_> {
         patch.river = relocation.river as u32;
         relocation.patches.push(patch);
     }
-
-    fn merge(
-        self,
-        relocation: &mut WaterfallRelocation<'_>,
-        drops: &mut [WaterfallDrop],
-        index: usize,
-        waterfalls: &mut [bool],
-    ) -> Option<usize> {
-        if relocation.patches.len() == self.first_patch {
-            return None;
-        }
-        let previous = relocation
-            .patches
-            .pop()
-            .expect("a same-river patch is reserved");
-        let previous_segment = previous.segment as usize;
-        let height = drops[index].height
-            + drops[index + 1..]
-                .iter()
-                .filter(|drop| drop.placed && drop.segment == previous_segment)
-                .map(|drop| drop.height)
-                .sum::<f32>();
-        let downstream = relocation
-            .patches
-            .get(self.first_patch..)
-            .and_then(|patches| patches.last())
-            .map(|patch| patch.segment as usize);
-        let limit = downstream.map_or(self.end.saturating_sub(1), |segment| {
-            segment.saturating_sub(1)
-        });
-        let combined = WaterfallDrop {
-            height,
-            ..drops[index]
-        };
-        let Some(segment) = self.select(relocation, combined, limit, downstream) else {
-            relocation.patches.push(previous);
-            return None;
-        };
-        // Both height records remain independent. The reconstruction below
-        // sums all records moved to this common upstream site.
-        for drop in &mut drops[index + 1..] {
-            if drop.placed && drop.segment == previous_segment {
-                drop.segment = segment;
-            }
-        }
-        waterfalls[previous_segment] = false;
-        self.reserve(relocation, segment, height);
-        Some(segment)
-    }
 }
 
 pub(super) fn relocate_conflicting_waterfalls(
@@ -997,32 +951,53 @@ pub(super) fn relocate_conflicting_waterfalls(
                 let height = (nodes[segment].surface - nodes[segment + 1].surface).max(0.0);
                 (fall && height > RIVER_SURFACE_OFFSET).then_some(WaterfallDrop {
                     segment,
+                    original_segment: segment,
                     height,
                     placed: true,
                 })
             }),
     );
-    waterfalls[..end].fill(false);
     if scratch.is_empty() {
+        waterfalls[..end].fill(false);
         return true;
     }
-    let first_patch = relocation.patches.len();
+    // Unflagged grades include the unfinished source and ocean approaches.
+    // They are an independent elevation budget, never disposable waterfall lag.
+    let residual_rises: Vec<_> = nodes[..=end]
+        .windows(2)
+        .zip(&waterfalls[..end])
+        .map(|(pair, &fall)| {
+            let rise = (pair[0].surface - pair[1].surface).max(0.0);
+            if fall && rise > RIVER_SURFACE_OFFSET {
+                0.0
+            } else {
+                rise
+            }
+        })
+        .collect();
+    waterfalls[..end].fill(false);
     let search = WaterfallSearch {
         mesh,
         nodes,
         sections: cross_sections,
-        end,
-        first_patch,
     };
     let mut upstream_limit = end.saturating_sub(1);
     let mut nearest_downstream = None;
     let mut all_placed = true;
     for index in (0..scratch.len()).rev() {
         let drop = scratch[index];
+        let earliest = index
+            .checked_sub(1)
+            .map_or(1, |previous| scratch[previous].original_segment + 1);
         let selected = search
-            .select(relocation, drop, upstream_limit, nearest_downstream)
-            .inspect(|&segment| search.reserve(relocation, segment, drop.height))
-            .or_else(|| search.merge(relocation, scratch, index, waterfalls));
+            .select(
+                relocation,
+                drop,
+                upstream_limit,
+                earliest,
+                nearest_downstream,
+            )
+            .inspect(|&segment| search.reserve(relocation, segment, drop.height));
         if let Some(segment) = selected {
             scratch[index].segment = segment;
             scratch[index].placed = true;
@@ -1036,16 +1011,20 @@ pub(super) fn relocate_conflicting_waterfalls(
     }
     let mut level = nodes[end].surface;
     for segment in (0..end).rev() {
-        for drop in scratch
-            .iter()
-            .filter(|drop| drop.placed && drop.segment == segment)
-        {
+        level += residual_rises[segment];
+        for drop in scratch.iter().filter(|drop| {
+            if drop.placed {
+                drop.segment == segment
+            } else {
+                drop.original_segment == segment
+            }
+        }) {
+            // An unsupported optional face remains an ordinary sloping water
+            // edge at its original position. Keep its full local drop and all
+            // successful falls instead of excavating or deleting this river.
             level += drop.height;
         }
         nodes[segment].surface = level.min(nodes[segment].surface);
-    }
-    if !all_placed {
-        relocation.patches.truncate(first_patch);
     }
     all_placed
 }
@@ -1086,32 +1065,24 @@ fn has_downstream_waterfall_spacing(
 pub(super) fn river_ocean_entry(
     nodes: &[RiverNode],
     ocean: &[bool],
-    cross_sections: &[RiverCrossSection],
+    _cross_sections: &[RiverCrossSection],
 ) -> Option<usize> {
-    let masked_entry = nodes
+    // A below-sea bed in an inland reach is still a river, not a new coastline.
+    nodes
         .iter()
-        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false));
-    let submerged_bed_entry = nodes
-        .iter()
-        .zip(cross_sections)
-        .position(|(node, section)| {
-            section.required_depth.is_finite()
-                && section.required_depth > 0.0
-                && node.surface - section.required_depth <= 0.0
-        });
-    masked_entry.into_iter().chain(submerged_bed_entry).min()
+        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false))
 }
 
 pub(super) fn river_mouth_transition(
     ocean_entry: usize,
     waterfalls: &[bool],
 ) -> RiverMouthTransition {
-    let waterfall_segment = waterfalls[..ocean_entry.min(waterfalls.len())]
-        .iter()
-        .rposition(|&waterfall| waterfall);
+    let waterfall_segment = ocean_entry
+        .checked_sub(1)
+        .filter(|&segment| waterfalls.get(segment).copied().unwrap_or(false));
     RiverMouthTransition {
         waterfall_segment,
-        river_mesh_end: waterfall_segment.map_or(0, |segment| segment + 1),
+        river_mesh_end: ocean_entry,
     }
 }
 

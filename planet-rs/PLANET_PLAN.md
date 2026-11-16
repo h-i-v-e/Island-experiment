@@ -182,6 +182,9 @@ are followed by up to three width-targeted
 river-corridor subdivisions with a two-ring apron, separate waterfall-patch
 and final-face detail tiers,
 Island's stepped river profiles and waterfall patches in local tangent frames,
+with the established smoothed-gradient fall response and adaptive width-based
+spacing. Largest catchments and their strongest incoming branches own main stems
+before smaller tributaries; local height resets preserve the natural relief,
 flow-scaled cross-section carving, downstream drainage repair, and water mesh
 construction from the fixed pre-carve profile. Island's low-bank lift and blended
 outer apron support the water; final boundary vertices meet the actual terrain
@@ -279,13 +282,24 @@ seam/pole continuity of the 3D noise.
 
 ## River source continuity
 
-Accepted river head directions now carry through initial erosion, every terrain
-refinement pass, final channel carving and contact-bank grading. Each pass remaps
-them to nearby current vertices and rejects submerged or disconnected sources;
-new catchment-selected reaches join the same deterministic drainage network.
-This is the spherical counterpart of Island's source inheritance. Catchment
-remains the actual accumulated solid angle, and Planet retains its uncapped
-global river network rather than adopting Island's per-tile 96-river budget.
+Natural downhill basins connect through their lowest sea-connected spill saddles.
+Catchment accumulates over that acyclic receiver graph and remains the actual
+accumulated solid angle. Threshold-qualified candidates are processed with the
+largest catchment first, extending the selected upstream headwater to establish
+the main channel. Smaller tributaries join that channel. Neither Planet nor
+Island imposes a fixed river-count cap. Selected river corridors retain shallow
+local profiles and adaptive waterfalls; a low tributary cannot incise its entire
+downstream receiver.
+Accepted river head directions carry through refinement as continuity hints,
+but remapped sources must still qualify under the current catchment threshold.
+
+Overlapping channel widths join through safe surface edges before profiles are
+frozen. A higher established channel can capture a lower touching reach downhill;
+dry divides, sea crossings and cycles prevent a contact. True catchment and
+widths are recalculated after redirects. Accepted junctions persist through those
+rounds, giving finite work without an arbitrary iteration cap. Unrelated channels
+separated by a dry divide retain that ridge during carving and bank finishing,
+so rejected contacts do not become sloping water sheets.
 
 ## Upstream river narrowing
 

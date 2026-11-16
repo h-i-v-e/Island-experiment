@@ -318,11 +318,14 @@ impl CoastalStripField {
     }
 
     pub fn river_exclusions(self, mesh: &Mesh, adjacency: &super::Adjacency) -> Vec<bool> {
+        // Final boundary blending restores the field throughout this collar.
+        // Protect its physical width before adding mesh-dependent bank support;
+        // eight rings alone can cover much less than thirty metres at fine LOD.
         let mut excluded: Vec<bool> = mesh
             .vertices
             .iter()
             .map(|&point| {
-                Self::is_pinned(point)
+                Self::pin_weight(point.truncate()) > 0.0
                     || point.x.min(1.0 - point.x) <= self.options.seam_blend_width
             })
             .collect();
@@ -758,6 +761,47 @@ mod tests {
         assert_eq!(CoastalStripField::pin_weight(Vec2::new(0.0, 0.8)), 1.0);
         assert!((CoastalStripField::pin_weight(Vec2::new(0.0075, 0.8)) - 0.5).abs() < 1.0e-6);
         assert_eq!(CoastalStripField::pin_weight(Vec2::new(0.02, 0.8)), 0.0);
+    }
+
+    #[test]
+    fn river_exclusion_covers_full_boundary_blend_before_support_rings() {
+        let field = field(0, 2);
+        let rows = 50;
+        let mut mesh = Mesh::default();
+        for row in 0..rows {
+            let y = 1.0 - row as f32 / super::super::ISLAND_WORLD_METRES;
+            mesh.vertices
+                .extend([Vec3::new(0.4, y, 0.1), Vec3::new(0.6, y, 0.1)]);
+            if row > 0 {
+                let vertex = (row * 2) as u32;
+                mesh.triangles.extend([
+                    vertex - 2,
+                    vertex - 1,
+                    vertex,
+                    vertex - 1,
+                    vertex + 1,
+                    vertex,
+                ]);
+            }
+        }
+        let adjacency = mesh.adjacency();
+        let excluded = field.river_exclusions(&mesh, &adjacency);
+        // Rows are one metre apart, so eight adjacency rings cannot protect
+        // this point twenty-nine metres inward from the pinned rear edge.
+        assert!(excluded[29 * 2]);
+        assert!(
+            mesh.vertices
+                .iter()
+                .zip(&excluded)
+                .all(|(point, &excluded)| {
+                    CoastalStripField::pin_weight(point.truncate()) <= 0.0 || excluded
+                })
+        );
+        assert!(excluded[35 * 2], "banks retain the extra support rings");
+        assert!(
+            !excluded[45 * 2],
+            "the collar must leave inland routes available"
+        );
     }
 
     #[test]

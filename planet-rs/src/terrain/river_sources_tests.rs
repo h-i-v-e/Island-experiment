@@ -14,6 +14,13 @@ fn confluence() -> (Vec<DVec3>, SurfaceGraph, Vec<f64>) {
     (directions, graph, vec![-0.1, 0.1, 0.2, 0.3])
 }
 
+fn qualifying_threshold() -> TerrainOptions {
+    TerrainOptions {
+        river_catchment: 0.01,
+        ..TerrainOptions::default()
+    }
+}
+
 fn impossible_threshold() -> TerrainOptions {
     TerrainOptions {
         river_catchment: 1.0e6,
@@ -22,7 +29,7 @@ fn impossible_threshold() -> TerrainOptions {
 }
 
 #[test]
-fn inherited_paths_survive_impossible_threshold_and_reconverge_once() {
+fn qualifying_inherited_paths_reconverge_once_without_changing_rainfall() {
     let (directions, graph, mut heights) = confluence();
     let mut soil = vec![0.1; 4];
     let before = route(&directions, &graph, &heights);
@@ -32,7 +39,7 @@ fn inherited_paths_survive_impossible_threshold_and_reconverge_once() {
         &graph,
         &mut heights,
         &mut soil,
-        &impossible_threshold(),
+        &qualifying_threshold(),
         &anchors,
     );
     assert_eq!(
@@ -86,17 +93,31 @@ fn catchment_and_inherited_rivers_remain_uncapped_above_ninety_six() {
         &graph,
         &heights,
         &drainage,
-        &impossible_threshold(),
+        &TerrainOptions {
+            river_catchment: 1.0e-6,
+            ..TerrainOptions::default()
+        },
         &directions[1..],
     );
     assert_eq!(natural.len(), 120);
     assert_eq!(natural, inherited);
+    assert!(
+        select(
+            &directions,
+            &graph,
+            &heights,
+            &drainage,
+            &impossible_threshold(),
+            &directions[1..]
+        )
+        .is_empty()
+    );
 }
 
 #[test]
 fn disconnected_dry_cycle_and_invalid_receiver_paths_are_rejected() {
     let (directions, mut graph, heights) = confluence();
-    let options = impossible_threshold();
+    let options = qualifying_threshold();
     let valid = route(&directions, &graph, &heights);
     let mut broken = Drainage {
         receivers: valid.receivers.clone(),
@@ -138,7 +159,8 @@ fn disconnected_dry_cycle_and_invalid_receiver_paths_are_rejected() {
             &options,
             &[directions[2]]
         )
-        .is_empty()
+        .iter()
+        .all(|river| river.from != 2)
     );
     let dry = vec![0.1; 4];
     let drainage = route(&directions, &graph, &dry);
@@ -178,31 +200,21 @@ fn remapping_follows_directions_after_vertex_reordering_and_rejects_submerged_ne
         areas: order.map(|old| graph.areas[old]).to_vec(),
     };
     let mut heights = order.map(|old| heights[old]);
+    assert_eq!(
+        remap(&directions, &graph, &anchors).collect::<Vec<_>>(),
+        [inverse[2]]
+    );
+    heights[inverse[2]] = -0.05;
     let drainage = route(&directions, &graph, &heights);
     let rivers = select(
         &directions,
         &graph,
         &heights,
         &drainage,
-        &impossible_threshold(),
+        &qualifying_threshold(),
         &anchors,
     );
-    let mut retained = Vec::new();
-    retain_sources(&mut retained, &directions, &rivers);
-    assert_eq!(retained, anchors);
-    heights[inverse[2]] = -0.05;
-    let drainage = route(&directions, &graph, &heights);
-    assert!(
-        select(
-            &directions,
-            &graph,
-            &heights,
-            &drainage,
-            &impossible_threshold(),
-            &anchors
-        )
-        .is_empty()
-    );
+    assert!(rivers.iter().all(|river| river.from != inverse[2]));
 }
 
 #[test]
@@ -244,7 +256,7 @@ fn spherical_remapping_crosses_meridian_and_pole_bins_without_antipodal_matches(
 }
 
 #[test]
-fn bank_lifting_keeps_inherited_sources_and_true_area() {
+fn bank_lifting_keeps_qualifying_sources_and_true_area() {
     let (directions, graph, mut heights) = confluence();
     let expected = route(&directions, &graph, &heights).catchment;
     let (drainage, rivers) = lift_banks_with_sources(
@@ -253,22 +265,27 @@ fn bank_lifting_keeps_inherited_sources_and_true_area() {
         &mut heights,
         &mut [0.0; 4],
         &[],
-        &impossible_threshold(),
+        &qualifying_threshold(),
         &[directions[2]],
     )
     .unwrap();
-    assert_eq!(rivers.len(), 2);
-    assert_eq!(drainage.catchment, expected);
+    assert_eq!(rivers.len(), 3);
+    assert!(
+        drainage
+            .catchment
+            .iter()
+            .zip(&expected)
+            .all(|(actual, expected)| (actual - expected).abs() < 1e-12)
+    );
     assert!((drainage.catchment[0] - 0.9).abs() < 1.0e-12);
 }
 
 #[test]
-fn repeated_repairs_keep_inherited_membership_without_changing_catchment() {
+fn repeated_repairs_cannot_bypass_threshold_with_inherited_membership() {
     let (directions, graph, mut heights) = confluence();
     let mut drainage = route(&directions, &graph, &heights);
     let expected = drainage.catchment.clone();
     let mut soil = vec![0.0; 4];
-    let mut depths = vec![0.0; 4];
     let options = impossible_threshold();
     let (empty, _) = repair(
         &directions,
@@ -277,7 +294,6 @@ fn repeated_repairs_keep_inherited_membership_without_changing_catchment() {
         &mut soil,
         &options,
         &mut drainage,
-        &mut depths,
     );
     assert!(empty.is_empty());
     for _ in 0..2 {
@@ -288,10 +304,82 @@ fn repeated_repairs_keep_inherited_membership_without_changing_catchment() {
             &mut soil,
             &options,
             &mut drainage,
-            &mut depths,
             &[directions[2]],
         );
-        assert_eq!(rivers.len(), 2);
+        assert!(rivers.is_empty());
         assert_eq!(drainage.catchment, expected);
     }
+}
+
+fn priority_tree() -> (Vec<DVec3>, SurfaceGraph, Vec<f64>, Drainage) {
+    let directions: Vec<_> = (0..7)
+        .map(|i| DVec3::new(f64::from(i) * 0.01, 0.0, 1.0).normalize())
+        .collect();
+    let graph = SurfaceGraph {
+        neighbours: vec![
+            vec![1],
+            vec![0, 2, 3],
+            vec![1, 4, 5],
+            vec![1, 6],
+            vec![2],
+            vec![2],
+            vec![3],
+        ],
+        areas: vec![0.0, 0.0, 0.0, 0.1, 0.6, 0.2, 0.1],
+    };
+    let heights = vec![-0.1, 0.1, 0.2, 0.2, 0.3, 0.3, 0.3];
+    let drainage = route(&directions, &graph, &heights);
+    (directions, graph, heights, drainage)
+}
+
+#[test]
+fn largest_catchments_get_priority_and_anchors_only_break_equal_area_ties() {
+    let (_, _, _, drainage) = priority_tree();
+    let order = candidate_order(&drainage, &[true; 7], &[false; 7], 0.09);
+    assert_eq!(order, [1, 2, 4, 3, 5, 6]);
+    let mut inherited = [false; 7];
+    inherited[5] = true;
+    assert_eq!(
+        candidate_order(&drainage, &[true; 7], &inherited, 0.09),
+        [1, 2, 4, 5, 3, 6]
+    );
+}
+
+#[test]
+fn priority_main_stem_extends_to_its_strongest_qualifying_headwater() {
+    let (_, _, _, drainage) = priority_tree();
+    let order = candidate_order(&drainage, &[true; 7], &[false; 7], 0.09);
+    let upstream = strongest_upstream(&order, &drainage.receivers);
+    assert_eq!(upstream[1], Some(2));
+    assert_eq!(upstream[2], Some(4));
+    assert_eq!(upstream[4], None);
+    assert_eq!(upstream[3], Some(6));
+}
+
+#[test]
+fn descending_main_stem_coverage_keeps_every_lesser_branch_once() {
+    let (directions, graph, heights, drainage) = priority_tree();
+    let rivers = select(
+        &directions,
+        &graph,
+        &heights,
+        &drainage,
+        &TerrainOptions {
+            river_catchment: 0.09 / (4.0 * std::f64::consts::PI),
+            ..TerrainOptions::default()
+        },
+        &[],
+    );
+    assert_eq!(
+        rivers.iter().map(|river| river.from).collect::<Vec<_>>(),
+        [1, 2, 3, 4, 5, 6]
+    );
+    let mut sources = Vec::new();
+    retain_sources(&mut sources, &directions, &rivers);
+    assert_eq!(sources, directions[4..]);
+    assert!(
+        rivers
+            .iter()
+            .all(|river| river.catchment.to_bits() == drainage.catchment[river.from].to_bits())
+    );
 }

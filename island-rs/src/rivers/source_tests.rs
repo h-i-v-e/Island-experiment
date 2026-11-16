@@ -53,7 +53,7 @@ fn excluded_candidates_do_not_starve_later_valid_sources() {
 }
 
 #[test]
-fn failed_candidates_do_not_consume_the_accepted_river_budget() {
+fn landlocked_candidates_do_not_prevent_later_outlet_coverage() {
     let (mut mesh, adjacency, mut ocean) = separate_channels(101);
     ocean[..400].fill(false);
     let flow = vec![1; mesh.vertices.len()];
@@ -65,7 +65,7 @@ fn failed_candidates_do_not_consume_the_accepted_river_budget() {
 }
 
 #[test]
-fn tracing_caps_accepted_rivers_deterministically() {
+fn tracing_covers_more_than_ninety_six_independent_channels_deterministically() {
     let (mut mesh, adjacency, ocean) = separate_channels(101);
     let flow = vec![1; mesh.vertices.len()];
     let sources = (0..101).map(|channel| channel * 4).collect::<Vec<_>>();
@@ -78,23 +78,57 @@ fn tracing_caps_accepted_rivers_deterministically() {
             .collect::<Vec<_>>()
     };
 
-    assert_eq!(first.len(), 96);
+    assert_eq!(first.len(), 101);
     assert_eq!(
         starts(&first),
-        (0..96).map(|channel| channel * 4).collect::<Vec<_>>()
+        (0..101).map(|channel| channel * 4).collect::<Vec<_>>()
     );
     assert_eq!(starts(&first), starts(&second));
 }
 
 #[test]
-fn inherited_sources_are_prioritized_and_deduplicated() {
+fn inherited_sources_preserve_current_candidate_order() {
     let (mesh, adjacency, _) = separate_channels(3);
     let anchor = mesh.vertices[8].truncate() + Vec2::new(0.001, 0.0);
 
-    let sources =
-        prioritize_inherited_sources(&mesh, &adjacency, &[0, 4, 8], &[anchor, anchor], &[]);
+    let sources = prioritize_inherited_sources(
+        &mesh,
+        &adjacency,
+        &[0, 4, 8],
+        &[anchor, anchor],
+        &[],
+        &[1.0; 12],
+    );
 
-    assert_eq!(sources, [8, 0, 4]);
+    assert_eq!(sources, [0, 4, 8]);
+}
+
+#[test]
+fn largest_catchment_precedes_smaller_sources_even_when_they_are_inherited() {
+    let (mesh, adjacency, _) = separate_channels(3);
+    let downstream = tracing::map_downstream(&mesh, &adjacency);
+    let mut catchment = vec![0.0; mesh.vertices.len()];
+    catchment[0] = 20_000.0;
+    catchment[4] = 60_000.0;
+    catchment[8] = 40_000.0;
+    let candidates = find_sources(
+        &mesh,
+        &adjacency,
+        &downstream,
+        &catchment,
+        RiverSourceRule::new(1.0, 1.0, 0.0, 0.2),
+    );
+    let sources = prioritize_inherited_sources(
+        &mesh,
+        &adjacency,
+        &candidates,
+        &[mesh.vertices[0].truncate()],
+        &[],
+        &catchment,
+    );
+
+    assert_eq!(candidates, [4, 8, 0]);
+    assert_eq!(sources, [4, 8, 0]);
 }
 
 #[test]
@@ -109,36 +143,32 @@ fn invalid_inherited_anchors_do_not_relocate_to_other_channels() {
         Vec2::new(f32::NAN, 0.0),
     ];
 
-    let sources = prioritize_inherited_sources(&mesh, &adjacency, &[], &anchors, &excluded);
+    let sources =
+        prioritize_inherited_sources(&mesh, &adjacency, &[], &anchors, &excluded, &[1.0; 12]);
 
     assert!(sources.is_empty());
 }
 
 #[test]
-fn inherited_generation_requires_a_current_outlet_route() {
+fn inherited_generation_cannot_bypass_current_catchment_threshold() {
     let (mut mesh, adjacency, mut ocean) = separate_channels(3);
     ocean[6] = false;
     let anchors = [8, 4, 0].map(|vertex| mesh.vertices[vertex].truncate());
     let excluded = vec![false; mesh.vertices.len()];
+    let original_vertices = mesh.vertices.clone();
     let network = RiverNetwork::generate_with_ocean_avoiding_sources(
         &mut mesh,
         &adjacency,
-        RiverSourceRule::new(1.0e9, 1.0, 0.0, 0.2),
+        RiverGenerationSettings {
+            source_rule: RiverSourceRule::new(1.0e9, 1.0, 0.0, 0.2),
+            channel_settings: RiverChannelSettings::default(),
+        },
         ocean,
         0,
         &excluded,
         &anchors,
     );
 
-    assert_eq!(
-        network.source_positions().collect::<Vec<_>>(),
-        [anchors[0], anchors[2]]
-    );
-    assert!(network.rivers.iter().all(|river| {
-        river.join.is_some()
-            || river
-                .nodes
-                .last()
-                .is_some_and(|node| network.ocean[node.vertex])
-    }));
+    assert!(network.rivers.is_empty());
+    assert_eq!(mesh.vertices, original_vertices);
 }

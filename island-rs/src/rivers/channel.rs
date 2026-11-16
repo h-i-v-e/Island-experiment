@@ -1,5 +1,5 @@
 use super::{
-    Adjacency, BinaryHeap, CHANNEL_FOOTPRINT_RINGS, MAX_RIVER_RINGS, MAXIMUM_RING_MOVE_FRACTION,
+    Adjacency, BinaryHeap, CHANNEL_FOOTPRINT_RINGS, MAXIMUM_RING_MOVE_FRACTION,
     MAXIMUM_WIDTH_DEPTH_COMPENSATION, Mesh, ProjectedFaceAreas, RIVER_BOUNDARY,
     RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_CORRIDOR_SMOOTHING, RIVER_SURFACE_OFFSET,
     RIVER_VALLEY_APRON_RINGS, RIVER_VALLEY_BANK_DEPTH_FRACTION, RIVER_VALLEY_DRAINAGE_FLOOR, River,
@@ -1098,10 +1098,6 @@ pub(super) fn river_node_flow_direction(terrain: &Mesh, nodes: &[RiverNode], ind
     } else {
         central
     }
-}
-
-pub(super) fn river_ring_count(flow: u32, max_flow: u32) -> u8 {
-    (river_half_width(flow, max_flow, 1.0).ceil() as u8).min(MAX_RIVER_RINGS)
 }
 
 pub(super) fn river_half_width(flow: u32, max_flow: u32, base_width: f32) -> f32 {

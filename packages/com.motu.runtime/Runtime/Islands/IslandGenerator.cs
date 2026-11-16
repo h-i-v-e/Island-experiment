@@ -384,7 +384,8 @@ namespace Motu.Islands
             }
             currentSkyExposure = environment.SkyExposure;
             currentNightStrength = environment.NightStrength;
-            riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+            // Unity's null check also rejects destroyed material wrappers.
+            if (riverMaterial != null) riverMaterial.SetFloat(WaterSkyExposureId, currentSkyExposure);
             SyncHostLighting();
         }
 
@@ -463,12 +464,9 @@ namespace Motu.Islands
             }
             DestroyUnityObject(runtimeRoot);
             runtimeRoot = null;
-            terrainMaterial?.SetTexture("_WorldNormal", null);
-            terrainMaterial?.SetTexture("_Occlusion", null);
-            terrainLod1Material?.SetTexture("_WorldNormal", null);
-            terrainLod1Material?.SetTexture("_Occlusion", null);
-            terrainLod2Material?.SetTexture("_WorldNormal", null);
-            terrainLod2Material?.SetTexture("_Occlusion", null);
+            ClearTerrainMaterialMaps(terrainMaterial);
+            ClearTerrainMaterialMaps(terrainLod1Material);
+            ClearTerrainMaterialMaps(terrainLod2Material);
             DestroyUnityObject(terrainNormalTexture);
             DestroyUnityObject(terrainOcclusionTexture);
             DestroyUnityObject(terrainLod1NormalTexture);
@@ -487,6 +485,13 @@ namespace Motu.Islands
             islandHandle?.Dispose();
             islandHandle = null;
             ResetAppliedLiveSettings();
+        }
+
+        private static void ClearTerrainMaterialMaps(Material material)
+        {
+            if (material == null) return;
+            material.SetTexture("_WorldNormal", null);
+            material.SetTexture("_Occlusion", null);
         }
 
         private void ClearIslandRuntimeAliases()

@@ -51,7 +51,10 @@ use crate::{
 // 16 grades shared clipped contacts after freezing the inclination blend.
 // 17 separates full waterfall support patches, including bends and bank aprons.
 // 18 retains accepted river sources through the terrain LOD passes.
-const CACHE_FORMAT_VERSION: u32 = 18;
+// 19 connects drainage basins through their spill points before selecting rivers.
+// 20 preserves shallow graded channels and limits sea carving to their mouths.
+// 23 joins touching channel footprints before profiling the shared junction.
+const CACHE_FORMAT_VERSION: u32 = 23;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

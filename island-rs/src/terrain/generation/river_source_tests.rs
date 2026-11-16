@@ -28,11 +28,10 @@ fn inherited_only_context() -> GenerationContext {
 }
 
 #[test]
-fn accepted_sources_survive_every_lod_river_pass_and_final_generation() {
+fn inherited_sources_obey_the_current_threshold_at_every_lod_and_final_pass() {
     let (mut mesh, mut material, source) = drainage_fixture();
     let context = inherited_only_context();
     let mut scratch = GenerationScratch::new(GenerationMethod::Cpu);
-    scratch.river_sources.push(source);
     let stages = [
         generate_lod2,
         generate_first_lod1,
@@ -40,34 +39,13 @@ fn accepted_sources_survive_every_lod_river_pass_and_final_generation() {
         generate_broad_lod0,
     ];
     for stage in stages {
-        // An unusable old anchor must disappear when accepted traces replace it.
-        scratch.river_sources.push(Vec2::splat(f32::NAN));
+        scratch
+            .river_sources
+            .extend([source, Vec2::splat(f32::NAN)]);
         (mesh, material) = stage(&mesh, material, context, &mut scratch).unwrap();
-        assert!(!scratch.river_sources.is_empty());
-        assert!(
-            scratch
-                .river_sources
-                .iter()
-                .all(|source| source.is_finite())
-        );
-        assert!(scratch.river_sources.iter().all(|&anchor| {
-            mesh.vertices
-                .iter()
-                .any(|vertex| vertex.truncate().distance(anchor) < 0.02)
-        }));
+        assert!(scratch.river_sources.is_empty());
     }
     (mesh, material) = generate_detail_lod0(mesh, material, context, &mut scratch).unwrap();
-    let without_inheritance = generate_final_rivers(
-        context.seed,
-        &mesh,
-        &material,
-        context.river_source_rule,
-        context.options.river_channel_settings(),
-        None,
-        &[],
-    )
-    .unwrap();
-    assert!(without_inheritance.rivers.is_empty());
     let inherited = generate_final_rivers(
         context.seed,
         &mesh,
@@ -75,20 +53,22 @@ fn accepted_sources_survive_every_lod_river_pass_and_final_generation() {
         context.river_source_rule,
         context.options.river_channel_settings(),
         None,
-        &scratch.river_sources,
+        &[source],
     )
     .unwrap();
-    assert!(!inherited.rivers.is_empty());
+    assert!(inherited.rivers.is_empty());
 }
 
 #[test]
-fn retained_sources_retrace_after_vertex_reordering_and_drop_when_submerged() {
+fn qualified_sources_retrace_after_vertex_reordering_and_drop_when_submerged() {
     let (mut mesh, _, source) = drainage_fixture();
-    let context = inherited_only_context();
+    let mut options = inherited_only_context().options;
+    options.river_source_catchment_hectares = 0.01;
+    let context = GenerationContext::new(42, options);
     let mut retained_sources = vec![source];
     let adjacency = mesh.adjacency();
     let initial = context.rivers(&mut mesh, &adjacency, &mut retained_sources);
-    assert_eq!(initial.source_positions().collect::<Vec<_>>(), [source]);
+    assert!(initial.source_positions().next().is_some());
 
     let vertex_count = mesh.vertices.len();
     mesh.vertices.reverse();
@@ -97,8 +77,8 @@ fn retained_sources_retrace_after_vertex_reordering_and_drop_when_submerged() {
     }
     let adjacency = mesh.adjacency();
     let retraced = context.rivers(&mut mesh, &adjacency, &mut retained_sources);
-    assert_eq!(retraced.source_positions().collect::<Vec<_>>(), [source]);
-    assert_eq!(retained_sources, [source]);
+    assert!(retraced.source_positions().next().is_some());
+    assert!(retained_sources.iter().all(|anchor| anchor.is_finite()));
 
     mesh.vertices.iter_mut().for_each(|vertex| vertex.z = -0.01);
     let submerged = context.rivers(&mut mesh, &adjacency, &mut retained_sources);

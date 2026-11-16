@@ -9,22 +9,24 @@ pub(super) struct FeatureIndex {
 }
 impl FeatureIndex {
     pub fn new(caps: impl IntoIterator<Item = (DVec3, f64)>) -> Self {
-        let mut caps = caps.into_iter().enumerate().peekable();
-        if caps.peek().is_none() {
-            return Self { cells: Vec::new() };
+        let mut index = Self { cells: Vec::new() };
+        for (id, (centre, angle)) in caps.into_iter().enumerate() {
+            index.insert(id, centre, angle);
         }
-        let mut cells = (0..CELLS).map(|_| Vec::new()).collect::<Vec<_>>();
-        for (id, (centre, angle)) in caps {
-            let radius = if angle >= std::f64::consts::PI {
-                2.0
-            } else {
-                2.0 * (angle * 0.5).sin()
-            };
-            for cell in cell_range(centre, radius) {
-                cells[cell].push(id);
-            }
+        index
+    }
+    pub fn insert(&mut self, id: usize, centre: DVec3, angle: f64) {
+        if self.cells.is_empty() {
+            self.cells = (0..CELLS).map(|_| Vec::new()).collect();
         }
-        Self { cells }
+        let radius = if angle >= std::f64::consts::PI {
+            2.0
+        } else {
+            2.0 * (angle * 0.5).sin()
+        };
+        for cell in cell_range(centre, radius) {
+            self.cells[cell].push(id);
+        }
     }
     pub fn at(&self, point: DVec3) -> &[usize] {
         if self.cells.is_empty() {

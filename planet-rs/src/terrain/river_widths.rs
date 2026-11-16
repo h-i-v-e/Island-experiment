@@ -1,7 +1,7 @@
 //! One frozen width field for the river banks, refinement and waterfall profile.
 //! Like Island, blend flow growth with progress along the represented network.
 use super::{Drainage, RiverSegment, TerrainOptions, graph::arc};
-use crate::PlanetMesh;
+use crate::{DVec3, PlanetMesh};
 
 pub(super) fn legacy(catchment: f64, settings: &TerrainOptions) -> f64 {
     let threshold = settings.river_catchment * 4.0 * std::f64::consts::PI;
@@ -14,6 +14,15 @@ pub(super) fn build(
     rivers: &[RiverSegment],
     settings: &TerrainOptions,
 ) -> Vec<f64> {
+    on_directions(&mesh.directions, drainage, rivers, settings)
+}
+
+pub(super) fn on_directions(
+    directions: &[DVec3],
+    drainage: &Drainage,
+    rivers: &[RiverSegment],
+    settings: &TerrainOptions,
+) -> Vec<f64> {
     let mut widths: Vec<_> = drainage
         .catchment
         .iter()
@@ -22,7 +31,7 @@ pub(super) fn build(
     if settings.river_taper == 0.0 || rivers.is_empty() {
         return widths;
     }
-    let count = mesh.directions.len();
+    let count = directions.len();
     let mut active = vec![false; count];
     for river in rivers {
         active[river.from] = true;
@@ -39,8 +48,7 @@ pub(super) fn build(
         }
         if let Some(to) = drainage.receivers[i].filter(|&to| active[to]) {
             outlet_flow[i] = outlet_flow[to];
-            downstream_length[i] =
-                downstream_length[to] + arc(mesh.directions[i], mesh.directions[to]);
+            downstream_length[i] = downstream_length[to] + arc(directions[i], directions[to]);
         } else {
             outlet_flow[i] = drainage.catchment[i];
         }
@@ -49,8 +57,8 @@ pub(super) fn build(
         if active[i]
             && let Some(to) = drainage.receivers[i].filter(|&to| active[to])
         {
-            upstream_length[to] = upstream_length[to]
-                .max(upstream_length[i] + arc(mesh.directions[i], mesh.directions[to]));
+            upstream_length[to] =
+                upstream_length[to].max(upstream_length[i] + arc(directions[i], directions[to]));
         }
     }
     let source_flow = (settings.river_catchment * 4.0 * std::f64::consts::PI).sqrt();

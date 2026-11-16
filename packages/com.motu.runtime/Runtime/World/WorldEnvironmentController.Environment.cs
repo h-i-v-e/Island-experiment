@@ -367,7 +367,7 @@ namespace Motu.World
                 lunarPhase = environmentSettings.StartingMoonPhase;
                 solarClockInitialized = true;
             }
-            if (deltaTime > 0f)
+            if (deltaTime > 0f && !environmentSettings.FreezeSolarTime)
             {
                 var cycleSeconds = environmentSettings.SunCycleDurationMinutes * 60f;
                 var clockRate = CelestialLighting.EvaluateClockRateMultiplier(

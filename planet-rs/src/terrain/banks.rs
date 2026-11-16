@@ -51,6 +51,7 @@ pub(super) struct BankPins {
     pub boundary: Vec<bool>,
     /// Geometric channel at sea level: covered by the sea, never a dry bank.
     pub sea_openings: Vec<bool>,
+    dry_divides: Vec<bool>,
     support: Vec<bool>,
     blends: Vec<WaterfallBlend>,
     flows: Vec<DVec3>,
@@ -108,10 +109,21 @@ impl BankPins {
             core,
             boundary,
             sea_openings,
+            dry_divides: vec![false; distances.len()],
             support,
             blends: Vec::new(),
             flows: Vec::new(),
         }
+    }
+
+    pub fn with_divides(mut self, divides: Vec<bool>) -> Self {
+        for (i, &divide) in divides.iter().enumerate() {
+            if divide {
+                self.widths[i] = 0.0;
+            }
+        }
+        self.dry_divides = divides;
+        self
     }
 
     pub fn with_blends(mut self, blends: Vec<WaterfallBlend>) -> Self {
@@ -133,8 +145,8 @@ impl BankPins {
     /// below zero still belong to their original above-sea river profile.
     pub fn preserve_ocean(&mut self, original: &[f64]) {
         for (i, &height) in original.iter().enumerate() {
+            self.sea_openings[i] = height < 0.0;
             if height < 0.0 {
-                self.sea_openings[i] = true;
                 self.core[i] = false;
                 self.boundary[i] = false;
                 self.support[i] = false;
@@ -504,6 +516,15 @@ impl BankPins {
         if selected.is_empty() {
             return;
         }
+        // A logical basin spill can rise over unexcavated ground. Preserve
+        // actual downhill feeders and accepted river channels while smoothing;
+        // a potential overflow edge supplies no hydraulic floor or ceiling.
+        let parents: Vec<_> = drainage
+            .receivers
+            .iter()
+            .enumerate()
+            .map(|(i, &parent)| parent.filter(|&next| heights[next] < heights[i]))
+            .collect();
         // Ordinary banks may round down to their pinned water plane, but not
         // sink through it. Keep their pre-pass floor fixed while each Jacobi
         // snapshot changes. The face/upstream blend remains free to round.
@@ -511,7 +532,9 @@ impl BankPins {
             .iter()
             .enumerate()
             .map(|(i, &height)| {
-                if self.boundary[i] && self.blend(i).normal >= 1.0 {
+                if self.dry_divides[i] {
+                    height
+                } else if self.boundary[i] && self.blend(i).normal >= 1.0 {
                     height.min(self.levels[i])
                 } else {
                     f64::NEG_INFINITY
@@ -532,7 +555,7 @@ impl BankPins {
             .collect();
         for &i in drainage.order.iter().rev() {
             if ceilings[i].is_finite()
-                && let Some(parent) = drainage.receivers[i]
+                && let Some(parent) = parents[i]
             {
                 ceilings[parent] = ceilings[parent].min(ceilings[i].next_down());
             }
@@ -547,13 +570,22 @@ impl BankPins {
                         .map(|&j| snapshot[j])
                         .sum::<f64>())
                     / f64::from(count);
-                let floor = drainage.receivers[i]
+                let floor = parents[i]
                     .map_or(f64::NEG_INFINITY, |parent| heights[parent].next_up())
                     .max(bank_floors[i]);
                 let (floor, ceiling) = if heights[i] < 0.0 {
                     (floor, ceilings[i].min(0.0_f64.next_down()))
                 } else {
                     (floor.max(0.0), ceilings[i])
+                };
+                // Repeated next_up/next_down constraints can cross by a few
+                // ulps on an exact zero-depth grade. Keep equivalent bounds
+                // feasible without relaxing any meaningful hydraulic limit.
+                let tolerance = 16.0 * f64::EPSILON * floor.abs().max(1.0);
+                let floor = if floor > ceiling && floor - ceiling <= tolerance {
+                    ceiling
+                } else {
+                    floor
                 };
                 let target = (snapshot[i] + (average - snapshot[i]) * (0.5 * weights[i]))
                     .clamp(floor, ceiling);
@@ -564,7 +596,7 @@ impl BankPins {
             // lifting connected feeders. Sea roots remain submerged; terrain
             // outside the river/apron and its feeders stays unchanged.
             for &i in &drainage.order {
-                if let Some(parent) = drainage.receivers[i] {
+                if let Some(parent) = parents[i] {
                     let target = heights[i].max(heights[parent].next_up());
                     soil[i] += target - heights[i];
                     heights[i] = target;
@@ -1206,6 +1238,36 @@ mod tests {
     }
 
     #[test]
+    fn unexcavated_spill_edges_do_not_constrain_pinned_river_smoothing() {
+        let graph = SurfaceGraph {
+            neighbours: vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+            areas: vec![1.0; 4],
+        };
+        let pins = BankPins::new(
+            &graph,
+            vec![0.03; 4],
+            &[-1.0, -1.0, 1.0, -1.0],
+            vec![0.003; 4],
+            vec![false; 4],
+        );
+        let drainage = Drainage {
+            receivers: vec![None, Some(0), Some(1), Some(2)],
+            catchment: vec![3.0, 3.0, 2.0, 1.0],
+            order: vec![0, 1, 2, 3],
+        };
+        let mut heights = [-0.1, 0.3, 0.02, 0.1];
+        pins.relax_river_support(&graph, &drainage, &mut heights, &mut [0.0; 4]);
+        assert!(heights.iter().all(|height| height.is_finite()));
+        assert_eq!(heights[0].to_bits(), (-0.1_f64).to_bits());
+        assert!(heights[3] > heights[2], "preserve the physical feeder");
+        assert!(heights[1] > heights[0], "preserve the physical outlet");
+        assert!(
+            heights[2] < 0.03,
+            "a logical spill cannot lift the pinned bed"
+        );
+    }
+
+    #[test]
     fn whole_river_relaxation_rounds_both_shoulders_with_or_without_waterfalls_and_preserves_drainage()
      {
         use super::super::{TerrainOptions, drainage};
@@ -1236,6 +1298,7 @@ mod tests {
                 &mut soil,
                 &TerrainOptions {
                     river_depth: 0.0,
+                    river_catchment: 1.0e-10,
                     ..TerrainOptions::default()
                 },
             );

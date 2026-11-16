@@ -27,15 +27,47 @@ pub(super) struct Finished {
     pub rivers: Vec<RiverSegment>,
 }
 
+// Match the existing 1e-18 squared-distance sliver tolerance used by the
+// water mesh. A duplicate contact within this distance is the same bank point.
+const CONTACT_DISTANCE: f64 = 1.0e-9;
+const CONTACT_DISTANCE_SQUARED: f64 = CONTACT_DISTANCE * CONTACT_DISTANCE;
+
+fn contact_vertex(
+    source: Source,
+    point: DVec3,
+    contacts: &BTreeMap<usize, usize>,
+    mesh: &PlanetMesh,
+    heights: &[f64],
+) -> Option<usize> {
+    match source {
+        Source::Terrain(vertex) => Some(vertex),
+        Source::Sea => None,
+        Source::Edge { .. } => contacts
+            .values()
+            .copied()
+            .filter_map(|vertex| {
+                let existing = mesh.directions[vertex] * (1.0 + heights[vertex]);
+                let distance = point.distance_squared(existing);
+                (distance <= CONTACT_DISTANCE_SQUARED).then_some((vertex, distance))
+            })
+            .min_by(|&(a, distance_a), &(b, distance_b)| {
+                distance_a.total_cmp(&distance_b).then_with(|| a.cmp(&b))
+            })
+            .map(|(vertex, _)| vertex),
+    }
+}
+
 fn upstream_edge(a: usize, b: usize, stations: &[Option<BankStation>]) -> Option<(usize, usize)> {
     let (first, second) = (stations[a]?, stations[b]?);
     if first.outlet != second.outlet {
         return None;
     }
     let delta = first.distance - second.distance;
-    if delta > 1.0e-12 {
+    // Sub-micrometre station jitter cannot define a longitudinal bank grade.
+    // Use the same tolerance as canonical inserted-contact geometry.
+    if delta > CONTACT_DISTANCE {
         Some((b, a))
-    } else if delta < -1.0e-12 {
+    } else if delta < -CONTACT_DISTANCE {
         Some((a, b))
     } else {
         None
@@ -165,10 +197,15 @@ pub(super) fn finish(
     }
     let final_surface = water_mesh::build_with_sources(mesh, fields.heights, fields.water);
     for (a, b) in final_surface.surface.dry_bank_edges() {
-        let (Source::Terrain(a), Source::Terrain(b)) = (
-            final_surface.sources[a as usize],
-            final_surface.sources[b as usize],
-        ) else {
+        let [Some(a), Some(b)] = [a, b].map(|id| {
+            contact_vertex(
+                final_surface.sources[id as usize],
+                final_surface.surface.positions[id as usize],
+                &contacts,
+                mesh,
+                fields.heights,
+            )
+        }) else {
             return Err(PlanetError::InvalidTopology(
                 "river contact escaped inserted bank vertices",
             ));
@@ -287,6 +324,60 @@ fn insert_contacts(
 mod tests {
     use super::*;
     use crate::DVec3;
+
+    #[test]
+    fn equivalent_bank_stations_do_not_create_a_spurious_upstream_constraint() {
+        let stations = [
+            Some(BankStation {
+                outlet: 7,
+                distance: 0.254_208_656_840_695_55,
+            }),
+            Some(BankStation {
+                outlet: 7,
+                distance: 0.254_208_657_738_533_4,
+            }),
+            Some(BankStation {
+                outlet: 7,
+                distance: 0.254_210,
+            }),
+        ];
+        assert_eq!(upstream_edge(0, 1, &stations), None);
+        assert_eq!(upstream_edge(0, 2, &stations), Some((0, 2)));
+    }
+
+    #[test]
+    fn nearly_identical_clipped_point_resolves_only_to_an_inserted_bank_contact() {
+        let mesh = PlanetMesh {
+            directions: vec![DVec3::new(0.001, 0.0, 1.0).normalize(), DVec3::Z, DVec3::Z],
+            triangles: Vec::new(),
+            radius: 2000.0,
+        };
+        let heights = [0.0014, 0.0017, 0.0017];
+        let contacts = BTreeMap::from([(42, 2)]);
+        let source = Source::Edge {
+            vertices: [0, 1],
+            fraction: 0.999_999_414_300_2,
+        };
+        let existing = mesh.directions[2] * (1.0 + heights[2]);
+        // Seed7 exposed a 0.877-micrometre duplicate at the reference radius.
+        let duplicate = existing + DVec3::X * 4.386_839_497_730_573e-10;
+        assert_eq!(
+            contact_vertex(source, duplicate, &contacts, &mesh, &heights),
+            Some(2)
+        );
+        assert!(
+            contact_vertex(
+                source,
+                existing + DVec3::X * 2.0e-9,
+                &contacts,
+                &mesh,
+                &heights
+            )
+            .is_none()
+        );
+        assert!(contact_vertex(source, existing, &BTreeMap::new(), &mesh, &heights).is_none());
+        assert!(contact_vertex(Source::Sea, existing, &contacts, &mesh, &heights).is_none());
+    }
 
     #[test]
     fn clipped_contact_keeps_wet_profile_ownership_in_either_edge_order() {

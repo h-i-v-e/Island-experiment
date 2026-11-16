@@ -265,8 +265,8 @@ namespace Motu.Islands
             {
                 terrainMaterial.SetFloat("_SnowLine", snowline);
             }
-            terrainLod1Material?.SetFloat("_SnowLine", snowline);
-            terrainLod2Material?.SetFloat("_SnowLine", snowline);
+            if (terrainLod1Material != null) terrainLod1Material.SetFloat("_SnowLine", snowline);
+            if (terrainLod2Material != null) terrainLod2Material.SetFloat("_SnowLine", snowline);
             if (grassMaterial != null && grassMaterial.HasProperty("_SnowLine"))
             {
                 grassMaterial.SetFloat("_SnowLine", snowline);
@@ -301,26 +301,18 @@ namespace Motu.Islands
             appliedGrassColourA = Rendering.GrassColourA;
             appliedGrassColourB = Rendering.GrassColourB;
             appliedGrassColourNoiseWorldSize = Rendering.GrassColourNoiseWorldSizeMetres;
-            terrainMaterial?.SetColor("_GrassColorA", appliedGrassColourA.Value);
-            terrainMaterial?.SetColor("_GrassColorB", appliedGrassColourB.Value);
-            terrainMaterial?.SetFloat(
-                "_GrassColorNoiseWorldSize",
-                appliedGrassColourNoiseWorldSize);
-            terrainLod1Material?.SetColor("_GrassColorA", appliedGrassColourA.Value);
-            terrainLod1Material?.SetColor("_GrassColorB", appliedGrassColourB.Value);
-            terrainLod1Material?.SetFloat(
-                "_GrassColorNoiseWorldSize",
-                appliedGrassColourNoiseWorldSize);
-            terrainLod2Material?.SetColor("_GrassColorA", appliedGrassColourA.Value);
-            terrainLod2Material?.SetColor("_GrassColorB", appliedGrassColourB.Value);
-            terrainLod2Material?.SetFloat(
-                "_GrassColorNoiseWorldSize",
-                appliedGrassColourNoiseWorldSize);
-            grassMaterial?.SetColor("_GrassColorA", appliedGrassColourA.Value);
-            grassMaterial?.SetColor("_GrassColorB", appliedGrassColourB.Value);
-            grassMaterial?.SetFloat(
-                "_GrassColorNoiseWorldSize",
-                appliedGrassColourNoiseWorldSize);
+            SetGrassColours(terrainMaterial);
+            SetGrassColours(terrainLod1Material);
+            SetGrassColours(terrainLod2Material);
+            SetGrassColours(grassMaterial);
+        }
+
+        private void SetGrassColours(Material material)
+        {
+            if (material == null) return;
+            material.SetColor("_GrassColorA", appliedGrassColourA.Value);
+            material.SetColor("_GrassColorB", appliedGrassColourB.Value);
+            material.SetFloat("_GrassColorNoiseWorldSize", appliedGrassColourNoiseWorldSize);
         }
 
         private void CreateSurfaceTextures(

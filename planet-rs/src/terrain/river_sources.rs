@@ -1,4 +1,4 @@
-//! Retain spherical headwaters through changing terrain topology without changing rainfall.
+//! Cover sea-connected qualifying catchments without a source cap or invented rainfall.
 use super::{Drainage, RiverSegment, SurfaceGraph, TerrainOptions};
 use crate::{DVec3, terrain::feature_index::FeatureIndex};
 
@@ -12,20 +12,23 @@ pub(super) fn select(
 ) -> Vec<RiverSegment> {
     let valid = outlet_paths(graph, heights, drainage);
     let threshold = options.river_catchment * 4.0 * std::f64::consts::PI;
-    let mut selected = drainage
-        .catchment
-        .iter()
-        .enumerate()
-        .map(|(vertex, &catchment)| valid[vertex] && catchment >= threshold)
-        .collect::<Vec<_>>();
-    let mut retained = vec![false; heights.len()];
+    let mut inherited = vec![false; heights.len()];
     for source in remap(directions, graph, inherited_sources) {
-        if heights[source] < 0.0 || !valid[source] {
+        inherited[source] = true;
+    }
+    let candidates = candidate_order(drainage, &valid, &inherited, threshold);
+    let upstream = strongest_upstream(&candidates, &drainage.receivers);
+    let mut selected = vec![false; heights.len()];
+    for candidate in candidates {
+        if selected[candidate] {
             continue;
         }
+        let mut source = candidate;
+        while let Some(next) = upstream[source].filter(|&next| !selected[next]) {
+            source = next;
+        }
         let mut current = source;
-        while !retained[current] {
-            retained[current] = true;
+        while !selected[current] {
             let Some(next) = drainage.receivers[current] else {
                 break;
             };
@@ -48,6 +51,43 @@ pub(super) fn select(
         .collect()
 }
 
+/// Prefer the largest true catchment, keeping anchors only as equal-area hints.
+fn candidate_order(
+    drainage: &Drainage,
+    valid: &[bool],
+    inherited: &[bool],
+    threshold: f64,
+) -> Vec<usize> {
+    let mut candidates: Vec<_> = drainage
+        .catchment
+        .iter()
+        .enumerate()
+        .filter_map(|(vertex, &catchment)| {
+            (valid[vertex] && catchment >= threshold && drainage.receivers[vertex].is_some())
+                .then_some(vertex)
+        })
+        .collect();
+    candidates.sort_unstable_by(|&a, &b| {
+        drainage.catchment[b]
+            .total_cmp(&drainage.catchment[a])
+            .then_with(|| inherited[b].cmp(&inherited[a]))
+            .then_with(|| a.cmp(&b))
+    });
+    candidates
+}
+
+/// Candidates are already in descending priority. Extending to the strongest
+/// qualifying headwater makes the first accepted path a complete main stem.
+fn strongest_upstream(candidates: &[usize], receivers: &[Option<usize>]) -> Vec<Option<usize>> {
+    let mut upstream = vec![None; receivers.len()];
+    for &source in candidates {
+        if let Some(target) = receivers[source] {
+            upstream[target].get_or_insert(source);
+        }
+    }
+    upstream
+}
+
 /// A receiver must already have a valid route in the sea-seeded parent order.
 /// This also rejects cycles, dry roots, missing vertices and non-adjacent links.
 fn outlet_paths(graph: &SurfaceGraph, heights: &[f64], drainage: &Drainage) -> Vec<bool> {
@@ -59,8 +99,7 @@ fn outlet_paths(graph: &SurfaceGraph, heights: &[f64], drainage: &Drainage) -> V
         valid[vertex] = match drainage.receivers[vertex] {
             None => heights[vertex] < 0.0,
             Some(next) => {
-                heights[vertex] >= 0.0
-                    && valid.get(next).copied().unwrap_or(false)
+                valid.get(next).copied().unwrap_or(false)
                     && graph.neighbours[vertex].contains(&next)
             }
         };

@@ -264,6 +264,11 @@ fn authored_noise_free_terrain_has_no_island_edge_or_perimeter_rule() {
     )
     .unwrap();
     assert!(
+        terrain.rivers.is_empty(),
+        "zero river depth disables final channels"
+    );
+    assert!(terrain.river_surface.triangles.is_empty());
+    assert!(
         terrain
             .topology
             .directions

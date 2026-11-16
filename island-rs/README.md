@@ -18,9 +18,9 @@ The generator provides:
 - persistent unconsolidated cover and noise-aligned bedrock hardness shared by
   hydraulic, thermal, and river-valley erosion;
 - topology reuse across smoothing, erosion, and river passes at each LOD;
-- successful river sources retained across terrain LODs and retraced locally
-  before new catchment candidates, with the 96-river budget applied only to
-  accepted routes for both ordinary islands and coastal sections;
+- sea-connected basin drainage shared by catchment calculation and river tracing,
+  with threshold-qualified candidates covered from smaller catchments upward
+  and no fixed river-count budget for islands or coastal sections;
 - conforming land/relief tessellation with coarse seabed preservation;
 - sink-safe drainage routing with tributary joins and per-node flow accumulation;
 - river jiggle/corridor smoothing, staged LOD carving, bank incision, graded
@@ -252,7 +252,22 @@ River-source selection uses one absolute catchment area for every routing pass.
 Projected control areas are converted to square metres and accumulated
 downstream alongside the existing vertex flow, so progressively denser meshes
 measure the same physical drainage area without separate LOD controls. The
-local required area rises smoothly with the selected downhill edge's steepness;
+drainage graph preserves natural downhill channels and connects trapped basins
+through their lowest sea-connected spill saddles. Accumulation follows graph
+order across those saddles, rather than stopping at local depressions. River
+tracing follows that same graph using a spill-height hydraulic reference without
+excavating the downstream landscape to a low basin's floor. Channel beds retain
+their per-node grade, terraces retain the local natural height budget, and
+sea-level handoffs start at the actual coastline. Coastal seam exclusions remain
+protected. Qualifying candidates are processed in decreasing catchment order.
+Each priority trace extends to its strongest selected headwater before claiming
+the whole main stem; smaller tributaries then join that established channel.
+Connector spans remain covered even when they are not themselves source candidates.
+There is no fixed source-count cap. Raise the catchment threshold to reduce
+branch density and channel-building work. Earlier-stage anchors cannot bypass
+the current threshold.
+
+The local required area rises smoothly with the selected downhill edge's steepness;
 the default multiplier is four near a vertical edge. Lower catchment areas
 select more sources, while higher values produce fewer. The default is `0.05`
 hectares (500 square metres) at the configured maximum elevation. There is no
@@ -324,16 +339,23 @@ erosion, without changing the initial surface height or coating the seabed.
 Erosion removes this loose cover before bedrock. Native snapshot format version 4
 includes the setting; older cached snapshots must be regenerated.
 
-Waterfall relocation checks the complete face, upstream pin blend, landing and
-bank apron against accepted waterfalls on every river. Path length alone cannot
-establish clearance at a bend. Conflicting drops move upstream using their
-existing recorded heights, preserving the total drop on accepted rivers. If
-separate drops cannot fit, they combine at a clear upstream site. Flat flags
-left by profile reconciliation reserve no support space. A river rejected by the existing site policy releases its provisional reservations.
-Unity snapshot cache schema 27 and Island Bevy cache format 18 retire geometry
-built before these placement checks and retained LOD river sources. Restart an
-open Unity editor/player after installing the rebuilt native plugin, then
-regenerate cached islands.
+Waterfalls use the established smoothed-gradient response to choose fall size
+and reach spacing, with width-dependent support clearance. The fixed 10-metre
+reach and 1-metre fall experiment is removed. Each accepted terrace returns to
+its local natural height, and unfinished source and shore approaches retain
+their grade. Relocation stays inside the original neighbouring terrace; it
+cannot combine a whole cascade into one source-side drop. Unsupported faces
+retain their local grade and the connected river.
+Touching channel footprints now join through safe terrain edges before profiles
+are built. Larger catchments establish the receiving channel first; tributaries
+share its junction height. A higher established channel can capture a lower
+touching reach downhill. Contacts cannot cross a dry ridge or create a cycle.
+After each contact pass, catchment and configured widths are recalculated from
+the redirected drainage graph. Accepted junctions remain fixed during this solve,
+so resolution finishes without a source-count or iteration cap.
+Unity snapshot cache schema 32 and Island Bevy cache format 23 retire earlier
+river profiles. Restart an open Unity editor/player after installing the rebuilt
+native plugin, then regenerate cached islands.
 
 Procedural trees use up to 45 degrees of twist per growth step, with no total
 trunk rotation cap. Intermediate rings are retained wherever merging would exceed

@@ -84,14 +84,21 @@ pub(super) fn build_with_sources(
                 if wet_a != wet_b {
                     let (a, b) = if a.id < b.id { (a, b) } else { (b, a) };
                     let t = a.fields[plane] / (a.fields[plane] - b.fields[plane]);
-                    let intersection = if t <= 0.0 {
+                    let start = result.positions[a.id as usize];
+                    let end = result.positions[b.id as usize];
+                    let point = start.lerp(end, t);
+                    // Two-plane clipping can produce the same corner twice,
+                    // differing only by a radial unit's last few bits. Reuse
+                    // its ID globally instead of emitting an inverted sliver;
+                    // real thin triangles keep all their distinct vertices.
+                    let rounding = (4.0 * f64::EPSILON).powi(2)
+                        * start.length_squared().max(end.length_squared());
+                    let intersection = if t <= 0.0 || point.distance_squared(start) <= rounding {
                         a
-                    } else if t >= 1.0 {
+                    } else if t >= 1.0 || point.distance_squared(end) <= rounding {
                         b
                     } else {
                         let id = *edges.entry((plane, a.id, b.id)).or_insert_with(|| {
-                            let point = result.positions[a.id as usize]
-                                .lerp(result.positions[b.id as usize], t);
                             let source = if plane == 0 {
                                 bank_source(
                                     mesh,
@@ -281,6 +288,44 @@ impl RiverSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[allow(clippy::unreadable_literal)] // Exact seed-5 inputs at the bank/sea double clip.
+    fn sea_handoff_reuses_a_corner_when_the_second_clip_rounds_to_its_endpoint() {
+        let fixtures = [
+            (
+                [
+                    DVec3::new(-0.6238035361360811, 0.4396978623404606, 0.646169434558267),
+                    DVec3::new(-0.6239242047544794, 0.4413259721666995, 0.6449418369222205),
+                    DVec3::new(-0.6245846280610716, 0.439243731087896, 0.645723615093793),
+                ],
+                [0.0, 0.0, 0.0004626030184044576],
+                [-1e-5, 0.0012856724984619033, 0.0013909072470084131],
+            ),
+            (
+                [
+                    DVec3::new(-0.6238118793392275, 0.43969301585688847, 0.6461646779281075),
+                    DVec3::new(-0.6238035361360811, 0.4396978623404606, 0.646169434558267),
+                    DVec3::new(-0.6239242047544794, 0.4413259721666995, 0.6449418369222205),
+                ],
+                [4.931674626895699e-6, 0.0, 0.0],
+                [4.931674626895699e-6, -1e-5, 0.0012856724984619033],
+            ),
+        ];
+        for (directions, heights, water) in fixtures {
+            let mesh = PlanetMesh {
+                directions: directions.to_vec(),
+                triangles: vec![[0, 1, 2]],
+                radius: 2000.0,
+            };
+            let surface = build(&mesh, &heights, &water);
+            assert!(!surface.triangles.is_empty());
+            for face in &surface.triangles {
+                let [a, b, c] = face.map(|i| surface.positions[i as usize]);
+                assert!((b - a).cross(c - a).dot(a + b + c) > 0.0);
+            }
+        }
+    }
+
     #[test]
     fn exact_bank_contacts_reuse_vertices_without_cracks_or_sliver_faces() {
         let mesh = PlanetMesh {

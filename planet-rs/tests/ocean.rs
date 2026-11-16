@@ -47,7 +47,7 @@ fn inland_seas_are_filled_through_terrain_stages_before_final_river_carving() {
 }
 
 #[test]
-fn final_rivers_can_cut_filled_basins_without_a_late_fill_plugging_them() {
+fn filled_basins_keep_wet_spill_channels_and_open_ocean_mouths() {
     let mesh = planet_rs::generate(PlanetOptions {
         vertex_count: 1024,
         ..PlanetOptions::default()
@@ -71,6 +71,12 @@ fn final_rivers_can_cut_filled_basins_without_a_late_fill_plugging_them() {
             }
         })
         .collect();
+    let original_ocean: Vec<_> = mesh
+        .directions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| (p.x < -0.4).then_some(i))
+        .collect();
     let terrain = planet_rs::PlanetTerrain::from_elevations(
         mesh,
         heights,
@@ -92,11 +98,21 @@ fn final_rivers_can_cut_filled_basins_without_a_late_fill_plugging_them() {
         OceanStage::FinalTerrain
     );
     assert!(
-        basin
+        basin.iter().any(|&i| terrain.water_elevations[i] > 0.0
+            && terrain.water_elevations[i] > terrain.elevations[i]),
+        "filled basin must keep a wet supported spill channel"
+    );
+    assert!(
+        original_ocean.iter().all(|&i| terrain.elevations[i] < 0.0),
+        "spill support must never refill any captured ocean root"
+    );
+    assert!(
+        terrain
+            .rivers
             .iter()
-            .any(|&i| terrain.elevations[i] * terrain.topology.radius < 0.5
-                && terrain.channel_depths[i] > 0.0),
-        "rivers must be allowed to cut the raised basin below the fill floor"
+            .any(|river| terrain.elevations[river.to] < 0.0
+                && terrain.drainage.receivers[river.to].is_none()),
+        "a real terminal river mouth must remain open to the ocean"
     );
     assert!(!terrain.river_surface.triangles.is_empty());
     terrain.validate().unwrap();

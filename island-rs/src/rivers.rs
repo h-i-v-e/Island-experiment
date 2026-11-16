@@ -21,7 +21,13 @@ use crate::{
 mod bank_apron;
 mod carving;
 mod channel;
+mod contact;
 mod contact_banks;
+#[cfg(test)]
+mod contact_tests;
+mod drainage;
+#[cfg(test)]
+mod drainage_tests;
 mod finishing;
 mod geometry;
 mod rocks;
@@ -43,9 +49,9 @@ pub(crate) use channel::encode_bank_distance_in_uv;
 use channel::{
     ConfluenceCarveTarget, apply_averaged, build_river_footprint, carve_confluence_connectors,
     carve_river_corridor, is_river_bed_triangle, is_river_boundary, lower_river_surroundings,
-    mark_river_boundary, record_confluence_carve_target, river_half_width, river_ring_count,
-    river_topology_masks, shape_channel_ring_vertices, smooth_river_corridor,
-    target_cross_sections, update_achieved_cross_sections,
+    mark_river_boundary, record_confluence_carve_target, river_half_width, river_topology_masks,
+    shape_channel_ring_vertices, smooth_river_corridor, target_cross_sections,
+    update_achieved_cross_sections,
 };
 use geometry::{
     BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
@@ -58,12 +64,9 @@ pub(crate) use rocks::{
     append_settled_rocks, density_acceptance as rock_density_acceptance, sample_rock_size,
 };
 pub(crate) use surface::clip_above_sea as clip_river_above_sea;
+use tracing::{RouteState, WaterfallClearanceIndex, update_join_flows};
 #[cfg(test)]
-use tracing::trace_rivers;
-use tracing::{
-    RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
-    map_downstream, update_join_flows,
-};
+use tracing::{calculate_flow_and_catchment, find_sources, trace_rivers};
 pub(crate) use tracing::{fix_coastal_inland_seas, fix_inland_seas};
 pub(crate) use waterfalls::WaterfallFoot;
 use waterfalls::{
@@ -106,7 +109,6 @@ pub(crate) struct RiverShapeOptions {
 pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
 // Unity scales the normalized terrain mesh to 2,000 metres across.
 const SEA_PLANE_CLEARANCE: f32 = 0.10 / 2_000.0;
-const RIVER_SOURCE_EXCLUSION_CELL_METRES: f32 = 25.0;
 const SQUARE_METRES_PER_HECTARE: f32 = 10_000.0;
 const MAX_RIVER_RINGS: u8 = 3;
 const CHANNEL_FOOTPRINT_RINGS: u8 = 1;
@@ -148,8 +150,7 @@ const WATERFALL_EDGE_BLEND_RUN: f32 = 2.0 * WATERFALL_TARGET_EDGE_LENGTH;
 const WATERFALL_SUPPORT_RUN: f32 = 0.75 / ISLAND_WORLD_METRES;
 const WATERFALL_APRON_WIDTH_MULTIPLIER: f32 = 1.75;
 const WATERFALL_LANDING_LENGTH_MULTIPLIER: f32 = 1.5;
-// Keep waterfall proportions stable across islands by deriving their profile
-// from a fixed real-world relief rather than the generated island's peak.
+// Keep legacy gradient-driven waterfall proportions independent of island height.
 const WATERFALL_REFERENCE_ISLAND_HEIGHT: f32 = 200.0 / ISLAND_WORLD_METRES;
 const WATERFALL_WATER_CLEARANCE: f32 = 0.03 / ISLAND_WORLD_METRES;
 const WATERFALL_DOWNSTREAM_SPIKE_PASSES: usize = 4;
@@ -260,6 +261,12 @@ struct RiverCrossSection {
     required_depth: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RiverGenerationSettings {
+    pub(crate) source_rule: RiverSourceRule,
+    pub(crate) channel_settings: RiverChannelSettings,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct RiverSedimentBudget {
     carried: f64,
@@ -353,7 +360,10 @@ impl RiverNetwork {
         Self::generate_with_ocean_avoiding_sources(
             mesh,
             adjacency,
-            source_rule,
+            RiverGenerationSettings {
+                source_rule,
+                channel_settings: RiverChannelSettings::default(),
+            },
             ocean,
             seed,
             excluded,
@@ -364,7 +374,7 @@ impl RiverNetwork {
     pub(crate) fn generate_with_ocean_avoiding_sources(
         mesh: &mut Mesh,
         adjacency: &Adjacency,
-        source_rule: RiverSourceRule,
+        settings: RiverGenerationSettings,
         ocean: Vec<bool>,
         seed: u64,
         excluded: &[bool],
@@ -372,19 +382,22 @@ impl RiverNetwork {
     ) -> Self {
         debug_assert_eq!(ocean.len(), mesh.vertices.len());
         let perimeter = mesh.perimeter_mask();
-        let downstream = map_downstream(mesh, adjacency);
-        let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
-        let candidates = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
-        let sources = tracing::prioritize_inherited_sources(
+        let contact::ResolvedContacts {
+            drainage,
+            flow,
+            catchment: catchment_areas,
+            sources,
+        } = contact::resolve(
             mesh,
             adjacency,
-            &candidates,
-            inherited_sources,
+            settings,
+            &ocean,
             excluded,
+            inherited_sources,
+            seed,
         );
-        let (mut rivers, join_vertices) = tracing::trace_rivers_avoiding(
-            mesh, adjacency, &flow, &sources, &ocean, seed, excluded,
-        );
+        let (mut rivers, join_vertices) =
+            tracing::trace_drainage(mesh, &drainage, &flow, &catchment_areas, &sources, &ocean);
         update_join_flows(&mut rivers, &join_vertices);
         let max_flow = rivers
             .iter()
@@ -645,29 +658,19 @@ impl RiverNetwork {
         base_width: f32,
         options: RiverCarveOptions<'_>,
     ) -> bool {
-        loop {
-            let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
-            let waterfall_clearance = (options.waterfall_placement == WaterfallPlacement::Enabled)
-                .then(|| {
-                    WaterfallClearanceIndex::new(&self.rivers, mesh, self.max_flow, base_width)
-                });
-            let footprint = build_river_footprint(self, mesh, adjacency, false);
-            let invalid = self.prepare_channel_profiles(
-                mesh,
-                adjacency,
-                RiverChannelParameters { depth_multiplier },
-                waterfall_clearance.as_ref(),
-                &footprint,
-                options,
-            );
-            if !invalid.iter().any(|&failed| failed) {
-                return true;
-            }
-            self.remove_invalid_rivers(&invalid);
-            if self.rivers.is_empty() {
-                return false;
-            }
-        }
+        let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
+        let waterfall_clearance = (options.waterfall_placement == WaterfallPlacement::Enabled)
+            .then(|| WaterfallClearanceIndex::new(&self.rivers, mesh, self.max_flow, base_width));
+        let footprint = build_river_footprint(self, mesh, adjacency, false);
+        self.prepare_channel_profiles(
+            mesh,
+            adjacency,
+            RiverChannelParameters { depth_multiplier },
+            waterfall_clearance.as_ref(),
+            &footprint,
+            options,
+        );
+        !self.rivers.is_empty()
     }
 
     fn prepare_channel_terrain(
@@ -874,7 +877,7 @@ impl RiverNetwork {
         waterfall_clearance: Option<&WaterfallClearanceIndex>,
         footprint: &RiverFootprint,
         options: RiverCarveOptions<'_>,
-    ) -> Vec<bool> {
+    ) {
         let mut scratch = RiverProfileScratch::default();
         let mut ocean_entries = vec![None; self.rivers.len()];
         for (river_index, ocean_entry) in ocean_entries.iter_mut().enumerate() {
@@ -916,9 +919,8 @@ impl RiverNetwork {
         // an already-reconciled confluence on their shared receiver.
         self.reconcile_confluence_profiles();
 
-        let mut invalid = vec![false; self.rivers.len()];
-        for (river_index, failed) in invalid.iter_mut().enumerate() {
-            let profile_end = ocean_entries[river_index].map_or_else(
+        for (river_index, &ocean_entry) in ocean_entries.iter().enumerate() {
+            let profile_end = ocean_entry.map_or_else(
                 || self.rivers[river_index].nodes.len().saturating_sub(1),
                 |ocean_entry| ocean_entry.saturating_sub(1),
             );
@@ -931,7 +933,10 @@ impl RiverNetwork {
                     perimeter: &self.perimeter,
                     rejected,
                 });
-            let waterfalls_valid = waterfall_clearance.is_none_or(|clearance| {
+            if let Some(clearance) = waterfall_clearance {
+                // Optional waterfall support cannot invalidate a sea-connected
+                // river. Unplaced faces retain their local drop as ordinary
+                // graded water while other supported cascades remain active.
                 relocate_conflicting_waterfalls(
                     mesh,
                     &mut self.rivers[river_index].nodes,
@@ -945,60 +950,50 @@ impl RiverNetwork {
                     },
                     &self.cross_sections[river_index],
                     &mut scratch.waterfall_drops,
-                )
-            });
-            self.river_mesh_ends[river_index] = ocean_entries[river_index].map(|ocean_entry| {
+                );
+            }
+            self.river_mesh_ends[river_index] = ocean_entry.map(|ocean_entry| {
                 river_mouth_transition(ocean_entry, &self.waterfalls[river_index]).river_mesh_end
             });
-            *failed = !waterfalls_valid;
         }
-        invalid
     }
 
     fn reconcile_confluence_profiles(&mut self) {
-        for river_index in (0..self.rivers.len()).rev() {
+        for river_index in 0..self.rivers.len() {
             self.reconcile_confluence_profile(river_index);
         }
     }
 
-    fn reconcile_confluence_profile(&mut self, mut incoming_river: usize) {
-        loop {
-            let Some(receiver) = self.rivers[incoming_river].join else {
-                return;
-            };
-            let Some(join_vertex) = self.join_vertices[incoming_river] else {
-                return;
-            };
-            let Some(incoming_terminal) = self.rivers[incoming_river].nodes.len().checked_sub(1)
-            else {
-                return;
-            };
-            let Some(receiver_join) = self.rivers[receiver]
-                .nodes
-                .iter()
-                .position(|node| node.vertex == join_vertex)
-            else {
-                return;
-            };
-            let incoming_surface = self.rivers[incoming_river].nodes[incoming_terminal].surface;
-            let receiver_surface = self.rivers[receiver].nodes[receiver_join].surface;
-            let target_surface = incoming_surface.min(receiver_surface);
-            lower_profile_reach_through_confluence(
-                &mut self.rivers[incoming_river].nodes,
-                &mut self.waterfalls[incoming_river],
-                incoming_terminal,
-                target_surface,
-            );
-            let reached_terminal = lower_profile_reach_through_confluence(
-                &mut self.rivers[receiver].nodes,
-                &mut self.waterfalls[receiver],
-                receiver_join,
-                target_surface,
-            );
-            if !reached_terminal {
-                return;
-            }
-            incoming_river = receiver;
+    fn reconcile_confluence_profile(&mut self, incoming: usize) {
+        let Some(receiver) = self.rivers[incoming].join else {
+            return;
+        };
+        let Some(join_vertex) = self.join_vertices[incoming] else {
+            return;
+        };
+        let Some(level) = self.rivers[receiver]
+            .nodes
+            .iter()
+            .find(|node| node.vertex == join_vertex)
+            .map(|node| node.surface)
+        else {
+            return;
+        };
+        let river = &mut self.rivers[incoming];
+        let Some(terminal) = river.nodes.last_mut() else {
+            return;
+        };
+        terminal.surface = level;
+        // The established, larger-catchment receiver owns the hydraulic grade.
+        // A low incoming reach pools upstream to that boundary; it cannot pull
+        // the trunk down or leave a second sheet beside it at another level.
+        let mut ceiling = level;
+        for node in river.nodes.iter_mut().rev() {
+            node.surface = node.surface.max(ceiling);
+            ceiling = node.surface;
+        }
+        for (pair, waterfall) in river.nodes.windows(2).zip(&mut self.waterfalls[incoming]) {
+            *waterfall &= pair[0].surface > pair[1].surface + f32::EPSILON;
         }
     }
 
@@ -1044,10 +1039,7 @@ impl RiverNetwork {
             );
             self.river_mesh_ends[river_index] = result.river_mesh_end;
             for node in nodes {
-                known_surfaces
-                    .entry(node.vertex)
-                    .and_modify(|value| *value = value.min(node.surface))
-                    .or_insert(node.surface);
+                known_surfaces.entry(node.vertex).or_insert(node.surface);
             }
             *budget_output = result.budget;
         }
@@ -1056,12 +1048,9 @@ impl RiverNetwork {
     /// Recomputes and carves sea handoffs after the final confluence lowering,
     /// then extends them into branches that join a submerged receiver reach.
     ///
-    /// Confluence reconciliation can move a direct river's fitted sea entry
-    /// upstream after its preliminary cutoff was chosen. A joined river is not
-    /// itself ocean-terminal, so its earlier passes leave the cutoff empty.
-    /// Walking downstream-first after all profiles have settled handles both
-    /// cases. The caller refreshes the full-width corridor only when this pass
-    /// actually extends a cutoff or lowers a mouth.
+    /// Keep a direct mouth at its actual coastline. A tributary joining an
+    /// existing sea handoff inherits that contact only at its terminal node;
+    /// its inland grade must not become an extension of the estuary.
     fn reconcile_and_carve_submerged_mouth_handoffs(
         &mut self,
         terrain: &mut RiverTerrain<'_>,
@@ -1073,11 +1062,17 @@ impl RiverNetwork {
             if !self.river_hands_off_to_sea(river_index) {
                 continue;
             }
-            let Some(ocean_entry) = river_ocean_entry(
+            let ocean_entry = river_ocean_entry(
                 &self.rivers[river_index].nodes,
                 &self.ocean,
                 &self.cross_sections[river_index],
-            ) else {
+            )
+            .or_else(|| {
+                self.rivers[river_index]
+                    .join
+                    .and_then(|_| self.rivers[river_index].nodes.len().checked_sub(1))
+            });
+            let Some(ocean_entry) = ocean_entry else {
                 self.river_mesh_ends[river_index] = None;
                 continue;
             };
@@ -1101,9 +1096,8 @@ impl RiverNetwork {
     ///
     /// Rivers are stored downstream-first, so `carve_channels` has established
     /// the receiving river's final mesh end before it reaches a tributary. That
-    /// lets a tributary (and, transitively, a chain of tributaries) reuse its
-    /// last waterfall as the handoff instead of retaining river-water faces on
-    /// top of the sea plane.
+    /// lets a tributary (and, transitively, a chain of tributaries) terminate at
+    /// its shared sea contact without submerging the earlier river reach.
     fn river_hands_off_to_sea(&self, river_index: usize) -> bool {
         let Some(river) = self.rivers.get(river_index) else {
             return false;
@@ -1186,80 +1180,6 @@ impl RiverNetwork {
                 node.position = position;
             }
         }
-    }
-
-    /// Removes rivers whose waterfalls cannot form a complete local barrier.
-    /// A tributary cannot survive without its downstream river, so invalidity
-    /// propagates upstream before the parallel network arrays are compacted.
-    fn remove_invalid_rivers(&mut self, invalid: &[bool]) -> usize {
-        debug_assert_eq!(invalid.len(), self.rivers.len());
-        let mut removed = invalid.to_vec();
-        loop {
-            let mut changed = false;
-            for (river_index, river) in self.rivers.iter().enumerate() {
-                if !removed[river_index]
-                    && river
-                        .join
-                        .is_some_and(|parent| removed.get(parent).copied().unwrap_or(true))
-                {
-                    removed[river_index] = true;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-
-        let removed_count = removed.iter().filter(|&&value| value).count();
-        if removed_count == 0 {
-            return 0;
-        }
-        let mut remap = vec![None; self.rivers.len()];
-        let mut next = 0;
-        for (old, &is_removed) in removed.iter().enumerate() {
-            if !is_removed {
-                remap[old] = Some(next);
-                next += 1;
-            }
-        }
-
-        let old_rivers = std::mem::take(&mut self.rivers);
-        let old_join_vertices = std::mem::take(&mut self.join_vertices);
-        let old_waterfalls = std::mem::take(&mut self.waterfalls);
-        let old_mesh_ends = std::mem::take(&mut self.river_mesh_ends);
-        let old_sections = std::mem::take(&mut self.cross_sections);
-        self.rivers.reserve(next);
-        self.join_vertices.reserve(next);
-        self.waterfalls.reserve(next);
-        self.river_mesh_ends.reserve(next);
-        self.cross_sections.reserve(next);
-        for (old, ((((mut river, join_vertex), waterfalls), mesh_end), sections)) in old_rivers
-            .into_iter()
-            .zip(old_join_vertices)
-            .zip(old_waterfalls)
-            .zip(old_mesh_ends)
-            .zip(old_sections)
-            .enumerate()
-        {
-            if removed[old] {
-                continue;
-            }
-            river.join = river.join.and_then(|parent| remap[parent]);
-            self.rivers.push(river);
-            self.join_vertices.push(join_vertex);
-            self.waterfalls.push(waterfalls);
-            self.river_mesh_ends.push(mesh_end);
-            self.cross_sections.push(sections);
-        }
-        self.max_flow = self
-            .rivers
-            .iter()
-            .flat_map(|river| &river.nodes)
-            .map(|node| node.flow)
-            .max()
-            .unwrap_or(1);
-        removed_count
     }
 }
 

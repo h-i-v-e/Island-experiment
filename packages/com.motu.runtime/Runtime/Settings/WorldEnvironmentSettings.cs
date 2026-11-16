@@ -46,6 +46,8 @@ namespace Motu.Settings
         [Tooltip("Fixed solar latitude. Coherent archipelagos instead derive it from the player's north/south position: 0 degrees at the south edge, 80 at the north edge.")]
         [Range(-80f, 80f)] [SerializeField] private float sunLatitudeDegrees = -36f;
         [Range(0f, 24f)] [SerializeField] private float startingSolarTimeHours = 8f;
+        [Tooltip("Keep the sun and moon at the starting solar time while the environment continues updating.")]
+        [SerializeField] private bool freezeSolarTime;
         [Range(0f, 4f)] [SerializeField] private float middaySunIntensity = 1.25f;
         [Tooltip("Degrees the moon's orbit is tilted towards the equator from the current solar latitude, including latitude changes as the player moves. Zero follows the sun's orbit latitude.")]
         [Range(0f, 45f)] [SerializeField] private float moonEquatorOffsetDegrees = 22f;
@@ -103,6 +105,7 @@ namespace Motu.Settings
         public float MidnightToNoonClockRateRatio => Mathf.Clamp(midnightToNoonClockRateRatio, 1f, 20f);
         public float SunLatitudeDegrees => Mathf.Clamp(sunLatitudeDegrees, -80f, 80f);
         public float StartingSolarTimeHours => Mathf.Repeat(startingSolarTimeHours, 24f);
+        public bool FreezeSolarTime => freezeSolarTime;
         public float MiddaySunIntensity => Mathf.Clamp(middaySunIntensity, 0f, 4f);
         public float MoonEquatorOffsetDegrees => Mathf.Clamp(moonEquatorOffsetDegrees, 0f, 45f);
         public float StartingMoonPhase => Mathf.Repeat(startingMoonPhase, 1f);

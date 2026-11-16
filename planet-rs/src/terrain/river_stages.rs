@@ -13,9 +13,18 @@ use crate::{DVec3, PlanetMesh};
 #[derive(Debug, Default)]
 pub(super) struct Budget {
     pub excavated: f64,
+    /// Imported spill-grade support, separate from transported channel sediment.
+    pub conditioned: f64,
     pub alluvial: f64,
     pub delta: f64,
     pub exported: f64,
+}
+
+impl Budget {
+    pub fn account(self, exported: &mut f64, conditioned: &mut f64) {
+        *exported += self.exported;
+        *conditioned += self.conditioned;
+    }
 }
 
 /// All scratch belongs to this stage; topology and material arrays are borrowed.
@@ -60,7 +69,6 @@ pub(super) fn carve_with_sources(
         return Budget::default();
     }
     let mut drainage = drainage::route(&mesh.directions, graph, heights);
-    let mut cuts = vec![0.0; heights.len()];
     let ceilings: Vec<_> = heights
         .iter()
         .enumerate()
@@ -72,24 +80,20 @@ pub(super) fn carve_with_sources(
             h + (settings.river_depth * 2.0).min(spacing * 0.25)
         })
         .collect();
-    // Include saddle excavation in the same sediment ledger as the corridor.
-    let (rivers, _) = drainage::repair_with_sources(
+    // Basin support is imported fill, like final banks, never sediment created
+    // by cutting every downstream saddle down to the lowest tributary.
+    let (rivers, mut conditioned) = drainage::repair_with_sources(
         &mesh.directions,
         graph,
         heights,
         soil,
         settings,
         &mut drainage,
-        &mut cuts,
         sources,
     );
     drainage::retain_sources(sources, &mesh.directions, &rivers);
-    let mut sediment: Vec<_> = cuts
-        .iter()
-        .zip(&graph.areas)
-        .map(|(&cut, &area)| cut * area)
-        .collect();
-    let mut protected: Vec<_> = cuts.iter().map(|&cut| cut > 0.0).collect();
+    let mut sediment = vec![0.0; heights.len()];
+    let mut protected = vec![false; heights.len()];
     let widths = river_widths::build(mesh, &drainage, &rivers, settings);
     let threshold = settings.river_catchment * std::f64::consts::TAU * 2.0;
     let levels: Vec<_> = heights
@@ -103,6 +107,10 @@ pub(super) fn carve_with_sources(
     let footprints = Footprints::with_widths(mesh, &rivers, &levels, settings, 0.0, &widths);
     for (i, height) in heights.iter_mut().enumerate() {
         let (target, core) = footprints.bed_target(mesh.directions[i], *height);
+        let fill = (target - *height).max(0.0);
+        *height += fill;
+        soil[i] += fill;
+        conditioned += fill * graph.areas[i];
         let requested = (*height - target).max(0.0);
         let loose = requested.min(soil[i]);
         let removed = loose + (requested - loose) * erosion::bedrock_rate(hardness[i]);
@@ -113,29 +121,24 @@ pub(super) fn carve_with_sources(
     }
     drop(footprints);
     drop(widths);
-    cuts.fill(0.0);
-    let (rivers, _) = drainage::repair_with_sources(
+    let (rivers, added) = drainage::repair_with_sources(
         &mesh.directions,
         graph,
         heights,
         soil,
         settings,
         &mut drainage,
-        &mut cuts,
         sources,
     );
     drainage::retain_sources(sources, &mesh.directions, &rivers);
-    for (i, &cut) in cuts.iter().enumerate() {
-        sediment[i] += cut * graph.areas[i];
-        protected[i] |= cut > 0.0;
-    }
-    drop(cuts);
+    conditioned += added;
     for river in &rivers {
         protected[river.from] = true;
         protected[river.to] = true;
     }
     let mut budget = Budget {
         excavated: sediment.iter().sum(),
+        conditioned,
         ..Budget::default()
     };
     let mut outlets: Vec<_> = (0..heights.len()).collect();
@@ -406,7 +409,10 @@ mod tests {
                 budget.delta > 0.0,
                 "excavation must feed a coastal fan: {budget:?}"
             );
-            assert!((before - material(&graph, &heights) - budget.exported).abs() < 1e-14);
+            assert!(
+                (before + budget.conditioned - material(&graph, &heights) - budget.exported).abs()
+                    < 1e-14
+            );
             assert!(
                 (budget.excavated - budget.alluvial - budget.delta - budget.exported).abs() < 1e-14
             );
@@ -420,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn inherited_sources_survive_both_stage_repairs_without_new_candidates() {
+    fn inherited_sources_cannot_reactivate_stages_above_the_catchment_threshold() {
         let (mesh, graph, original, mut settings) = valley();
         settings.river_catchment = 1.0;
         let source = mesh.directions[8];
@@ -442,17 +448,23 @@ mod tests {
                 &settings,
                 &mut sources,
             );
-            assert!(budget.excavated > without_sources.excavated + 1e-10);
-            assert_eq!(sources, [source]);
-            assert!((before - material(&graph, &heights) - budget.exported).abs() < 1e-14);
+            assert_eq!(
+                budget.excavated.to_bits(),
+                without_sources.excavated.to_bits()
+            );
+            assert!(sources.is_empty());
+            assert!(
+                (before + budget.conditioned - material(&graph, &heights) - budget.exported).abs()
+                    < 1e-14
+            );
         }
     }
 
     #[test]
-    fn final_channel_finishing_keeps_inherited_reaches_below_the_source_threshold() {
+    fn final_channel_finishing_rejects_inherited_reaches_below_the_source_threshold() {
         let (mut mesh, _, mut heights, mut settings) = valley();
-        // Leave enough relief for the frozen waterfall/terrace profile to keep
-        // its headwater above sea after excavation.
+        // Even a pronounced valley and a remembered headwater cannot replace
+        // the requested rainfall threshold.
         for height in &mut heights {
             *height *= 10.0;
         }
@@ -471,13 +483,8 @@ mod tests {
             &[source],
         )
         .unwrap();
-        assert!(!finished.rivers.is_empty());
-        assert!(!finished.river_surface.triangles.is_empty());
-        assert!(finished.rivers.iter().all(|river| {
-            river.catchment < settings.river_catchment * 4.0 * std::f64::consts::PI
-                && river.catchment.to_bits() == finished.drainage.catchment[river.from].to_bits()
-                && heights[river.to] < heights[river.from]
-        }));
+        assert!(finished.rivers.is_empty());
+        assert!(finished.river_surface.triangles.is_empty());
     }
 
     #[test]
@@ -552,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_and_each_terrain_refinement_stage_carve_before_final_river_finishing() {
+    fn initial_stage_carves_and_refinement_respects_the_new_catchment_threshold() {
         use super::super::{Formation, refine_stages};
         use crate::{PlanetOptions, generate};
 
@@ -603,12 +610,15 @@ mod tests {
                 "only the requested terrain subdivision should run"
             );
             assert!(
-                heights.iter().zip(&before).any(|(&h, &old)| h < old - 1e-6),
-                "old vertices need further excavation, not just interpolation onto new ones"
+                heights
+                    .iter()
+                    .zip(&before)
+                    .all(|(&h, &old)| h >= old - 1e-6),
+                "an excessive threshold must suppress river excavation after refinement"
             );
             assert!(
-                !formation.river_sources.is_empty(),
-                "accepted sources must survive refinement when new candidates are disabled"
+                formation.river_sources.is_empty(),
+                "old anchors cannot bypass the new catchment threshold"
             );
         }
     }

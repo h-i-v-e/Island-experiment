@@ -1,5 +1,5 @@
-//! Sea-seeded minimax flood routing, followed by downhill incision. Unlike a
-//! planar DEM, this graph has no outside border: every submerged site is a root.
+//! Natural catchments connected by sea-seeded minimax spills and downhill incision.
+//! Unlike a planar DEM, this graph has no outside border: every submerged site is a root.
 //! See [Barnes et al.](https://arxiv.org/abs/1511.04463) (adapted, not copied).
 use super::{
     RiverSegment, TerrainOptions,
@@ -11,13 +11,18 @@ use std::{
     collections::{BinaryHeap, HashMap},
 };
 
+#[path = "river_contacts.rs"]
+mod river_contacts;
+
 #[path = "river_sources.rs"]
 mod river_sources;
 pub(super) use river_sources::retain_sources;
 
 #[derive(Debug, PartialEq)]
 pub struct Drainage {
-    /// A land site's next adjacent site. Submerged sites always have no receiver.
+    /// A land site's next adjacent site on its sea-connected spill path.
+    /// Unselected depressions may cross rising raw terrain; accepted channels
+    /// fill upstream dips to their spill grade. Ocean roots have no receiver.
     pub receivers: Vec<Option<usize>>,
     /// Accumulated rainfall catchment, in unit-sphere steradians.
     pub catchment: Vec<f64>,
@@ -47,61 +52,9 @@ impl PartialOrd for State {
     }
 }
 
-pub(super) fn route(directions: &[DVec3], graph: &SurfaceGraph, heights: &[f64]) -> Drainage {
-    let count = heights.len();
-    let mut receivers = vec![None; count];
-    let mut spills = vec![f64::INFINITY; count];
-    let mut distances = vec![f64::INFINITY; count];
-    let mut ranks = vec![usize::MAX; count];
-    let mut order = Vec::with_capacity(count);
-    let mut queue = BinaryHeap::new();
-    for (vertex, &height) in heights.iter().enumerate() {
-        if height < 0.0 {
-            spills[vertex] = 0.0;
-            distances[vertex] = 0.0;
-            queue.push(State {
-                spill: 0.0,
-                distance: 0.0,
-                vertex,
-            });
-        }
-    }
-    while let Some(state) = queue.pop() {
-        let i = state.vertex;
-        if ranks[i] != usize::MAX {
-            continue;
-        }
-        ranks[i] = order.len();
-        order.push(i);
-        for &neighbour in &graph.neighbours[i] {
-            if ranks[neighbour] != usize::MAX || heights[neighbour] < 0.0 {
-                continue;
-            }
-            let spill = state.spill.max(heights[neighbour]);
-            let distance = state.distance + arc(directions[i], directions[neighbour]);
-            if spill < spills[neighbour]
-                || (spill.total_cmp(&spills[neighbour]).is_eq() && distance < distances[neighbour])
-            {
-                spills[neighbour] = spill;
-                distances[neighbour] = distance;
-                receivers[neighbour] = Some(i);
-                queue.push(State {
-                    spill,
-                    distance,
-                    vertex: neighbour,
-                });
-            }
-        }
-    }
-    prefer_downhill(directions, graph, heights, &ranks, &order, &mut receivers);
-    let mut drainage = Drainage {
-        receivers,
-        catchment: vec![0.0; count],
-        order,
-    };
-    drainage.accumulate(graph, heights);
-    drainage
-}
+#[path = "drainage_routing.rs"]
+mod routing;
+pub(super) use routing::route;
 
 fn prefer_downhill(
     directions: &[DVec3],
@@ -134,7 +87,7 @@ fn prefer_downhill(
 impl Drainage {
     fn accumulate(&mut self, graph: &SurfaceGraph, heights: &[f64]) {
         for (i, catchment) in self.catchment.iter_mut().enumerate() {
-            *catchment = if heights[i] >= 0.0 {
+            *catchment = if self.receivers[i].is_some() || heights[i] >= 0.0 {
                 graph.areas[i]
             } else {
                 0.0
@@ -306,18 +259,16 @@ pub(super) fn carve_with_sources(
         soil[i] = (soil[i] - depth).max(0.0);
         removed += depth * graph.areas[i];
     }
-    let mut depths = vec![0.0; heights.len()];
-    let (rivers, repaired) = repair_with_sources(
+    let (rivers, _) = repair_with_sources(
         directions,
         graph,
         heights,
         soil,
         options,
         &mut drainage,
-        &mut depths,
         inherited_sources,
     );
-    (drainage, rivers, removed + repaired)
+    (drainage, rivers, removed)
 }
 
 #[cfg(test)]
@@ -328,21 +279,40 @@ pub(super) fn repair(
     soil: &mut [f64],
     options: &TerrainOptions,
     drainage: &mut Drainage,
-    depths: &mut [f64],
 ) -> (Vec<RiverSegment>, f64) {
-    repair_with_sources(
-        directions,
-        graph,
-        heights,
-        soil,
-        options,
-        drainage,
-        depths,
-        &[],
-    )
+    repair_with_sources(directions, graph, heights, soil, options, drainage, &[])
 }
 
-#[allow(clippy::too_many_arguments)] // Mirrors repair's terrain buffers plus borrowed source anchors.
+/// Attach physical width contacts before freezing profiles. Each round rebuilds
+/// real catchments and tapered widths; it never adds painted branch rainfall.
+/// An established donor must improve its immutable downstream spill head, or
+/// shorten a route at equal head. Incidental connector runoff is recomputed.
+pub(super) fn connect_contacts(
+    directions: &[DVec3],
+    graph: &SurfaceGraph,
+    heights: &[f64],
+    options: &TerrainOptions,
+    drainage: &mut Drainage,
+    rivers: &[RiverSegment],
+) -> bool {
+    let mut plan = river_contacts::ContactPlan::new(heights.len());
+    let mut selected = rivers.to_vec();
+    let mut changed = false;
+    while river_contacts::join(
+        directions, graph, heights, options, drainage, &selected, &mut plan,
+    ) > 0
+    {
+        changed = true;
+        drainage.order = routing::parent_order(&drainage.receivers);
+        drainage.accumulate(graph, heights);
+        selected = river_sources::select(directions, graph, heights, drainage, options, &[]);
+    }
+    changed
+}
+
+/// Fill only accepted channel dips up to their downstream spill grade. The
+/// returned material is imported hydrological fill, like final bank support;
+/// it is accounted separately from sediment excavated and exported downstream.
 pub(super) fn repair_with_sources(
     directions: &[DVec3],
     graph: &SurfaceGraph,
@@ -350,33 +320,12 @@ pub(super) fn repair_with_sources(
     soil: &mut [f64],
     options: &TerrainOptions,
     drainage: &mut Drainage,
-    depths: &mut [f64],
     inherited_sources: &[DVec3],
 ) -> (Vec<RiverSegment>, f64) {
-    let mut removed = 0.0;
-    // Incise downstream saddles in upstream-to-outlet order. Never raise sea
-    // level or fill all land to a spill plane; no coastline constraint is used.
-    for &i in drainage.order.iter().rev() {
-        if heights[i] < 0.0 {
-            continue;
-        }
-        if let Some(target) = drainage.receivers[i] {
-            let ceiling = heights[i] - 1.0e-6 * arc(directions[i], directions[target]);
-            let carved = (heights[target] - ceiling).max(0.0);
-            heights[target] -= carved;
-            depths[target] += carved;
-            soil[target] = (soil[target] - carved).max(0.0);
-            removed += carved * graph.areas[target];
-        }
-    }
-    // Carving can create new below-sea roots. Terminate at the first such site.
-    for (i, receiver) in drainage.receivers.iter_mut().enumerate() {
-        if heights[i] < 0.0 {
-            *receiver = None;
-        }
-    }
+    // Receiver roots belong to the ocean captured when routing began. A bed
+    // cut below zero is still a channel, and must not erase its downstream path.
     drainage.accumulate(graph, heights);
-    let rivers = river_sources::select(
+    let mut rivers = river_sources::select(
         directions,
         graph,
         heights,
@@ -384,7 +333,40 @@ pub(super) fn repair_with_sources(
         options,
         inherited_sources,
     );
-    (rivers, removed)
+    // Zero-depth callers are finishing a frozen profile. Physical joins belong
+    // to the explicit pre-profile pass with its actual channel settings.
+    if options.river_depth > 0.0
+        && connect_contacts(directions, graph, heights, options, drainage, &rivers)
+    {
+        rivers = river_sources::select(
+            directions,
+            graph,
+            heights,
+            drainage,
+            options,
+            inherited_sources,
+        );
+    }
+    let mut active = vec![false; heights.len()];
+    for river in &rivers {
+        active[river.from] = true;
+    }
+    let mut added = 0.0;
+    for &i in &drainage.order {
+        if !active[i] {
+            continue;
+        }
+        let Some(target) = drainage.receivers[i] else {
+            continue;
+        };
+        let floor = (heights[target] + 1.0e-6 * arc(directions[i], directions[target]))
+            .max(0.0_f64.next_up());
+        let fill = (floor - heights[i]).max(0.0);
+        heights[i] += fill;
+        soil[i] += fill;
+        added += fill * graph.areas[i];
+    }
+    (rivers, added)
 }
 
 #[cfg(test)]
@@ -479,7 +461,10 @@ mod tests {
             &graph,
             &mut heights,
             &mut vec![0.002; 64],
-            &TerrainOptions::default(),
+            &TerrainOptions {
+                river_catchment: 1.0e-8,
+                ..TerrainOptions::default()
+            },
         );
         for start in 0..64 {
             let mut current = start;

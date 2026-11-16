@@ -36,8 +36,8 @@ use std::{
 
 const LEVELS: usize = 4;
 const LOAD_LIMIT: usize = 4;
-// Retire geometry baked before river sources persisted through refinement.
-const CACHE_GENERATION: u64 = 12;
+// Retire geometry baked before physical channel contacts and dry-divide guards.
+const CACHE_GENERATION: u64 = 17;
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]

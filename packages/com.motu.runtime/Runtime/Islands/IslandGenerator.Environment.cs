@@ -17,16 +17,22 @@ namespace Motu.Islands
             }
             appliedWorldToLocal = worldToLocal;
             hasAppliedWorldToLocal = true;
-            terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            terrainLod1Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            fallenLogMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+            SetIslandTransform(terrainMaterial, worldToLocal);
+            SetIslandTransform(terrainLod1Material, worldToLocal);
+            SetIslandTransform(terrainLod2Material, worldToLocal);
+            SetIslandTransform(grassMaterial, worldToLocal);
+            SetIslandTransform(rockMaterial, worldToLocal);
+            SetIslandTransform(fallenLogMaterial, worldToLocal);
+            SetIslandTransform(riverMaterial, worldToLocal);
+            SetIslandTransform(reedMaterial, worldToLocal);
+            SetIslandTransform(fernMaterial, worldToLocal);
         }
+
+        private static void SetIslandTransform(Material material, Matrix4x4 worldToLocal)
+        {
+            if (material != null) material.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        }
+
         private void ApplyLiveSettings()
         {
             if (!appliedGrassColourA.HasValue
@@ -81,8 +87,7 @@ namespace Motu.Islands
             {
                 appliedReedBaseColour = Reeds.BaseColour;
                 appliedReedTipColour = Reeds.TipColour;
-                reedMaterial?.SetColor("_BaseColor", Reeds.BaseColour);
-                reedMaterial?.SetColor("_TipColor", Reeds.TipColour);
+                SetFoliageColours(reedMaterial, Reeds.BaseColour, Reeds.TipColour);
             }
             if (appliedShowFerns != Ferns.ShowFerns)
             {
@@ -94,8 +99,7 @@ namespace Motu.Islands
             {
                 appliedFernBaseColour = Ferns.BaseColour;
                 appliedFernTipColour = Ferns.TipColour;
-                fernMaterial?.SetColor("_BaseColor", Ferns.BaseColour);
-                fernMaterial?.SetColor("_TipColor", Ferns.TipColour);
+                SetFoliageColours(fernMaterial, Ferns.BaseColour, Ferns.TipColour);
             }
             if (appliedShowMeshEdges != DebugSettings.ShowMeshEdges)
             {
@@ -108,6 +112,14 @@ namespace Motu.Islands
                 terrainStreamer?.SetWaterfallFootDebug(DebugSettings.ShowWaterfallFeet);
             }
         }
+
+        private static void SetFoliageColours(Material material, Color baseColour, Color tipColour)
+        {
+            if (material == null) return;
+            material.SetColor("_BaseColor", baseColour);
+            material.SetColor("_TipColor", tipColour);
+        }
+
         private void BindWorldEnvironment(float worldSize)
         {
             if (worldEnvironment != null && !worldEnvironment.IsInstalled)
@@ -117,10 +129,11 @@ namespace Motu.Islands
 
         private void SyncHostLighting()
         {
+            if (grassMaterial == null) return;
             var light = RenderSettings.sun;
-            grassMaterial?.SetVector("_GrassLightDirection", light != null ? -light.transform.forward : Vector3.down);
-            grassMaterial?.SetColor("_GrassLightColor", light != null ? light.color * light.intensity : Color.black);
-            grassMaterial?.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
+            grassMaterial.SetVector("_GrassLightDirection", light != null ? -light.transform.forward : Vector3.down);
+            grassMaterial.SetColor("_GrassLightColor", light != null ? light.color * light.intensity : Color.black);
+            grassMaterial.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
         }
 
         public void SetFirstPersonViewActive(bool active) =>

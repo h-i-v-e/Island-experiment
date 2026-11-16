@@ -179,7 +179,8 @@ pub struct PlanetTerrain {
     pub channel_depths: Vec<f64>,
     /// Net terrain lift at river banks/supports, kept separately from incision.
     pub bank_lifts: Vec<f64>,
-    /// Area-weighted relative material added by net bank/support shaping.
+    /// Area-weighted imported spill-grade support plus net final bank shaping.
+    /// Hydrological fill is separate from transported excavation sediment.
     pub bank_added_material: f64,
     pub water_elevations: Vec<f64>,
     /// Original ocean proximity, frozen before the final river carve and
@@ -354,7 +355,7 @@ impl PlanetTerrain {
             incised_material: channels.incised_material + formation.river_exported,
             channel_depths: channels.channel_depths,
             bank_lifts: channels.bank_lifts,
-            bank_added_material: channels.bank_added_material,
+            bank_added_material: channels.bank_added_material + formation.river_conditioned,
             water_elevations: channels.water_elevations,
             pre_carve_sea_proximity: channels.pre_carve_sea_proximity,
             river_surface: channels.river_surface,
@@ -532,6 +533,23 @@ struct FinishedChannels {
     incised_material: f64,
 }
 
+impl FinishedChannels {
+    fn disabled(mesh: &PlanetMesh, graph: &SurfaceGraph, heights: &[f64]) -> Self {
+        Self {
+            drainage: drainage::route(&mesh.directions, graph, heights),
+            rivers: Vec::new(),
+            channel_depths: vec![0.0; heights.len()],
+            bank_lifts: vec![0.0; heights.len()],
+            bank_added_material: 0.0,
+            water_elevations: heights.iter().map(|height| height - 0.00001).collect(),
+            pre_carve_sea_proximity: sea_proximity::build(mesh, graph, heights),
+            river_surface: RiverSurface::default(),
+            waterfalls: Vec::new(),
+            incised_material: 0.0,
+        }
+    }
+}
+
 // Keep the finishing stages together: their order prevents late incision from
 // undoing support smoothing and the final upstream bank lifts.
 #[allow(clippy::too_many_lines)]
@@ -545,12 +563,20 @@ fn finish_channels(
     inherited_sources: &[DVec3],
 ) -> Result<FinishedChannels, PlanetError> {
     let mut graph = SurfaceGraph::new(topology);
+    if settings.river_depth == 0.0 {
+        return Ok(FinishedChannels::disabled(topology, &graph, elevations));
+    }
     let routing = TerrainOptions {
         river_depth: 0.0,
         ..*settings
     };
     let mut incised_material = 0.0;
-    let (drainage, rivers, removed) = drainage::carve_with_sources(
+    let support_before: f64 = soil_depth
+        .iter()
+        .zip(&graph.areas)
+        .map(|(soil, area)| soil * area)
+        .sum();
+    let (mut drainage, rivers, removed) = drainage::carve_with_sources(
         &topology.directions,
         &graph,
         elevations,
@@ -558,6 +584,33 @@ fn finish_channels(
         &routing,
         inherited_sources,
     );
+    let rivers = if drainage::connect_contacts(
+        &topology.directions,
+        &graph,
+        elevations,
+        settings,
+        &mut drainage,
+        &rivers,
+    ) {
+        drainage::repair_with_sources(
+            &topology.directions,
+            &graph,
+            elevations,
+            soil_depth,
+            &routing,
+            &mut drainage,
+            inherited_sources,
+        )
+        .0
+    } else {
+        rivers
+    };
+    let conditioned: f64 = soil_depth
+        .iter()
+        .zip(&graph.areas)
+        .map(|(soil, area)| soil * area)
+        .sum::<f64>()
+        - support_before;
     let mut sources = Vec::new();
     drainage::retain_sources(&mut sources, &topology.directions, &rivers);
     incised_material += removed;
@@ -739,11 +792,12 @@ fn finish_channels(
         .zip(&graph.areas)
         .map(|(depth, area)| depth * area)
         .sum::<f64>();
-    let bank_added_material = bank_lifts
-        .iter()
-        .zip(&graph.areas)
-        .map(|(lift, area)| lift * area)
-        .sum();
+    let bank_added_material = conditioned
+        + bank_lifts
+            .iter()
+            .zip(&graph.areas)
+            .map(|(lift, area)| lift * area)
+            .sum::<f64>();
     let river_surface = contacts.surface;
     Ok(FinishedChannels {
         drainage,
@@ -804,18 +858,19 @@ fn validate_drainage(terrain: &PlanetTerrain) -> Result<(), PlanetError> {
         }
         ranks[i] = rank;
     }
+    // Potential filled basins may route over raw rising terrain. Only emitted
+    // river corridors are physically breached and must descend actual ground.
     for i in 0..count {
         match terrain.drainage.receivers[i] {
             Some(to)
                 if to < count
                     && graph.neighbours[i].contains(&to)
                     && ranks[to] < ranks[i]
-                    && terrain.elevations[i] >= 0.0
-                    && terrain.elevations[to] < terrain.elevations[i] => {}
+                    && terrain.elevations[i] >= 0.0 => {}
             None if terrain.elevations[i] < 0.0 || !has_sea => {}
             _ => {
                 return Err(PlanetError::InvalidTopology(
-                    "drainage must descend through adjacent vertices to submerged roots",
+                    "drainage must connect adjacent vertices to submerged roots without cycles",
                 ));
             }
         }
@@ -825,7 +880,9 @@ fn validate_drainage(terrain: &PlanetTerrain) -> Result<(), PlanetError> {
     }
     for river in &terrain.rivers {
         if river.from >= count
+            || river.to >= count
             || terrain.drainage.receivers[river.from] != Some(river.to)
+            || terrain.elevations[river.to] >= terrain.elevations[river.from]
             || !river.catchment.is_finite()
             || (river.catchment - terrain.drainage.catchment[river.from]).abs() > 1.0e-12
         {
@@ -843,6 +900,7 @@ struct Formation<'a> {
     tectonics: Option<&'a tectonics::TectonicField>,
     impacts: impacts::ImpactField,
     river_exported: f64,
+    river_conditioned: f64,
     river_sources: Vec<DVec3>,
 }
 
@@ -859,6 +917,7 @@ impl<'a> Formation<'a> {
             tectonics,
             impacts: impacts::ImpactField::new(seed, settings.impacts, vertices),
             river_exported: 0.0,
+            river_conditioned: 0.0,
             river_sources: Vec::new(),
         }
     }
@@ -890,7 +949,7 @@ impl<'a> Formation<'a> {
             soil,
             self.settings,
         );
-        self.river_exported += river_stages::carve_with_sources(
+        river_stages::carve_with_sources(
             topology,
             &graph,
             elevations,
@@ -899,7 +958,7 @@ impl<'a> Formation<'a> {
             self.settings,
             &mut self.river_sources,
         )
-        .exported;
+        .account(&mut self.river_exported, &mut self.river_conditioned);
         ocean::fill_stage(
             topology,
             &graph,
@@ -926,6 +985,7 @@ fn refine_stages(
         tectonics: tectonic_field,
         impacts,
         river_exported,
+        river_conditioned,
         river_sources,
     } = formation;
     let settings = *settings;
@@ -992,7 +1052,7 @@ fn refine_stages(
             soil_depth,
             settings,
         );
-        *river_exported += river_stages::carve_with_sources(
+        river_stages::carve_with_sources(
             topology,
             &graph,
             elevations,
@@ -1001,7 +1061,7 @@ fn refine_stages(
             settings,
             river_sources,
         )
-        .exported;
+        .account(river_exported, river_conditioned);
         refinement_vertices.push(topology.directions.len());
         let stage = match pass {
             0 => OceanStage::Lod2,

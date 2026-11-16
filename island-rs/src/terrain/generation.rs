@@ -22,7 +22,7 @@ use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
 };
 use crate::reeds::{ReedMeshTile, ReedMeshes, ReedOptions, ReedSurface, generate_reeds};
-use crate::rivers::WaterfallFoot;
+use crate::rivers::{RiverGenerationSettings, WaterfallFoot};
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
 const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
@@ -267,7 +267,10 @@ pub(super) fn generate_final_rivers(
         let mut network = RiverNetwork::generate_with_ocean_avoiding_sources(
             &mut attempt_lod0,
             &detail_adjacency,
-            source_rule,
+            RiverGenerationSettings {
+                source_rule,
+                channel_settings,
+            },
             ocean.clone(),
             seed,
             &excluded,
@@ -1367,7 +1370,10 @@ impl GenerationContext {
         let network = RiverNetwork::generate_with_ocean_avoiding_sources(
             mesh,
             adjacency,
-            self.river_source_rule,
+            RiverGenerationSettings {
+                source_rule: self.river_source_rule,
+                channel_settings: self.options.river_channel_settings(),
+            },
             ocean,
             self.seed,
             &excluded,
