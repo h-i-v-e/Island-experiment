@@ -59,6 +59,8 @@ pub struct ExportManifest {
     pub door_policy: String,
     #[serde(default)]
     pub terrain_policy: String,
+    #[serde(default)]
+    pub floor_policy: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub masked_materials: Vec<MaskedMaterial>,
     pub lod_triangles: [usize; 3],
@@ -73,6 +75,7 @@ struct PortablePrototype<'a> {
     lods: &'a [crate::BuildingLod; 3],
     doors: &'a [crate::DoorDescriptor],
     colliders: &'a [crate::collision::BoxCollider],
+    support_colliders: &'a [crate::collision::BoxCollider],
     stair_colliders: &'a [crate::collision::BoxCollider],
     atlas: &'a crate::BakedAtlas,
     materials: &'a [crate::MaterialTexture],
@@ -133,12 +136,14 @@ fn write_package(
     let mut files = Vec::new();
     let recipe = snapshot_dependencies(prototype, root, source_base, &mut files)?;
     write_json(root, "recipe.json", &recipe, &mut files)?;
+    write_grub_filter(root, &recipe, &mut files)?;
     let portable = PortablePrototype {
         recipe: &recipe,
         layout: &prototype.layout,
         lods: &prototype.lods,
         doors: &prototype.doors,
         colliders: &prototype.colliders,
+        support_colliders: &prototype.support_colliders,
         stair_colliders: &prototype.stair_colliders,
         atlas: &prototype.atlas,
         materials: &prototype.materials,
@@ -147,6 +152,12 @@ fn write_package(
     write_json(root, "prototype.json", &portable, &mut files)?;
     write_json(root, "doors.json", &prototype.doors, &mut files)?;
     write_json(root, "collision.json", &prototype.colliders, &mut files)?;
+    write_json(
+        root,
+        "support-collision.json",
+        &prototype.support_colliders,
+        &mut files,
+    )?;
     write_json(
         root,
         "stairs-collision.json",
@@ -177,19 +188,66 @@ fn write_package(
             double_sided: true,
         })
         .collect();
-    let manifest=ExportManifest {
-        package_version:1,geometry_version:30,material_version:12,bake_version:14,
+    let mut manifest=ExportManifest {
+        package_version:1,geometry_version:53,material_version:20,bake_version:22,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
-        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. The stairs material group is independently hideable at every LOD; disable stairs-collision.json with it. collision.json always includes the foundation; stairs.json describes each entrance, flight direction and landing bounds; foundation.json gives the buried bounds. Baked foundation maps are shared by stairs at all LODs.".into(),
+        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. Hide the stairs and stair_treads material groups together at every LOD; disable stairs-collision.json with them. collision.json always includes the foundation; stairs.json describes each entrance, flight direction and landing bounds; foundation.json gives the buried bounds. Baked foundation maps are shared by stair bodies at all LODs; stair_treads use stone_slab maps, also used by the LOD0 fireplace hearth. Preserve tread overhang collision from stairs-collision.json with stair visibility.".into(),
+        floor_policy:"Ground floor is Z=0; storey N is N*(wall_height+floor_thickness). Opening sills and partition dimensions are floor-relative. layout.json contains every floor height and the resolved internal staircase, including floor and turn landings. support-collision.json contains occupied floors and internal treads/landings. These supports and collision.json remain active at every LOD, independently of hideable exterior entrance stairs. Enclosed stairwells use interior wall surfaces at LOD0, with one outward-opening stairwell-door-N on each floor and exterior=false in doors.json. Internal doors use the shared door material and dimensions, retain independent angles and are shown at LOD0 only. Stairwell bounds, doorway approach points and enclosure metadata are in layout.json. enclosure.shared_sides is ordered near/right/far/left in stair-local coordinates; shared sides reuse external walls and remaining partitions extend to them. enclosure.merge_unit is the authored wall U module in metres. Staircase reversed rotates the across/along basis 180 degrees without changing its axis. Internal stair meshes use timber at LOD0 only. Landing perimeter guards are omitted within 0.6 m of an external wall including inward timber projection; flight rails remain. Floor openings have timber trimmers and headers beneath the boards, inset 0.015 m from adjacent wall planes, with a shallower landing-edge header for headroom. Each occupied floor has a fireplace and hearth aligned beneath one shared roof chimney and cap; stair placement reserves that wall and the hearth approach for the rooms. Automatic stairs rank both axes by proximity to usable exterior walls with a 0.04 m timber-face clearance; entrance offsets are preferences and move along their facade to clear the selected stairs, including their leaf swing and player approach. Generated ground-floor windows and external entrance steps follow the resolved door positions; authored manual windows remain fixed. Upper floors and joists have real staircase cutouts; only the top storey carries the roof.".into(),
         masked_materials,lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
     };
+    manifest.door_policy.push_str(" Optional collision_sections contains hinge-local solid boxes for shaped leaves. Rotate every section with the leaf; missing/empty sections use the rectangular width/height/thickness bounds. Each Gothic church entrance exports separate -left and -right leaf IDs, hinges, meshes, hardware and saved angles. Its timber leaves fill the complete pointed arch; the recipe door height is the spring line, where the arch begins.");
+    if prototype.recipe.church.is_some() {
+        manifest.floor_policy="One connected cruciform church at Z=0, without occupied upper storeys or furnishings. layout.church describes the nave, transept, towers and counter-clockwise floor outline. Floors/support and buried foundations follow that outline; foundation.json is their enclosing bounds. LOD0 has openable entrance joinery, pointed see-through windows, tracery and interior stone ribs. LOD1 has opaque glazing and no interior surfaces. LOD2 uses padded, baked stone, roof, portal and pointed-window bay charts. Twin towers and open flying-buttress arches retain their silhouette at every LOD. Preserve instance door angles, floor support and collisions at every LOD.".into();
+    }
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     fs::write(root.join("manifest.json"), bytes)?;
     fs::File::open(root.join("manifest.json"))?.sync_all()?;
     fs::File::open(root)?.sync_all()?;
     Ok(manifest)
+}
+
+fn write_grub_filter(
+    root: &Path,
+    recipe: &BuildingRecipe,
+    files: &mut Vec<ExportFile>,
+) -> Result<(), ExportError> {
+    let allowed_materials: Vec<_> = [
+        MaterialSlot::Foundation,
+        MaterialSlot::Stairs,
+        MaterialSlot::StairTreads,
+        MaterialSlot::Wall,
+        MaterialSlot::Roof,
+        MaterialSlot::ThatchEnd,
+        MaterialSlot::ThatchShell1,
+        MaterialSlot::ThatchShell2,
+        MaterialSlot::ThatchShell3,
+        MaterialSlot::ThatchShell4,
+    ]
+    .into_iter()
+    .filter(|slot| crate::grub::exterior_material(recipe, *slot))
+    .map(material_name)
+    .collect();
+    let descriptor = serde_json::json!({
+        "settings": recipe.grub_filter,
+        "uniform_vectors": recipe.grub_filter.uniform_vectors(recipe.seed),
+        "exterior_only": true,
+        "allowed_materials": allowed_materials,
+        "surface_rule": "Apply only to allowed_materials. All unlisted or shared groups stay clean. Wall is included for wattle_and_daub and dedicated church exterior faces, roof/thatch groups only for thatch. The mixed LOD2 facade atlas stays unfiltered to protect its baked timber and joinery.",
+        "coordinate_system": "Building-local Y-up metres: native (x,y,z) becomes (x,z,-y). Floor height is zero. Moving leaves carry absolute building height separately from their leaf-local noise coordinates.",
+        "height_profile": "Building-floor-relative: influence = 1 / (1 + exp2(height / height_falloff)); strength = clamp(2 * influence * combined_noise, 0, 1). Neutral noise (0.5) gives 50% at the building floor; terrain height is never used.",
+        "noise_layers": "Contrast broad and fine 3D noise separately, then mix using fine_mix. patch_size and fine_patch_size are building-local metres.",
+        "normal_rule": "Dot the final normal-mapped world normal with transformed building up; smoothstep(0.35,0.85,upness) favours upward faces.",
+        "protected_materials": ["floor", "ceiling", "interior", "timber", "trim", "door", "chimney", "stone_slab", "firebox", "glass", "hardware", "window_proxy", "atlas"],
+        "base_maps": "Unfiltered. Apply grub-filter.wgsl before PBR lighting only to allowed groups; preserve the original alpha and normal.",
+        "shader": "grub-filter.wgsl"
+    });
+    write_json(root, "grub-filter.json", &descriptor, files)?;
+    let source = crate::grub::SHADER_SOURCE
+        .strip_prefix("#define_import_path island_building::grub\n")
+        .unwrap_or(crate::grub::SHADER_SOURCE);
+    write_bytes(root, "grub-filter.wgsl", source.as_bytes(), files)
 }
 
 fn snapshot_dependencies(
@@ -234,6 +292,11 @@ fn snapshot_dependencies(
             "foundation",
             MaterialSlot::Foundation,
             &mut recipe.materials.foundation_recipe,
+        ),
+        (
+            "stone-slab",
+            MaterialSlot::StoneSlab,
+            &mut recipe.materials.stone_slab_recipe,
         ),
         (
             "ceiling",
@@ -377,11 +440,7 @@ fn write_meshes(
 }
 
 fn uv_scale(prototype: &BuildingPrototype, slot: MaterialSlot) -> [f32; 2] {
-    let slot = if slot == MaterialSlot::Stairs {
-        MaterialSlot::Foundation
-    } else {
-        slot
-    };
+    let slot = slot.texture_slot();
     prototype
         .materials
         .iter()
@@ -425,6 +484,8 @@ fn material_name(slot: MaterialSlot) -> &'static str {
         MaterialSlot::Floor => "floor",
         MaterialSlot::Foundation => "foundation",
         MaterialSlot::Stairs => "stairs",
+        MaterialSlot::StoneSlab => "stone_slab",
+        MaterialSlot::StairTreads => "stair_treads",
         MaterialSlot::Ceiling => "ceiling",
         MaterialSlot::Interior => "interior",
         MaterialSlot::Trim => "trim",
@@ -450,6 +511,8 @@ fn material_library(prototype: &BuildingPrototype) -> String {
         (MaterialSlot::Floor, p.floor),
         (MaterialSlot::Foundation, p.foundation),
         (MaterialSlot::Stairs, p.foundation),
+        (MaterialSlot::StoneSlab, p.stone_slab),
+        (MaterialSlot::StairTreads, p.stone_slab),
         (MaterialSlot::Ceiling, p.ceiling),
         (MaterialSlot::Interior, p.interior),
         (MaterialSlot::Trim, p.trim),
@@ -474,11 +537,7 @@ fn material_library(prototype: &BuildingPrototype) -> String {
             .map(|slot| (slot, [1.; 3])),
     ) {
         let name = material_name(slot);
-        let map_slot = if slot == MaterialSlot::Stairs {
-            MaterialSlot::Foundation
-        } else {
-            slot
-        };
+        let map_slot = slot.texture_slot();
         let map_name = material_name(map_slot);
         let textured = slot == MaterialSlot::Atlas
             || prototype
@@ -657,7 +716,7 @@ mod tests {
             ),
             (
                 "chimney",
-                include_bytes!("../../island-rs/texture-recipes/coursed-stone.json").as_slice(),
+                include_bytes!("../../island-rs/texture-recipes/rough-stone.json").as_slice(),
             ),
             (
                 "timber",
@@ -698,6 +757,8 @@ mod tests {
         recipe.materials.floor_recipe = Some("floor.json".into());
         recipe.materials.ceiling_recipe = Some("ceiling.json".into());
         recipe.materials.foundation_recipe = Some("chimney.json".into());
+        recipe.materials.stone_slab_recipe = Some("chimney.json".into());
+        recipe.grub_filter.enabled = true;
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         let manifest = export_package(&prototype, &target, &source).unwrap();
         fs::remove_dir_all(&source).unwrap();
@@ -745,13 +806,15 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (30, 12, 14)
+            (53, 20, 22)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),
             Some("dependencies/door.json")
         );
         assert!(target.join("dependencies/chimney.json").exists());
+        assert_slab_dependency(&target, &loaded);
+        assert_grub_export(&target);
         assert_eq!(
             loaded.materials.chimney_recipe.as_deref(),
             Some("dependencies/chimney.json")
@@ -776,6 +839,33 @@ mod tests {
         );
         assert!(export_package(&prototype, &target, Path::new(".")).is_err());
         fs::remove_dir_all(target).unwrap();
+    }
+
+    fn assert_grub_export(target: &Path) {
+        let descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(target.join("grub-filter.json")).unwrap()).unwrap();
+        assert_eq!(descriptor["settings"]["enabled"], true);
+        assert_eq!(descriptor["exterior_only"], true);
+        assert_eq!(descriptor["uniform_vectors"].as_array().unwrap().len(), 5);
+        assert!(
+            descriptor["protected_materials"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("floor"))
+        );
+        assert!(
+            fs::read_to_string(target.join("grub-filter.wgsl"))
+                .unwrap()
+                .contains("fn grub_weights")
+        );
+    }
+
+    fn assert_slab_dependency(target: &Path, loaded: &BuildingRecipe) {
+        assert!(target.join("dependencies/stone-slab.json").exists());
+        assert_eq!(
+            loaded.materials.stone_slab_recipe.as_deref(),
+            Some("dependencies/stone-slab.json")
+        );
     }
 
     #[test]
@@ -817,8 +907,7 @@ mod tests {
         let source = directory("changed-chimney-source");
         fs::create_dir(&source).unwrap();
         let material = source.join("stone.json");
-        let mut bytes =
-            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json").to_vec();
+        let mut bytes = include_bytes!("../../island-rs/texture-recipes/rough-stone.json").to_vec();
         fs::write(&material, &bytes).unwrap();
         let mut recipe = crate::BuildingRecipe::hut();
         recipe.atlas_size = 128;

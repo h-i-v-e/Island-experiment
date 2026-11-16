@@ -3,6 +3,14 @@ use crate::BuildingRecipe;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BuildingLayout {
+    #[serde(default = "crate::recipe::one_storey")]
+    pub storeys: u8,
+    #[serde(default)]
+    pub floor_heights: Vec<f32>,
+    #[serde(default)]
+    pub staircase: Option<crate::StaircaseLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub church: Option<crate::ChurchLayout>,
     pub bounds_min: [f32; 3],
     pub bounds_max: [f32; 3],
     pub footprint: [f32; 2],
@@ -17,7 +25,10 @@ impl BuildingLayout {
         })
     }
 }
-pub(crate) fn resolve(recipe: &BuildingRecipe) -> BuildingLayout {
+pub(crate) fn resolve(
+    recipe: &BuildingRecipe,
+    staircase: Option<crate::StaircaseLayout>,
+) -> BuildingLayout {
     let straw_margin = if recipe.roof.covering == crate::RoofCovering::Thatch {
         0.025
     } else {
@@ -36,7 +47,14 @@ pub(crate) fn resolve(recipe: &BuildingRecipe) -> BuildingLayout {
         .iter()
         .find(|o| o.kind == crate::OpeningKind::Door)
         .expect("validated exterior door");
+    let stair_room = usize::from(staircase.as_ref().is_some_and(|s| s.stairwell.is_some()));
     let mut layout = BuildingLayout {
+        storeys: recipe.storeys,
+        floor_heights: (0..recipe.storeys)
+            .map(|i| recipe.floor_height(i))
+            .collect(),
+        staircase,
+        church: None,
         bounds_min: [
             -recipe.width * 0.5 - exterior_margin,
             -recipe.depth * 0.5 - depth_margin,
@@ -45,10 +63,10 @@ pub(crate) fn resolve(recipe: &BuildingRecipe) -> BuildingLayout {
         bounds_max: [
             recipe.width * 0.5 + exterior_margin,
             recipe.depth * 0.5 + depth_margin,
-            recipe.wall_height + recipe.roof.rise + recipe.roof.effective_thickness(),
+            recipe.eaves_height() + recipe.roof.rise + recipe.roof.effective_thickness(),
         ],
         footprint: [recipe.width, recipe.depth],
-        room_count: recipe.partitions.len() + 1,
+        room_count: recipe.partitions.len() + usize::from(recipe.storeys) + stair_room,
         entrance: opening.facade.point(recipe, opening.offset, 0., 0.),
     };
     if recipe.roof.covering != crate::RoofCovering::StandingSeam {
@@ -79,6 +97,9 @@ pub(crate) fn resolve(recipe: &BuildingRecipe) -> BuildingLayout {
         .filter(|o| o.kind == crate::OpeningKind::Window)
     {
         let bounds = crate::geometry::windows::bounds(recipe, opening);
+        let mut bounds = bounds;
+        bounds.min[2] += recipe.floor_height(opening.storey);
+        bounds.max[2] += recipe.floor_height(opening.storey);
         for axis in 0..3 {
             layout.bounds_min[axis] = layout.bounds_min[axis].min(bounds.min[axis]);
             layout.bounds_max[axis] = layout.bounds_max[axis].max(bounds.max[axis]);

@@ -1,3 +1,4 @@
+use super::units::Dimensions;
 use super::{
     DIM, dialogs,
     inspector::{material_path, scalar},
@@ -5,10 +6,15 @@ use super::{
 use crate::{BuildingRecipe, ChimneyRecipe, Facade, studio::StudioState};
 use bevy_egui::egui;
 
-pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) {
+pub(super) fn show(
+    ui: &mut egui::Ui,
+    draft: &mut BuildingRecipe,
+    state: &mut StudioState,
+    dimensions: Dimensions,
+) {
     ui.heading("Chimney & fireplace");
     ui.label(
-        egui::RichText::new("A masonry stack outside and an unlit fireplace inside.")
+        egui::RichText::new("One masonry stack with an unlit fireplace on each floor.")
             .small()
             .color(DIM),
     );
@@ -19,9 +25,13 @@ pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut St
     {
         draft.chimney = enabled.then(ChimneyRecipe::default);
     }
+    let lengths = Facade::ALL.map(|f| f.length(draft));
+    let roof_top = crate::geometry::chimney::stack_bounds(draft)
+        .zip(draft.chimney.as_ref())
+        .map_or(0., |(bounds, c)| bounds.max[2] - c.height_above_roof);
     if let Some(chimney) = &mut draft.chimney {
-        placement(ui, chimney);
-        firebox(ui, chimney);
+        placement(ui, chimney, dimensions, lengths);
+        firebox(ui, chimney, dimensions);
         ui.separator();
         ui.label("Hearth · fixed obstacle");
         scalar(
@@ -34,15 +44,13 @@ pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut St
         scalar(ui, "Hearth height", &mut chimney.hearth_height, 0.01, " m");
         ui.separator();
         ui.label("Roof stack");
-        scalar(ui, "Stack width", &mut chimney.stack_width, 0.025, " m");
-        scalar(ui, "Stack depth", &mut chimney.stack_depth, 0.025, " m");
-        scalar(
-            ui,
-            "Height above roof",
-            &mut chimney.height_above_roof,
-            0.05,
-            " m",
-        );
+        dimensions.length(ui, "Stack width", &mut chimney.stack_width, 0);
+        dimensions.length(ui, "Stack depth", &mut chimney.stack_depth, 0);
+        let mut top = roof_top + chimney.height_above_roof;
+        if dimensions.coordinate(ui, "Stack top from floor", &mut top, 1, 0.) {
+            chimney.height_above_roof = top - roof_top;
+        }
+        ui.label(format!("{:.3} m above roof", chimney.height_above_roof));
         ui.label(egui::RichText::new("The exterior stack remains at every LOD. The firebox and hearth appear at LOD0; their collision remains resident.").small().color(DIM));
     }
     ui.separator();
@@ -58,13 +66,18 @@ pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut St
         dialogs::MaterialTarget::Chimney,
     );
     ui.label(
-        egui::RichText::new("Clear the selected JSON to restore Coursed stone.")
+        egui::RichText::new("Clear the selected JSON to restore Rough continuous stone.")
             .small()
             .color(DIM),
     );
 }
 
-fn placement(ui: &mut egui::Ui, chimney: &mut ChimneyRecipe) {
+fn placement(
+    ui: &mut egui::Ui,
+    chimney: &mut ChimneyRecipe,
+    dimensions: Dimensions,
+    lengths: [f32; 4],
+) {
     ui.separator();
     egui::ComboBox::from_label("Wall")
         .selected_text(format!("{:?}", chimney.facade))
@@ -73,21 +86,25 @@ fn placement(ui: &mut egui::Ui, chimney: &mut ChimneyRecipe) {
                 ui.selectable_value(&mut chimney.facade, facade, format!("{facade:?}"));
             }
         });
-    scalar(ui, "Offset along wall", &mut chimney.offset, 0.05, " m");
-    scalar(ui, "Fireplace width", &mut chimney.width, 0.025, " m");
-    scalar(ui, "Breast depth", &mut chimney.depth, 0.025, " m");
+    let mut left = chimney.offset - chimney.width * 0.5;
+    let left_changed = dimensions.coordinate(
+        ui,
+        "Left edge from wall corner",
+        &mut left,
+        0,
+        -lengths[chimney.facade.index()] * 0.5,
+    );
+    let width_changed = dimensions.length(ui, "Fireplace width", &mut chimney.width, 0);
+    if left_changed || width_changed {
+        chimney.offset = left + chimney.width * 0.5;
+    }
+    dimensions.length(ui, "Breast depth", &mut chimney.depth, 0);
 }
 
-fn firebox(ui: &mut egui::Ui, chimney: &mut ChimneyRecipe) {
+fn firebox(ui: &mut egui::Ui, chimney: &mut ChimneyRecipe, dimensions: Dimensions) {
     ui.separator();
     ui.label("Open firebox · no fire or smoke");
-    scalar(ui, "Firebox width", &mut chimney.firebox_width, 0.025, " m");
-    scalar(
-        ui,
-        "Firebox height",
-        &mut chimney.firebox_height,
-        0.025,
-        " m",
-    );
-    scalar(ui, "Firebox depth", &mut chimney.firebox_depth, 0.025, " m");
+    dimensions.length(ui, "Firebox width", &mut chimney.firebox_width, 0);
+    dimensions.length(ui, "Firebox height", &mut chimney.firebox_height, 1);
+    dimensions.length(ui, "Firebox depth", &mut chimney.firebox_depth, 0);
 }

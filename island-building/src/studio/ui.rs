@@ -1,6 +1,11 @@
 mod chimney;
+mod church;
 pub(super) mod dialogs;
+mod grub;
 mod inspector;
+mod openings;
+mod storeys;
+pub(super) mod units;
 use super::{PendingAction, StudioState, camera::CameraControls};
 use crate::interaction::BuildingInstance;
 use bevy::prelude::*;
@@ -26,6 +31,7 @@ pub(super) fn draw(
         *themed = true;
     }
     dialogs::poll(&mut state);
+    super::loading::poll(&mut state);
     shortcuts(context, &mut state);
     let mut viewport_ui = egui::Ui::new(
         context.clone(),
@@ -82,7 +88,7 @@ fn brand_bar(ui: &mut egui::Ui, state: &StudioState) {
         ));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new("METRES · Z-UP RECIPE · THREE LODS")
+                egui::RichText::new("Z-UP RECIPE · THREE LODS")
                     .small()
                     .color(DIM),
             );
@@ -140,7 +146,13 @@ fn toolbar(viewport: &mut egui::Ui, state: &mut StudioState) {
                     state.document.redo();
                 }
                 if ui.button("Validate").clicked() {
-                    match crate::validate_recipe(state.document.recipe()) {
+                    match crate::validation::validate_with_base(
+                        state.document.recipe(),
+                        state
+                            .document
+                            .base_directory()
+                            .unwrap_or(std::path::Path::new(".")),
+                    ) {
                         Ok(()) => {
                             state.error = None;
                             state.status =
@@ -218,6 +230,8 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             ("eaves", "Eaves"),
             ("corner", "Corner"),
             ("foundation", "Foundations"),
+            ("stairs", "Internal stairs"),
+            ("stair-door", "Stair door"),
         ] {
             if ui.small_button(label).clicked()
                 && let Some(prototype) = &prototype
@@ -238,6 +252,22 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             controls.frame(prototype, "fireplace");
         }
     });
+    if let Some(prototype) = &prototype
+        && prototype.recipe.storeys > 1
+    {
+        ui.horizontal(|ui| {
+            ui.label("Inspect storey (0 = ground)");
+            if ui
+                .add(
+                    egui::DragValue::new(&mut controls.storey)
+                        .range(0..=prototype.recipe.storeys - 1),
+                )
+                .changed()
+            {
+                controls.frame(prototype, "interior");
+            }
+        });
+    }
 }
 
 fn instance_status(
@@ -253,10 +283,17 @@ fn instance_status(
         let ids: Vec<_> = instance.doors.keys().cloned().collect();
         for id in ids {
             let open = instance.doors[&id].target.abs() > 0.01;
-            if ui
-                .button(format!("{} {id}", if open { "Close" } else { "Open" }))
-                .clicked()
-            {
+            let action = if open { "Close" } else { "Open" };
+            let label = if let Some(storey) = id.strip_prefix("stairwell-door-") {
+                if storey == "0" {
+                    format!("{action} stair door (ground)")
+                } else {
+                    format!("{action} stair door (floor {storey})")
+                }
+            } else {
+                format!("{action} {id}")
+            };
+            if ui.button(label).clicked() {
                 instance.toggle_door(&id);
             }
         }
@@ -270,8 +307,7 @@ fn instance_status(
                 source.lods[level]
                     .parts
                     .iter()
-                    .filter(|part| instance.stairs_visible
-                        || part.material != crate::MaterialSlot::Stairs)
+                    .filter(|part| instance.stairs_visible || !part.material.is_stairs())
                     .map(|part| part.mesh.triangle_count())
                     .sum::<usize>()
                     + if level == 0 {
@@ -286,27 +322,22 @@ fn instance_status(
             ),
         );
         ui.label(format!(
-            "{} material draws · {:.1} MiB textures",
-            source.lods[level]
-                .parts
+            "{} mesh sections · {:.1} MiB textures",
+            instance.prototype.lods[level]
                 .iter()
-                .filter(
-                    |part| instance.stairs_visible || part.material != crate::MaterialSlot::Stairs
-                )
+                .filter(|part| instance.stairs_visible || !part.stairs)
                 .count()
                 + if level == 0 {
-                    source.doors.len()
-                        + source
-                            .doors
-                            .iter()
-                            .filter(|door| !door.hardware_mesh.indices.is_empty())
-                            .count()
+                    instance.prototype.doors.iter()
+                        .chain(&instance.prototype.door_hardware)
+                        .filter(|part| part.triangles > 0)
+                        .count()
                 } else {
                     0
                 },
             f64::from(u32::try_from(instance.prototype.texture_bytes).unwrap_or(u32::MAX))
                 / 1_048_576.
-        ));
+        )).on_hover_text("Compiled mesh sections; GPU submission counts also depend on batching, shadows and depth passes.");
         ui.label(format!(
             "{} rooms · {} colliders",
             source.layout.room_count,
@@ -363,6 +394,12 @@ fn inspection(
             ui.separator();
             ui.checkbox(&mut state.collision_overlay, "Collision overlay");
             ui.checkbox(&mut state.wireframe, "Wireframe");
+            if ui
+                .checkbox(&mut state.arrays, "Texture array batching (experimental)")
+                .changed()
+            {
+                state.recompile = true;
+            }
             ui.add(egui::Slider::new(&mut state.terrain_slope, 0. ..=30.).text("Terrain slope"));
             ui.add(
                 egui::Slider::new(&mut state.terrain_heading, 0. ..=360.).text("Slope direction"),

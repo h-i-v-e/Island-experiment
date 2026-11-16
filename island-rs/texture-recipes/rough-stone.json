@@ -1,0 +1,76 @@
+{
+  "name": "Rough continuous stone",
+  "seed": 64013,
+  "parameters": {
+    "stone_colour": {
+      "kind": "colour",
+      "default": [
+        0.24,
+        0.25,
+        0.245
+      ],
+      "description": "Continuous stone with layered noise relief and no masonry joints."
+    }
+  },
+  "width": 512,
+  "height": 512,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "layered_noise",
+    "frequency": 12.0,
+    "amplitude": 0.008,
+    "octaves": 5,
+    "lacunarity": 2.0,
+    "gain": 0.5,
+    "offset": 0.0
+  },
+  "layers": [],
+  "normal_scale": 1.25,
+  "displacement": {
+    "minimum_m": -0.025,
+    "maximum_m": 0.025,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 20.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "stone_colour",
+      "base": [
+        0.24,
+        0.25,
+        0.245
+      ]
+    },
+    "warm_color": {
+      "parameter": "stone_colour",
+      "base": [
+        0.23,
+        0.24,
+        0.235
+      ]
+    },
+    "palette": [],
+    "variation": 0.16,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.08,
+    "mineral_brightness": 0.06,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate"
+  ]
+}

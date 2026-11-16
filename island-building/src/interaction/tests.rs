@@ -451,3 +451,55 @@ fn along_wall_stairs_keep_tread_support_and_hideable_collision_at_every_lod() {
         assert!(instance.support_point(&root, point, 0.26).is_none());
     }
 }
+
+#[test]
+fn tread_overhangs_have_support_and_collision_and_share_maps_without_hiding_the_hearth() {
+    let compiled = prototype();
+    let mut instance = BuildingInstance::new(Arc::clone(&compiled), "slab-support".into());
+    let root = GlobalTransform::IDENTITY;
+    let body = compiled.source.stair_colliders[6];
+    let overhang = crate::geometry::foundation::TREAD_OVERHANG;
+    let point = native_to_bevy([
+        body.max[0] + overhang * 0.5,
+        (body.min[1] + body.max[1]) * 0.5,
+        body.max[2] - 0.02,
+    ]);
+    assert!(instance.blocks_sphere(&root, point, 0.005));
+    let support = instance
+        .support_point(&root, point + Vec3::Y * 0.04, 0.05)
+        .unwrap();
+    assert!((support.y - body.max[2]).abs() < 0.00001);
+    let group = |level: usize, slot| {
+        compiled.source.lods[level]
+            .parts
+            .iter()
+            .zip(&compiled.lods[level])
+            .find(|(part, _)| part.material == slot)
+            .map(|(_, part)| part)
+            .unwrap()
+    };
+    let hearth = group(0, crate::MaterialSlot::StoneSlab);
+    assert!(!hearth.stairs);
+    for level in 0..3 {
+        let tread = group(level, crate::MaterialSlot::StairTreads);
+        assert!(tread.stairs);
+        assert_eq!(
+            hearth.material, tread.material,
+            "one set of stone maps, independent mesh visibility"
+        );
+    }
+    instance.stairs_visible = false;
+    assert!(!instance.blocks_sphere(&root, point, 0.005));
+    assert!(
+        instance
+            .support_point(&root, point + Vec3::Y * 0.04, 0.05)
+            .is_none()
+    );
+    let hearth_bounds = crate::geometry::chimney::hearth_bounds(&compiled.source.recipe).unwrap();
+    let inside = native_to_bevy([
+        (hearth_bounds.min[0] + hearth_bounds.max[0]) * 0.5,
+        (hearth_bounds.min[1] + hearth_bounds.max[1]) * 0.5,
+        hearth_bounds.max[2] - 0.02,
+    ]);
+    assert!(instance.blocks_sphere(&root, inside, 0.005));
+}

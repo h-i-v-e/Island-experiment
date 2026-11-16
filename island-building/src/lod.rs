@@ -5,15 +5,29 @@ use crate::{
 };
 
 pub(crate) fn middle(recipe: &BuildingRecipe) -> BuildingLod {
+    if recipe.storeys > 1 {
+        return crate::storeys::middle(recipe);
+    }
     let mut builder = Builder::default();
     geometry::foundation::generate(&mut builder, recipe, false);
+    middle_body(&mut builder, recipe, true);
+    geometry::chimney::middle(&mut builder, recipe);
+    builder.finish()
+}
+pub(crate) fn middle_level(recipe: &BuildingRecipe, roof: bool) -> BuildingLod {
+    let mut builder = Builder::default();
+    middle_body(&mut builder, recipe, roof);
+    builder.finish()
+}
+
+fn middle_body(builder: &mut Builder, recipe: &BuildingRecipe, roof: bool) {
     for facade in Facade::ALL {
-        geometry::wall(&mut builder, recipe, facade, false, &mut Vec::new());
+        geometry::wall(builder, recipe, facade, false, &mut Vec::new());
     }
     for o in &recipe.openings {
-        geometry::frame(&mut builder, recipe, o, false);
+        geometry::frame(builder, recipe, o, o.kind == crate::OpeningKind::Window);
         if o.kind == crate::OpeningKind::Door && o.door_style == crate::DoorStyle::FrameAndPanel {
-            geometry::door_panels::proxy(&mut builder, recipe, o);
+            geometry::door_panels::proxy(builder, recipe, o);
             continue;
         }
         let facade = o.facade;
@@ -33,11 +47,12 @@ pub(crate) fn middle(recipe: &BuildingRecipe) -> BuildingLod {
             ],
         );
     }
-    geometry::roof(&mut builder, recipe, false);
-    geometry::timber_frame::generate(&mut builder, recipe, false);
-    geometry::chimney::middle(&mut builder, recipe);
-    builder.finish()
+    if roof {
+        geometry::roof(builder, recipe, false, 0.25);
+    }
+    geometry::timber_frame::generate(builder, recipe, false);
 }
+
 /// Optional chimneys add two atlas rows; legacy recipes retain the original layout.
 #[must_use]
 pub(crate) fn atlas_rows(recipe: &BuildingRecipe) -> u32 {
@@ -73,15 +88,15 @@ pub(crate) fn distant(recipe: &BuildingRecipe) -> BuildingLod {
     builder.finish()
 }
 fn distant_walls(builder: &mut Builder, recipe: &BuildingRecipe) {
-    let peak = recipe.wall_height + recipe.roof.rise;
+    let peak = recipe.eaves_height() + recipe.roof.rise;
     let span = peak + recipe.floor_thickness;
     for facade in Facade::ALL {
         let half = facade.length(recipe) * 0.5;
         let mut p = [
             facade.point(recipe, -half, -recipe.floor_thickness, 0.),
             facade.point(recipe, half, -recipe.floor_thickness, 0.),
-            facade.point(recipe, half, recipe.wall_height, 0.),
-            facade.point(recipe, -half, recipe.wall_height, 0.),
+            facade.point(recipe, half, recipe.eaves_height(), 0.),
+            facade.point(recipe, -half, recipe.eaves_height(), 0.),
         ];
         if recipe.roof.kind == RoofKind::Shed {
             for point in &mut p[2..] {
@@ -114,13 +129,13 @@ fn distant_walls(builder: &mut Builder, recipe: &BuildingRecipe) {
                         recipe,
                         facade.index(),
                         0.,
-                        (recipe.wall_height + recipe.floor_thickness) / span,
+                        (recipe.eaves_height() + recipe.floor_thickness) / span,
                     ),
                     atlas_uv(
                         recipe,
                         facade.index(),
                         1.,
-                        (recipe.wall_height + recipe.floor_thickness) / span,
+                        (recipe.eaves_height() + recipe.floor_thickness) / span,
                     ),
                     atlas_uv(recipe, facade.index(), 0.5, 1.),
                 ],
@@ -136,7 +151,7 @@ fn distant_roof(builder: &mut Builder, recipe: &BuildingRecipe) {
     }
     let w = recipe.width * 0.5 + recipe.roof.overhang;
     let d = recipe.depth * 0.5 + recipe.roof.overhang;
-    let h = recipe.wall_height + recipe.roof.effective_thickness();
+    let h = recipe.eaves_height() + recipe.roof.effective_thickness();
     let rise = recipe.roof.rise;
     let spans = match recipe.roof.kind {
         RoofKind::Gable => vec![

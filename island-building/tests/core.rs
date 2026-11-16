@@ -31,7 +31,11 @@ fn floor_and_ceiling_boards_have_continuous_room_coordinates_around_the_flue() {
             check_mesh(mesh);
             for ((point, normal), uv) in mesh.positions.iter().zip(&mesh.normals).zip(&mesh.uvs) {
                 if normal[2].abs() > 0.5 {
-                    assert!((uv[0] - point[0] * 0.5).abs() < 0.00001);
+                    assert!(
+                        (uv[0] - (point[0] + recipe.width * 0.5 - recipe.wall_thickness) * 0.5)
+                            .abs()
+                            < 0.00001
+                    );
                     assert!((uv[1] - (point[1] - origin) * 0.5).abs() < 0.00001);
                 }
             }
@@ -104,7 +108,10 @@ fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame
         assert!(prototype.lods[0].triangle_count() > prototype.lods[1].triangle_count());
         assert!(prototype.lods[2].parts.iter().all(|p| matches!(
             p.material,
-            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+            MaterialSlot::Atlas
+                | MaterialSlot::Foundation
+                | MaterialSlot::Stairs
+                | MaterialSlot::StairTreads
         )));
         assert_eq!(prototype.lods[2], plain.lods[2]);
         assert_ne!(prototype.atlas.albedo, plain.atlas.albedo);
@@ -558,7 +565,10 @@ fn presets_have_valid_accessible_geometry_and_three_distinct_lods() {
         }
         assert!(prototype.lods[2].parts.iter().all(|p| matches!(
             p.material,
-            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+            MaterialSlot::Atlas
+                | MaterialSlot::Foundation
+                | MaterialSlot::Stairs
+                | MaterialSlot::StairTreads
         )));
         assert_eq!(prototype.atlas.albedo.len(), 128 * 128 * 4);
         assert!(prototype.atlas.albedo.chunks_exact(4).all(|p| p[3] == 255));
@@ -750,12 +760,14 @@ fn invalid_layouts_are_diagnosed_before_building() {
     assert!(validate(&r).unwrap_err().to_string().contains("overlaps"));
     let mut r = BuildingRecipe::cottage();
     r.partitions.push(PartitionRecipe {
+        storey: 0,
         id: "crossing".into(),
         axis: PartitionAxis::Y,
         offset: 0.,
         door_offset: 0.,
         door_width: 1.1,
         door_height: 2.2,
+        use_default_door_dimensions: false,
     });
     assert!(
         validate(&r)
@@ -841,12 +853,14 @@ fn configured_swings_reject_corner_and_partition_collisions() {
     );
     let mut blocked = BuildingRecipe::hut();
     blocked.partitions.push(PartitionRecipe {
+        storey: 0,
         id: "entrance-blocker".into(),
         axis: PartitionAxis::X,
         offset: -1.1,
         door_offset: 1.,
         door_width: 1.1,
         door_height: 2.2,
+        use_default_door_dimensions: false,
     });
     assert!(
         validate(&blocked)
@@ -1441,7 +1455,10 @@ fn chimney_presets_have_real_fireboxes_and_no_fireplace_geometry_in_lower_lods()
         );
         assert!(prototype.lods[2].parts.iter().all(|part| matches!(
             part.material,
-            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+            MaterialSlot::Atlas
+                | MaterialSlot::Foundation
+                | MaterialSlot::Stairs
+                | MaterialSlot::StairTreads
         )));
         let hearth = island_building::geometry::chimney::hearth_bounds(recipe).unwrap();
         let stood = chimney.facade.point(
@@ -1566,12 +1583,14 @@ fn fireplace_validation_rejects_opening_route_and_dimension_conflicts() {
     );
     let mut route = BuildingRecipe::hut();
     route.partitions.push(PartitionRecipe {
+        storey: 0,
         id: "hearth-route".into(),
         axis: PartitionAxis::X,
         offset: 1.2,
         door_offset: 0.,
         door_width: 1.1,
         door_height: 2.2,
+        use_default_door_dimensions: false,
     });
     assert!(validate(&route).unwrap_err().to_string().contains("hearth"));
     let mut invalid = BuildingRecipe::hut();
@@ -2255,7 +2274,10 @@ fn slate_and_thatch_keep_roof_bounds_lods_and_flues_valid_at_both_scales() {
                 }
                 assert!(prototype.lods[2].parts.iter().all(|part| matches!(
                     part.material,
-                    MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+                    MaterialSlot::Atlas
+                        | MaterialSlot::Foundation
+                        | MaterialSlot::Stairs
+                        | MaterialSlot::StairTreads
                 )));
                 let roof_triangles: usize = prototype.lods[0]
                     .parts

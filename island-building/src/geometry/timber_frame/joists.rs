@@ -2,6 +2,9 @@
 use super::{Builder, BuildingRecipe, MaterialSlot, WallStyle, roof_overlap};
 use crate::collision::BoxCollider;
 
+// Stand proud of adjacent wall planes instead of sharing their draw surface.
+pub(crate) const RIM_INSET: f32 = 0.015;
+
 pub(crate) struct JoistGrid {
     pub origin: f32,
     pub spacing: f32,
@@ -82,7 +85,8 @@ fn boxes(recipe: &BuildingRecipe) -> impl Iterator<Item = BoxCollider> {
     })
 }
 
-fn timber_box(builder: &mut Builder, beam: BoxCollider) {
+fn timber_box(builder: &mut Builder, beam: BoxCollider, along: usize) {
+    let across = 1 - along;
     let start = builder.mesh(MaterialSlot::Timber).positions.len();
     builder.cube(MaterialSlot::Timber, beam.min, beam.max);
     let mesh = builder.mesh(MaterialSlot::Timber);
@@ -91,17 +95,17 @@ fn timber_box(builder: &mut Builder, beam: BoxCollider) {
         .zip(&mesh.normals[start..])
         .zip(&mut mesh.uvs[start..])
     {
-        // Wood grain follows the joist along X; end caps use their local Y/Z face.
-        *uv = if normal[0].abs() > 0.5 {
-            [point[1] * 0.5, point[2] * 0.5]
+        // Grain follows each joist or trimmer; end caps use the transverse face.
+        *uv = if normal[along].abs() > 0.5 {
+            [point[across] * 0.5, point[2] * 0.5]
         } else {
             [
-                if normal[1].abs() > 0.5 {
+                if normal[across].abs() > 0.5 {
                     point[2]
                 } else {
-                    point[1]
+                    point[across]
                 } * 0.5,
-                point[0] * 0.5,
+                point[along] * 0.5,
             ]
         };
     }
@@ -112,16 +116,155 @@ pub(crate) fn generate(
     recipe: &BuildingRecipe,
     colliders: &mut Vec<BoxCollider>,
 ) {
+    generate_with_cuts(builder, recipe, &[], colliders);
+}
+
+pub(crate) fn generate_with_cuts(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    cuts: &[BoxCollider],
+    colliders: &mut Vec<BoxCollider>,
+) {
+    let width = recipe.walls.beam_width;
+    let framed_cuts: Vec<_> = cuts.iter().map(|cut| expanded(*cut, width)).collect();
     for beam in boxes(recipe) {
-        timber_box(builder, beam);
-        colliders.push(beam);
+        for piece in crate::storeys::cells(beam, &framed_cuts) {
+            timber_box(builder, piece, 0);
+            colliders.push(piece);
+        }
     }
+    for &cut in cuts {
+        for (index, beam) in opening_frame(recipe, cut).into_iter().enumerate() {
+            timber_box(builder, beam, usize::from(index < 2));
+            colliders.push(beam);
+        }
+    }
+}
+
+fn expanded(mut cut: BoxCollider, width: f32) -> BoxCollider {
+    for axis in 0..2 {
+        cut.min[axis] -= width;
+        cut.max[axis] += width;
+    }
+    cut
+}
+
+/// Four butt-jointed timbers sit beneath the floorboards, just proud of the wall faces.
+fn opening_frame(recipe: &BuildingRecipe, cut: BoxCollider) -> [BoxCollider; 4] {
+    let width = recipe.walls.beam_width;
+    let top = recipe.wall_height;
+    let [left, near, _] = cut.min;
+    let [right, far, _] = cut.max;
+    let half = [recipe.width, recipe.depth].map(|size| size * 0.5 - recipe.wall_thickness * 0.5);
+    [
+        (
+            [left - width, near - width],
+            [left + RIM_INSET, far + width],
+        ),
+        (
+            [right - RIM_INSET, near - width],
+            [right + width, far + width],
+        ),
+        (
+            [left + RIM_INSET, near - width],
+            [right - RIM_INSET, near + RIM_INSET],
+        ),
+        (
+            [left + RIM_INSET, far - RIM_INSET],
+            [right - RIM_INSET, far + width],
+        ),
+    ]
+    .map(|(min, max)| BoxCollider {
+        min: [min[0].max(-half[0]), min[1].max(-half[1]), top - width],
+        max: [max[0].min(half[0]), max[1].min(half[1]), top],
+    })
+}
+
+pub(crate) fn landing_header(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    stairs: &crate::StaircaseLayout,
+    colliders: &mut Vec<BoxCollider>,
+) {
+    // The landing projects into the slab cutout. A shallower header beneath its
+    // open edge closes the rim without reducing headroom over the first flight.
+    let top = -crate::stairs::TREAD_THICKNESS;
+    let beam = stairs.rectangle(
+        [
+            0.,
+            stairs.landing_depth - recipe.walls.beam_width,
+            (-recipe.floor_thickness).min(top - 0.02),
+        ],
+        [stairs.span(), stairs.landing_depth + RIM_INSET, top],
+    );
+    timber_box(
+        builder,
+        beam,
+        usize::from(stairs.axis == crate::StairAxis::X),
+    );
+    colliders.push(beam);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Facade;
+
+    #[test]
+    fn opening_has_a_continuous_timber_rim_and_joists_abut_its_outer_faces() {
+        let mut recipe = BuildingRecipe::hut();
+        recipe.chimney = None;
+        let cut = BoxCollider {
+            min: [-0.5, -1., 0.],
+            max: [0.5, 1., 0.],
+        };
+        let width = recipe.walls.beam_width;
+        for style in [WallStyle::Plain, WallStyle::WattleAndDaub] {
+            recipe.walls.style = style;
+            let mut builder = Builder::default();
+            let mut colliders = Vec::new();
+            generate_with_cuts(&mut builder, &recipe, &[cut], &mut colliders);
+            let frame = opening_frame(&recipe, cut);
+            assert!(frame.iter().all(|b| colliders.contains(b)));
+            for beam in frame {
+                assert!((beam.max[2] - recipe.wall_height).abs() < 0.00001);
+                assert!((beam.max[2] - beam.min[2] - width).abs() < 0.00001);
+                assert!(
+                    !(0..2).all(|i| beam.min[i] < cut.max[i] - RIM_INSET - 0.00001
+                        && beam.max[i] > cut.min[i] + RIM_INSET + 0.00001)
+                );
+            }
+            assert!((frame[0].max[0] - cut.min[0] - RIM_INSET).abs() < 0.00001);
+            assert!((frame[1].min[0] - cut.max[0] + RIM_INSET).abs() < 0.00001);
+            assert!((frame[2].max[1] - cut.min[1] - RIM_INSET).abs() < 0.00001);
+            assert!((frame[3].min[1] - cut.max[1] + RIM_INSET).abs() < 0.00001);
+            // Headers meet both side trimmers without gaps or overlapping corners.
+            for header in &frame[2..] {
+                assert!((header.min[0] - frame[0].max[0]).abs() < 0.00001);
+                assert!((header.max[0] - frame[1].min[0]).abs() < 0.00001);
+            }
+            if style == WallStyle::WattleAndDaub {
+                let joists = &colliders[..colliders.len() - 4];
+                assert!(
+                    joists
+                        .iter()
+                        .any(|b| (b.max[0] - frame[0].min[0]).abs() < 0.00001)
+                );
+                assert!(
+                    joists
+                        .iter()
+                        .any(|b| (b.min[0] - frame[1].max[0]).abs() < 0.00001)
+                );
+                for beam in joists {
+                    let clearance = expanded(cut, width);
+                    assert!(!(0..2).all(|i| beam.min[i] < clearance.max[i] - 0.00001
+                        && beam.max[i] > clearance.min[i] + 0.00001));
+                }
+            }
+            let mesh = &builder.finish().parts.remove(0).mesh;
+            assert_eq!(mesh.positions.len(), colliders.len() * 24);
+        }
+    }
 
     #[test]
     fn joists_are_evenly_spaced_independent_of_openings_and_keep_longitudinal_grain() {

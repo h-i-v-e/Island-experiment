@@ -92,6 +92,7 @@ fn along_wall_stairs_turn_toward_the_longer_edge_and_stay_outside_the_plinth() {
             let outer_wall = facade.point(&recipe, 0., 0., -recipe.foundation.outset);
             let shapes = foundation::stair_colliders(&recipe);
             let first = &shapes[1];
+            let count = usize::from(stairs.steps) + 1;
             assert!(
                 (0..2).any(
                     |axis| (first.min[axis] - stairs.landing_bounds.max[axis]).abs() < 0.00001
@@ -99,7 +100,7 @@ fn along_wall_stairs_turn_toward_the_longer_edge_and_stay_outside_the_plinth() {
                 ),
                 "flight meets landing"
             );
-            for step in &shapes[1..] {
+            for step in shapes[1..count].iter().chain(&shapes[count + 1..]) {
                 for x in [step.min[0], step.max[0]] {
                     for y in [step.min[1], step.max[1]] {
                         assert!(

@@ -26,8 +26,25 @@ pub enum MaterialSlot {
     Atlas,
     Foundation,
     Stairs,
+    StoneSlab,
+    StairTreads,
 }
 impl MaterialSlot {
+    #[must_use]
+    pub const fn is_stairs(self) -> bool {
+        matches!(self, Self::Stairs | Self::StairTreads)
+    }
+
+    /// Mesh groups can share maps while retaining independent visibility.
+    #[must_use]
+    pub const fn texture_slot(self) -> Self {
+        match self {
+            Self::Stairs => Self::Foundation,
+            Self::StairTreads => Self::StoneSlab,
+            _ => self,
+        }
+    }
+
     /// Four masked cut-end layers, ordered from straw roots to tips.
     pub const THATCH_SHELLS: [Self; 4] = [
         Self::ThatchShell1,
@@ -87,6 +104,9 @@ pub struct DoorDescriptor {
     /// Signed hinge-local Y offset of the leaf centre; older exports use zero.
     #[serde(default)]
     pub depth_offset: f32,
+    /// Optional hinge-local solids for shaped leaves; empty uses the rectangular bounds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collision_sections: Vec<BoxCollider>,
     pub mesh: BuildingMesh,
     /// Untextured metal knobs and roses in the same hinge-local frame as the leaf.
     #[serde(default)]
@@ -118,6 +138,9 @@ pub struct BuildingPrototype {
     pub lods: [BuildingLod; 3],
     pub doors: Vec<DoorDescriptor>,
     pub colliders: Vec<BoxCollider>,
+    /// Occupied floor slabs and internal treads/landings, independent of entrance stairs.
+    #[serde(default)]
+    pub support_colliders: Vec<BoxCollider>,
     /// Optional entrance collision, switched together with stair visibility.
     #[serde(default)]
     pub stair_colliders: Vec<BoxCollider>,

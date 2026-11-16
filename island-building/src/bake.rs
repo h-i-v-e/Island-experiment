@@ -191,13 +191,13 @@ fn sample(r: &BuildingRecipe, sources: &Sources<'_>, chart: usize, u: f32, v: f3
     }
     let facade = Facade::ALL[chart];
     let along = (u - 0.5) * facade.length(r);
-    let z = v * (r.wall_height + r.roof.rise + r.floor_thickness) - r.floor_thickness;
+    let z = v * (r.eaves_height() + r.roof.rise + r.floor_thickness) - r.floor_thickness;
     let mut sample = wall_sample(r, sources, chart, [along, z]);
     for o in r.openings.iter().filter(|o| o.facade == facade) {
+        let sill = o.sill + r.floor_height(o.storey);
         let dx = (along - o.offset).abs();
-        let inside = dx <= o.width * 0.5 && z >= o.sill && z <= o.sill + o.height;
-        let border =
-            dx <= o.width * 0.5 + 0.07 && z >= o.sill - 0.07 && z <= o.sill + o.height + 0.07;
+        let inside = dx <= o.width * 0.5 && z >= sill && z <= sill + o.height;
+        let border = dx <= o.width * 0.5 + 0.07 && z >= sill - 0.07 && z <= sill + o.height + 0.07;
         if border {
             sample = plain(r.materials.trim, 0.035, 190);
             sample.ao = 235;
@@ -214,15 +214,15 @@ fn sample(r: &BuildingRecipe, sources: &Sources<'_>, chart: usize, u: f32, v: f3
                         -0.025,
                         70,
                     );
-                    let mullion = dx < 0.022 || (z - (o.sill + o.height * 0.52)).abs() < 0.018;
-                    if mullion {
+                    let grid = crate::window_panes::PaneGrid::new(r, o);
+                    if grid.solid_at([along, z - r.floor_height(o.storey)]) {
                         s = plain(r.materials.trim, 0.025, 190);
                     }
                     s
                 }
                 OpeningKind::Door => {
                     let local_x = along - o.offset + o.width * 0.5;
-                    doors::sample(r, materials, o, [local_x, z - o.sill])
+                    doors::sample(r, materials, o, [local_x, z - sill])
                 }
             };
         }
@@ -239,13 +239,13 @@ fn wall_sample(
     let plaster = texture(
         sources.materials,
         MaterialSlot::Wall,
-        point[0],
+        point[0] + Facade::ALL[chart].length(recipe) * 0.5,
         point[1],
         recipe.materials.wall,
     );
     let footprint = [
         Facade::ALL[chart].length(recipe) * 4. / (recipe.atlas_size as f32 * 0.9),
-        (recipe.wall_height + recipe.roof.rise + recipe.floor_thickness)
+        (recipe.eaves_height() + recipe.roof.rise + recipe.floor_thickness)
             * crate::lod::atlas_rows(recipe) as f32
             / (recipe.atlas_size as f32 * 0.9),
     ];
@@ -387,7 +387,7 @@ fn chart_dimensions(recipe: &BuildingRecipe, chart: usize) -> (f32, f32) {
     if chart < 4 {
         return (
             Facade::ALL[chart].length(recipe),
-            recipe.wall_height + recipe.roof.rise + recipe.floor_thickness,
+            recipe.eaves_height() + recipe.roof.rise + recipe.floor_thickness,
         );
     }
     if chart < 6 {
@@ -423,12 +423,19 @@ fn chimney_sample(
         let margin = if z > bounds.max[2] - 0.1 { 0.06 } else { 0. };
         let min = [bounds.min[0] - margin, bounds.min[1] - margin];
         let max = [bounds.max[0] + margin, bounds.max[1] + margin];
-        let along = match Facade::ALL[chart - 8] {
-            Facade::South => min[0] + u * (max[0] - min[0]),
-            Facade::East => min[1] + u * (max[1] - min[1]),
-            Facade::North => -max[0] + u * (max[0] - min[0]),
-            Facade::West => -max[1] + u * (max[1] - min[1]),
+        let facade = Facade::ALL[chart - 8];
+        let point = match facade {
+            Facade::South => [min[0] + u * (max[0] - min[0]), min[1], z],
+            Facade::East => [max[0], min[1] + u * (max[1] - min[1]), z],
+            Facade::North => [max[0] - u * (max[0] - min[0]), max[1], z],
+            Facade::West => [min[0], max[1] - u * (max[1] - min[1]), z],
         };
+        let uv = crate::units::box_uv(
+            crate::geometry::chimney::stack_bounds(recipe).unwrap(),
+            point,
+            facade.normal(),
+        );
+        let along = uv[0] * 2.;
         return texture(
             materials,
             MaterialSlot::Chimney,
@@ -452,8 +459,8 @@ fn chimney_sample(
     texture(
         materials,
         MaterialSlot::Chimney,
-        x,
-        y,
+        x - crate::geometry::chimney::stack_bounds(recipe).unwrap().min[0],
+        y - crate::geometry::chimney::stack_bounds(recipe).unwrap().min[1],
         recipe.materials.chimney,
     )
 }
@@ -461,6 +468,68 @@ fn chimney_sample(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn distant_wall_and_chimney_charts_preserve_the_same_edge_phase_as_near_meshes() {
+        let mut recipe = BuildingRecipe::hut();
+        recipe.openings.clear();
+        let gradient = |slot| MaterialTexture {
+            slot,
+            size: 16,
+            albedo: (0..256)
+                .flat_map(|i| {
+                    [
+                        u8::try_from(i % 16).unwrap() * 16,
+                        u8::try_from(i / 16).unwrap() * 16,
+                        0,
+                        255,
+                    ]
+                })
+                .collect(),
+            normal: [128, 128, 255, 255].repeat(256),
+            masks: [255, 220, 0, 255].repeat(256),
+            physical_size: [1.7, 1.3],
+            source_hash: String::new(),
+        };
+        let maps = [
+            gradient(MaterialSlot::Wall),
+            gradient(MaterialSlot::Chimney),
+        ];
+        let sources = Sources::new(&recipe, &maps);
+        for facade in Facade::ALL {
+            let (u, v) = (0.31, 0.37);
+            let z = v * (recipe.eaves_height() + recipe.roof.rise + recipe.floor_thickness)
+                - recipe.floor_thickness;
+            let expected = texture(
+                &maps,
+                MaterialSlot::Wall,
+                u * facade.length(&recipe),
+                z,
+                recipe.materials.wall,
+            );
+            assert_eq!(
+                sample(&recipe, &sources, facade.index(), u, v).albedo,
+                expected.albedo
+            );
+            let bounds = crate::geometry::chimney::exterior_bounds(&recipe).unwrap();
+            let side = if matches!(facade, Facade::South | Facade::North) {
+                bounds.max[0] - bounds.min[0]
+            } else {
+                bounds.max[1] - bounds.min[1]
+            };
+            let expected = texture(
+                &maps,
+                MaterialSlot::Chimney,
+                u * side,
+                bounds.min[2] + v * (bounds.max[2] - bounds.min[2]),
+                recipe.materials.chimney,
+            );
+            assert_eq!(
+                sample(&recipe, &sources, 8 + facade.index(), u, v).albedo,
+                expected.albedo
+            );
+        }
+    }
+
     #[test]
     fn distant_thatch_ends_bake_the_cut_straw_into_the_reserved_chart() {
         let mut recipe = BuildingRecipe::hut();

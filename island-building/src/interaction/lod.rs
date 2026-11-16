@@ -53,16 +53,17 @@ pub(super) fn select_lods(
 fn near_opening(building: &BuildingInstance, eye: Vec3, range: f32) -> bool {
     let recipe = &building.prototype.source.recipe;
     recipe.openings.iter().any(|opening| {
+        let sill = opening.sill + recipe.floor_height(opening.storey);
         let a = native_to_bevy(opening.facade.point(
             recipe,
             opening.offset - opening.width * 0.5,
-            opening.sill,
+            sill,
             0.0,
         ));
         let b = native_to_bevy(opening.facade.point(
             recipe,
             opening.offset + opening.width * 0.5,
-            opening.sill + opening.height,
+            sill + opening.height,
             0.0,
         ));
         eye.distance(eye.clamp(a.min(b), a.max(b))) <= range

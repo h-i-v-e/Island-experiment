@@ -1,7 +1,7 @@
 # Island Building Studio
 
-An independent procedural-building crate and Bevy studio for single-storey huts,
-partitioned cottages and workshops. Recipes describe metres in native right-handed
+An independent procedural-building crate and Bevy studio for single- and multi-storey
+huts, partitioned cottages and workshops. Recipes describe metres in native right-handed
 Z-up coordinates. The Bevy adapter converts `(x, y, z)` to `(x, z, -y)`.
 
 Run from the repository root:
@@ -21,9 +21,68 @@ open "island-building/dist/Building Studio.app"
 
 The default package command builds release; `--debug` uses incremental development
 artifacts. `--no-build` reuses an executable you have already verified is current.
-The bundle includes the three building recipes, the wooden plank, floorboard, coursed stone, slate and thatch material recipes,
+The bundle includes the building recipes, the wooden plank, floorboard, rough stone, solid slab, daub, slate and thatch material recipes,
 and this README in `Contents/Resources`.
 Packaging protects an existing bundle and honours `CARGO_TARGET_DIR`.
+
+## Mesh cleanup and experimental texture arrays
+
+All building formulas finalize their assembled LODs before baking and hashing.
+Finalization welds identical position/normal/UV vertices and removes collapsed
+triangles and exact same-facing opaque duplicates within each material part.
+Opposing faces, material seams, glass and masked straw multiplicity are retained.
+Generator-specific joins remove covered faces between ceiling cells, masonry
+stair blocks and church floor/foundation sections. Church interior wall corners
+meet at shared miters, and curved ceiling ribs have caps only at their ends.
+Ground-floor undersides are covered by the permanent foundation. Roof-ceiling
+tops are enclosed by the roof; Studio cutaway removes roof and ceiling together.
+Upper-floor undersides, aperture reveals and exposed soffits remain visible.
+Church door/window surrounds own their jamb and pointed-head reveal surfaces;
+covered masonry caps are omitted, preserving the exposed strip below raised
+door frames.
+This does not infer arbitrary hidden surfaces from camera views or colliders.
+
+The optional GPU compiler keeps these source meshes for editing and export while
+combining compatible opaque sections using texture arrays and a material index
+constant across each triangle. Texture banks retain their native resolutions,
+physical UV scale and tangent frames. The shader retains each material's surface
+settings and exterior-only grub policy. Glass, masked straw and the baked LOD2 atlas use
+the existing material path. Other LOD2 surfaces reuse the same array banks. Entrance stairs remain separately hideable; moving
+door leaves can combine their timber and metal hardware without losing the hinge.
+Compiled handles are shared between placements; no per-placement pixel copies
+are made.
+
+**Batching defaults off because measured gains depend on the workload.**
+Use **Inspection → Texture array batching (experimental)** or launch with
+`--renderer arrays`; `--renderer standard` selects the existing renderer.
+The inspection counter reports compiled mesh sections, rather than claiming to
+measure GPU submissions across main, depth and shadow passes.
+
+The offscreen A/B benchmark uses the same geometry, camera, resolution and lights
+for either compiler. It waits for shader compilation and for GPU completion on
+each frame before collecting synchronized frame intervals. Run serial comparisons with new output paths:
+
+```sh
+CARGO_TARGET_DIR="$PWD/target" cargo run --manifest-path island-building/Cargo.toml --features studio --example render_benchmark -- --renderer standard --buildings 32 --variants 1 --lod 0 --output /tmp/building-standard.json
+CARGO_TARGET_DIR="$PWD/target" cargo run --manifest-path island-building/Cargo.toml --features studio --example render_benchmark -- --renderer arrays --buildings 32 --variants 1 --lod 0 --output /tmp/building-arrays.json
+```
+
+Repeat with 1/32/128 buildings, multiple variants, church and thatched recipes,
+and LOD1. `--recipe FILE`, `--screenshot NEW.png`, `--normal-prepass true` and
+`--ssao true` allow material, normal/depth/motion prepass and SSAO inspection. Reports distinguish frame
+intervals, CPU render diagnostics, compiled sections and image payload bytes.
+Metal does not expose GPU timestamps through Bevy's render diagnostics; these
+metrics do not claim isolated GPU duration, actual GPU draw calls or driver VRAM.
+Build 55 M4 Pro tests showed about 4.3% lower median time for the church scene and
+5.8% for varied cottages at LOD1; other cases are unchanged or inconsistent.
+Texture payload is equal between compilers. Keep Standard as the general default
+and select arrays for workloads where repeated measurements show a benefit.
+
+Runtime validation resumed successfully after other graphics applications were
+closed. All 212 Studio tests pass, and the eight-recipe/three-LOD audit removes
+11,502 triangles and 90,146 vertices. Standard and array material captures cover
+interiors, thatch, open doors, visible/hidden stairs, shadows and SSAO. See
+`VALIDATION.md` for the benchmark decision and packaged build evidence.
 
 The floating inspection controls and left recipe inspector follow Tree Studio's
 dark navy/cyan HUD. Right-drag orbits, the wheel zooms, and the named views frame
@@ -46,6 +105,230 @@ The reusable source recipe is [`wooden-planks.json`](../island-rs/texture-recipe
 six boards across a 1.2 × 2.4 m tile with editable grain, bevelled seams, colour,
 and optional staggered end joints.
 
+Dimension controls default to **Material units**. **Grid surface** selects the
+reference material independently for each dimension tab; **Metres** restores free
+metric editing. One U/V unit is a board width/length, masonry block/course, slate
+course/width, or thatch course/bundle, derived from the selected recipe's physical
+tile size and counts. Other materials use a complete texture repeat. The displayed
+metre equivalent stays visible. Edited values snap to whole units; **Snap** rounds
+an existing value. Opening or changing the grid does not resize the recipe.
+**Reload grid** rereads a material changed externally. Missing or invalid material
+recipes show an error and retain metric controls.
+
+Choose the floor or ceiling grid on Structure to author the **inside** width/depth
+in board units; the outer footprint includes wall thickness. The foundation grid measures the plinth, including its outset. Other structure
+grids measure the outside building footprint. Openings are positioned by their left edge from the
+facade's left corner, so odd board/block counts keep both sides on the nominal grid.
+The roof grid measures the actual eave-to-top slope and gable-to-gable length;
+changing the latter changes building depth. Chimney stack height snaps its absolute
+top elevation to courses starting at floor level. Small thicknesses, projections,
+clearances and burial margins remain in metres. Dimensions are still saved in metres,
+with the usual Undo/Redo and existing recipe compatibility.
+
+**Openings → Building-wide defaults** sets one window width, height and sill,
+and one door width and height. New internal doorways use these door sizes too;
+**Layout → Override door dimensions** gives each partition its own dimensions.
+New Studio presets use **Generate openings
+automatically**: one entrance per selected wall and evenly distributed windows,
+with a configurable target spacing and corner clearance. Entrances start centred;
+when a fireplace or partition end blocks the centre they use a clear wall span.
+Windows avoid entrances, fireplaces and partition ends. Counts and positions are
+recomputed whenever footprint dimensions change; sizes remain the shared values.
+Geometry, all three LODs, collision, stairs and bakes use this same resolved layout.
+The maximum is 15 windows per wall and 64 exterior openings overall.
+
+Expand a generated opening to move it, **Override dimensions**, change door style,
+hinge or swing, or **Suppress this opening**. **Reset to generated values** restores
+inheritance. Turning generation off keeps the current resolved openings for manual
+editing. Existing saved recipes retain their explicit layout and sizes; **Use
+building-wide sizes for all openings** opts a manual layout into shared dimensions,
+and each opening can still override them. These edits support Save and Undo/Redo.
+
+Rectangular windows also have **Window panes** columns and rows, each from 1 to 32.
+**Single pane** selects a modern 1 × 1 opening; **Shop grid** selects 8 × 4.
+Every window follows the building default until **Override window panes** is
+enabled on that opening. This is independent of its size override, so a wide
+display window can have many small panes while the other windows stay simple.
+LOD0 uses real recessed glazing bars, LOD1 uses flat bars over opaque glazing,
+and LOD2 bakes the same layout. Gothic church tracery retains its existing pattern.
+Open [`shopfront.json`](recipes/shopfront.json) for a 5.2 m wide, 32-pane front
+window beside the entrance. Existing recipes keep a 2 × 2 pane layout by default.
+
+For procedural code, no authored opening list is required:
+
+```rust
+use island_building::{BuildingRecipe, DoorStyle, OpeningOverride, WindowPanes, generate};
+
+let mut recipe = BuildingRecipe::procedural(9.0, 7.0);
+recipe.opening_defaults.window.width = 1.5;
+recipe.opening_defaults.window_panes = WindowPanes { columns: 1, rows: 1 };
+recipe.opening_defaults.door.height = 2.25;
+recipe.opening_generation.as_mut().unwrap().overrides.push(OpeningOverride {
+    id: "auto-door-south".into(),
+    door_style: Some(DoorStyle::FrameAndPanel),
+    offset: Some(0.7),
+    ..Default::default()
+});
+let prototype = generate(&recipe).expect("valid building recipe");
+```
+
+JSON uses `opening_defaults` and optional `opening_generation`; `door_facades` and
+`window_facades` contain south/east/north/west. Omitting generation preserves the
+manual `openings` list, where `use_default_dimensions: true` opts into shared sizes.
+In automatic mode that list is derived; edit `opening_generation.overrides` instead.
+Set `"window_panes": { "columns": 8, "rows": 4 }` on a manual window or generated
+override for a custom pane layout; omit it to follow `opening_defaults.window_panes`.
+IDs are `auto-door-south` and `auto-window-east-0`, etc. Window indices count from
+the facade's left side, starting at zero. Only specified override fields are fixed;
+the rest continue to follow generation. Overrides for absent slots are retained
+across resizes and become active if those IDs return. Footprint changes can change
+which physical window an ordinal ID addresses. Invalid sizes, overlapping overrides
+or removal of every exterior door produce validation diagnostics.
+
+Walls start their U chart at each facade's left corner, and their V courses at floor
+level, continuously across opening cuts and gables. Floor/ceiling boards start across
+U at the inside wall edge and retain their joist-aligned lengthwise joints. Their grid
+uses the authored board length; timber buildings still fit end joins to two joist bays.
+Masonry charts use component edges and a common floor-height course phase, including
+buried foundations. The same phase is used in distant bakes and portable exports.
+Slate relief follows the assigned material's course spacing. Different material grids
+can have incompatible module sizes: select the surface whose edges you are aligning.
+Running bonds, staggered ends and intentionally irregular stone edges retain their pattern.
+
+**Structure → Storeys** adds up to six occupied storeys, including the ground floor.
+**Storey wall height** is the height of each room; floor N is at
+`N * (wall_height + floor_thickness)`, with the ground floor at zero. The roof sits
+on the top storey. Existing recipes default to one storey. Automatic openings repeat
+windows on every floor while exterior entrances remain at ground level. Manual
+openings and partitions have a **Storey (0 = ground)** selector. Upper automatic
+window IDs append `-storey-N`, allowing the same individual override controls.
+
+Every multi-storey building includes internal **timber U-stairs** with open risers,
+two flights between floors, a turn landing, a landing at every occupied floor and
+guardrails. Each flight has two continuous timber stringers housing the tread ends;
+railing posts sit on the stringers. There are no vertical boards between treads. The floor slabs and exposed joists have real staircase cutouts; floor
+landings meet the boards without overlapping faces. Placement searches for a clear
+position and orientation, considering doors, partitions and the fireplace/flue.
+**Internal staircase** controls its width, tread going, maximum riser, landing depth,
+axis and optional position. Enlarge the footprint or move conflicting elements if
+validation reports that no staircase fits. Landings must be at least as deep as
+the flight width. The stair surface uses **Materials → Frame timber** and receives
+no grub. Interior stair geometry appears at LOD0; its collision and floor support
+remain active at every LOD, independently of **Show entrance stairs**.
+
+**Enclose stairwell** is enabled by default. It generates a separate interior stair
+room with one openable, outward-swinging door from its landing onto each floor.
+The enclosure uses the interior wall material; door leaves use **Materials → Doors**
+and the building-wide door width/height. **Stair doors** selects plank or frame-and-panel
+leaves. Turning the enclosure off retains the open stair layout. An enclosure side less
+than one exterior-wall U unit from the inside face of an external wall reuses that
+wall, keeping its windows visible. U follows **Dimensions → Exterior walls** and
+the assigned wall material's horizontal module. Remaining partitions extend to
+meet the reused external walls. A landing door moves to a retained partition when
+its original side is shared; placement may reverse the stair flights to keep the
+entrance and chimney clear. Exact one-unit gaps retain their partition. Placement reserves
+space for the enclosure and the room-side door swing and approach. Layout exports
+include stairwell bounds and doorway approach points; `doors.json` identifies these
+leaves as `stairwell-door-N`, with `exterior: false`. Their meshes appear at LOD0;
+wall and moving-door collision remain active at every LOD.
+
+Automatic stairs prefer the closest usable external wall across both run axes,
+then a corner where possible, leaving 40 mm from its inside timber face. Shared
+external walls need no extra enclosure-wall setback. The chimney wall and hearth
+approach remain reserved for the main rooms. A front-door conflict moves the door
+along its existing facade before moving the stairs. Authored entrance offsets,
+including overrides, are preferred positions: a clear one stays put; an obstructed
+one moves to a clear span with room for the leaf swing and player approach. The
+door retains its size, style, hinge and opening direction. Generated ground-floor
+windows and exterior entrance steps follow the resolved door; manual window offsets stay
+fixed. Saved authoring recipes retain the preferences, while generated prototypes
+and packages contain the resolved offsets. Explicit stair positions remain fixed.
+
+Windows beside stair landings move up until their complete sill and casing clear
+the platform by 20 mm. If the full window cannot fit below the lintel, or its new
+position would overlap another opening, it is omitted. This applies to generated
+and manual windows on reused exterior stairwell walls, or beside unenclosed stairs;
+other windows keep their original height. Saved recipes retain the authored values.
+Door jambs start 20 mm above the floor. Wall caps beneath upper stairwell doorways
+end 20 mm below the boards, keeping both sets of faces clear of the floor surface.
+
+**Gothic church** is available under Starting places, through `--preset church`,
+in `recipes/gothic-church.json`, and from `BuildingRecipe::gothic_church()`.
+Its `church` recipe controls nave width, transept depth and position, twin tower
+dimensions, flying-buttress reach and window bay spacing. Width is the overall
+transept span and depth is the nave/chancel length. The shared window dimensions
+control the pointed lancets; shared door dimensions control the south entrance.
+The entrance has two independently openable timber leaves extending to the pointed
+arch apex, with no glass fanlight. **Door spring height** sets where the curved
+head begins; the arch adds its rise above that height. Each leaf has its own handle
+and saved angle, uses the assigned door material, and exports shaped collision
+sections in its hinge-local frame. Missing sections retain rectangular collision
+for older doors. The closed double entrance is preserved in LOD1 and the LOD2 bake.
+Invalid proportions produce a diagnostic before geometry generation.
+
+Each lancet contains two complete pointed lights separated by a central mullion,
+with a circular stone eye between their heads and the outer arch. The eye meets
+both inner arches and the surround. LOD0 glazing remains clear; LOD1 keeps a
+simplified version of the same tracery over opaque glazing, and LOD2 bakes the
+pattern. Upper tower windows fit their actual wall height without stretching the
+circle into an oval.
+
+The cruciform floor is connected through the crossing, with no internal walls
+blocking the arms. LOD0 includes an unfurnished stone interior, solid pointed arches
+filled up to the sloping ceiling,
+recessed clear glazing, mullions/tracery, paired pointed timber doors, crenellated towers
+and pinnacles. Flying buttresses have open circular arches matching the windows,
+with uniform stone thickness and slightly outboard supports. LOD1
+uses opaque windows and simpler exterior detail. LOD2 preserves the cross, towers
+and buttress silhouette with baked stone, roof and Gothic-window bay textures.
+The church uses continuous rough stone for walls, ceiling, trim and foundations,
+with layered noise driving colour variation and normal-map relief instead of
+block joints. The shared recipe is [`rough-stone.json`](../island-rs/texture-recipes/rough-stone.json);
+material assignments still override the defaults. The slate roof has closed,
+mitred eaves around the nave and transepts. **Structure → Roof overhang** adjusts
+the projection; zero removes it. New church presets use a 0.45 m overhang.
+
+Church presets enable the existing two-scale grub and moss shader with a 3 m
+height falloff from floor level. Only dedicated exterior stone faces, foundations
+and stairs receive it. Inner wall faces, reveals, ceilings, floors, doors and shared
+trim remain clean; the mixed LOD2 atlas also stays clean. **Grub** adjusts or disables
+weathering without altering the base stone maps.
+`layout.church` exports the outline and nave/transept/tower bounds; floor support
+and foundations follow the cruciform footprint. Interior and Window inspection
+views target the nave and its lancets.
+
+Landing perimeter railings are omitted where the outside wall is within 60 cm
+of the landing edge, including its inward timber projection. Wider gaps retain
+their guards, and the flight handrails remain attached to the stringers.
+Upper-floor stair openings have a continuous timber frame beneath the floorboards,
+using the timber material and the wall beam width. Headers and side trimmers meet
+at solid corners; exposed joists finish against the outside of this frame. The
+rim projects 15 mm into the opening to clear adjacent wall faces, while the bearer
+ends still meet its outer faces. Its underside lines up with the joists. A
+shallower header beneath the landing edge preserves stair headroom; the cut floor
+edges use timber too, with a small top lip completing the visible rim.
+
+**Inspection → Internal stairs** starts beside the ascending flight.
+**Inspect storey (0 = ground)** selects an upper room for the Interior view;
+**Stair door** frames the door from the room side on the selected floor.
+Window inspection follows the selected floor. Walkthrough can climb and descend
+the stairs. CLI captures accept `--view stairs`, `--view stair-door` and `--storey 0..5` with the Interior
+or Window view. Exported `layout.json` includes floor heights and staircase/landing
+metadata, while `support-collision.json` supplies floor and internal stair support
+separately from hideable entrance stairs. Each occupied floor has a fireplace,
+stone hearth and wall-material surround using the shared chimney dimensions and
+materials. They align beneath one roof stack and cap. Stair placement reserves the
+chimney wall and a clear route in front of its hearths for the rooms; an enclosure
+cannot reuse that wall. Explicit stair positions must satisfy the same clearance.
+Fireplace inspection follows **Inspect storey**, including CLI `--storey` captures.
+
+```rust
+let mut recipe = island_building::BuildingRecipe::procedural(8.0, 7.0);
+recipe.storeys = 3;
+// Optional: recipe.staircase.axis = island_building::StairAxis::X;
+let building = island_building::generate(&recipe).expect("clear stair layout");
+```
+
 Floors and ceilings use built-in **wooden boards**, with 20 cm wide boards,
 equal lengths, a regular half-board stagger, narrow bevelled seams and subtle grain.
 The reusable recipe is [`wooden-floorboards.json`](../island-rs/texture-recipes/wooden-floorboards.json),
@@ -63,12 +346,28 @@ Material Studio controls this pattern and requires an even number of boards
 across the tile. Interior walls and fireplace surrounds retain their plaster finish.
 These interior materials appear at LOD0.
 
-Foundations are separate coursed stone, with their own colour and JSON material
+Foundations use continuous rough stone, with their own colour and JSON material
 selector under **Materials → Foundation / stairs**. They project 8 cm beyond
 the walls and extend down by `tan(30°) × footprint diagonal + burial margin`
 (default 15 cm). Keep the building level and place its floor top at the highest
 terrain point anywhere within the foundation footprint. This covers terrain
 whose slope stays within 30° in any direction.
+
+Steps and landings have separate **solid stone slabs** on their upward faces:
+45 mm thick with a small 15 mm nosing and exposed-side overhang. The tread heights
+remain unchanged, and caps fit against the threshold/plinth. **Materials → Stone
+slabs · treads & hearth** assigns an independent colour or Material Studio JSON;
+clearing the reference restores the joint-free dressed-stone surface from
+[`stone-slab.json`](../island-rs/texture-recipes/stone-slab.json). The fireplace's
+bottom hearth is one solid piece in the same material, continuous into the firebox.
+Foundation, stair bodies, chimneys and fireplace breasts use the shared continuous
+rough-stone finish, with layered noise and normal-map relief instead of mortar joints.
+
+Treads and landing caps are real slabs at LOD0/1 and a thin stone ramp/landing
+proxy at LOD2. Their overhang collision and support hide with the stairs. The hearth
+remains visible and collidable at LOD0 when entrance stairs are hidden. Exported
+`stair_treads` and `stone_slab` groups share one set of stone maps but retain separate
+visibility; hide `stairs` and `stair_treads` together with `stairs-collision.json`.
 
 Each exterior door gets a landing and 20 cm rise / 24 cm tread entrance stairs.
 Their full length reaches the worst downhill terrain beyond the foundation;
@@ -180,11 +479,11 @@ editable in Material Studio. Their `roof_colour` parameter recolours pigment
 without changing relief. Texture U follows the slope and V follows the ridge.
 
 The chimney and fireplace share an assignable material. With no JSON reference,
-they use the embedded [`coursed-stone.json`](../island-rs/texture-recipes/coursed-stone.json)
-recipe: staggered stone courses with recessed mortar over a 2 × 2 m tile.
+they use the embedded [`rough-stone.json`](../island-rs/texture-recipes/rough-stone.json)
+recipe: continuous noise-based stone with normal-map relief over a 2 × 2 m tile.
 The chimney palette swatch recolours the stone; a custom material recipe supplies
 its own colours. Choose any shared masonry or brick recipe with **Choose JSON…**;
-**Clear** restores the built-in coursed stone. The soot lining keeps its separate
+**Clear** restores the built-in rough stone. The soot lining keeps its separate
 dark material. **Inspection → Fireplace** frames the interior opening.
 
 New/Open/Revert protect unsaved changes. Save writes a sibling temporary, fsyncs
@@ -256,6 +555,29 @@ valid geometry and rendering to settle, then exit after the PNG is written.
 Interior/entrance inspection can intentionally pin LOD0 even when a farther LOD
 is requested. Use exterior facade views for forced LOD comparisons.
 
+The **Grub** tab adds optional shader weathering without changing the material
+recipes or their texture maps. Two separately contrasted layers of seeded noise
+combine broad dirt patches with finer breakup; both sizes and the fine layer's
+contribution are adjustable. The full noise contrast is retained at the building
+floor, so blotches remain visible on the walls above it.
+Moss patches favour upward-facing surfaces using the final normal-mapped normal.
+The height blend uses the **building's floor**, independently of terrain height.
+Neutral noise has 50% strength there, increasing below it and fading above it.
+Individual blotches vary around that midpoint. Grime and moss strengths,
+height falloff and both colours are adjustable. Weathering is restricted to
+foundations, stairs/treads, thatch, exterior wattle-and-daub panels and dedicated
+church exterior stone. Timber,
+joinery, doors, glass, chimneys/fireplaces and all interior surfaces keep their
+original materials. Shared geometry is excluded entirely, with no side masks.
+The mixed LOD2 facade atlas also stays clean to protect its baked timber and
+joinery; dedicated foundations, stairs and thatch remain eligible at LOD2.
+Existing recipes keep the filter disabled.
+
+Portable exports include `grub-filter.json` with settings, uniform vectors and
+coordinate conventions, plus `grub-filter.wgsl` with the same noise/masking
+functions used by the renderer. The exported maps and LOD2 atlas stay unfiltered;
+importers must apply the shader to reproduce enabled weathering.
+
 The default library has no Bevy dependency. Consumers use `generate` or
 `generate_with_base`, then enable `bevy` for `compile_building`, `spawn_building`
 and `BuildingRuntimePlugin`. Compiled assets are shared through `Arc`; each
@@ -263,6 +585,12 @@ placement has one scene root and its own retained doors. Attach an explicit
 `BuildingObserver` at feet position and, for a detached camera, retain a
 `BuildingOccupant` for the player. Runtime consumers own terrain placement and
 movement; collision queries do not depend on active visual LOD.
+
+To render the grub filter, also register `BuildingGrubPlugin` after Bevy's
+render/PBR plugins and use `compile_building_with_grub`, passing
+`Assets<GrubMaterial>` alongside the standard assets. This shares the existing
+image handles and supplies weathered materials at all three LODs. The original
+`compile_building` API remains available for standard PBR consumers.
 
 Focused checks:
 

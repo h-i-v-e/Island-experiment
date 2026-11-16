@@ -120,7 +120,31 @@ impl OrientedBox {
     }
 }
 impl DoorDescriptor {
-    /// Solid leaf bounds in the same hinge-local frame as its mesh and hardware.
+    /// Allocation-free narrow-phase solids, including a shaped leaf's arch head.
+    pub fn local_sections(&self) -> impl Iterator<Item = BoxCollider> + '_ {
+        self.collision_sections.iter().copied().chain(
+            std::iter::once(self.local_bounds()).filter(|_| self.collision_sections.is_empty()),
+        )
+    }
+
+    /// The independent solid sections rotated around this leaf's hinge.
+    pub fn colliders_at(&self, angle: f32) -> impl Iterator<Item = OrientedBox> + '_ {
+        let yaw = self.closed_angle + angle;
+        let (sin, cos) = yaw.sin_cos();
+        self.local_sections().map(move |b| {
+            let centre = std::array::from_fn::<_, 3, _>(|i| (b.min[i] + b.max[i]) * 0.5);
+            OrientedBox {
+                centre: [
+                    self.hinge[0] + cos * centre[0] - sin * centre[1],
+                    self.hinge[1] + sin * centre[0] + cos * centre[1],
+                    self.hinge[2] + centre[2],
+                ],
+                half_extents: std::array::from_fn(|i| (b.max[i] - b.min[i]) * 0.5),
+                yaw,
+            }
+        })
+    }
+    /// Bounding leaf extent in the same hinge-local frame as its mesh and hardware.
     #[must_use]
     pub fn local_bounds(&self) -> BoxCollider {
         BoxCollider {
@@ -133,6 +157,7 @@ impl DoorDescriptor {
         }
     }
 
+    /// Broad bounding box. Use `colliders_at` for shaped-leaf collision queries.
     /// `angle` is relative to the closed pose. Positive rotations are native +Z yaw.
     #[must_use]
     pub fn collider_at(&self, angle: f32) -> OrientedBox {

@@ -17,6 +17,10 @@ name = "building-studio"
 path = "src/main.rs"
 required-features = ["studio"]
 
+[[example]]
+name = "render_benchmark"
+required-features = ["bevy"]
+
 [dependencies]
 motu = { package = "island-rs", path = "../island-rs", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
@@ -37,3 +41,6 @@ unsafe_op_in_unsafe_fn = "deny"
 [lints.clippy]
 all = "warn"
 pedantic = "warn"
+
+[dev-dependencies]
+naga = { version = "29.0.4", features = ["wgsl-in"] }

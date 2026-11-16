@@ -12,12 +12,24 @@ const CAP_OVERHANG: f32 = 0.06;
 struct Frame<'a> {
     recipe: &'a BuildingRecipe,
     chimney: &'a ChimneyRecipe,
+    stack_uv: bool,
+    storey: u8,
 }
 impl Frame<'_> {
     fn point(&self, u: f32, v: f32, z: f32) -> [f32; 3] {
-        self.chimney
-            .facade
-            .point(self.recipe, self.chimney.offset + u, z, v)
+        self.chimney.facade.point(
+            self.recipe,
+            self.chimney.offset + u,
+            z + self.recipe.floor_height(self.storey),
+            v,
+        )
+    }
+    fn ceiling(&self) -> f32 {
+        if self.storey + 1 < self.recipe.storeys {
+            self.recipe.wall_height + self.recipe.floor_thickness
+        } else {
+            super::top_storey_ceiling_top(self.recipe)
+        }
     }
     fn back(&self) -> f32 {
         self.recipe.wall_thickness
@@ -47,7 +59,9 @@ impl Frame<'_> {
     }
     fn cube(&self, b: &mut Builder, slot: MaterialSlot, min: [f32; 3], max: [f32; 3]) {
         let bounds = self.bounds(min, max);
-        masonry_box(b, slot, bounds.min, bounds.max);
+        let start = b.mesh(slot).positions.len();
+        b.cube(slot, bounds.min, bounds.max);
+        self.project_uvs(b, slot, start);
     }
     fn solid(
         &self,
@@ -63,7 +77,25 @@ impl Frame<'_> {
         let points = points.map(|p| self.point(p[0], p[1], p[2]));
         let start = b.mesh(slot).positions.len();
         b.face(slot, points);
-        project_uvs(b, slot, start);
+        self.project_uvs(b, slot, start);
+    }
+    fn project_uvs(&self, b: &mut Builder, slot: MaterialSlot, start: usize) {
+        let bounds = if self.stack_uv {
+            stack_bounds(self.recipe).expect("enabled chimney")
+        } else {
+            self.bounds(
+                [-self.chimney.width * 0.5, self.back(), 0.],
+                [self.chimney.width * 0.5, self.front(), 0.],
+            )
+        };
+        let mesh = b.mesh(slot);
+        for ((point, normal), uv) in mesh.positions[start..]
+            .iter()
+            .zip(&mesh.normals[start..])
+            .zip(&mut mesh.uvs[start..])
+        {
+            *uv = crate::units::box_uv(bounds, *point, *normal);
+        }
     }
     fn stack_local(&self) -> ([f32; 2], [f32; 2]) {
         (
@@ -83,7 +115,12 @@ impl Frame<'_> {
 #[must_use]
 pub fn stack_bounds(recipe: &BuildingRecipe) -> Option<BoxCollider> {
     let chimney = recipe.chimney.as_ref()?;
-    let frame = Frame { recipe, chimney };
+    let frame = Frame {
+        recipe,
+        chimney,
+        stack_uv: false,
+        storey: 0,
+    };
     let (min, max) = frame.stack_local();
     let mut bounds = frame.bounds([min[0], min[1], frame.hood_end()], [max[0], max[1], 0.]);
     bounds.max[2] = highest_roof(recipe, bounds) + chimney.height_above_roof;
@@ -93,8 +130,21 @@ pub fn stack_bounds(recipe: &BuildingRecipe) -> Option<BoxCollider> {
 /// Static, deliberately non-walkable hearth footprint and height.
 #[must_use]
 pub fn hearth_bounds(recipe: &BuildingRecipe) -> Option<BoxCollider> {
+    hearth_bounds_on_floor(recipe, 0)
+}
+/// The shared chimney's non-walkable hearth on an occupied floor.
+#[must_use]
+pub fn hearth_bounds_on_floor(recipe: &BuildingRecipe, storey: u8) -> Option<BoxCollider> {
+    if storey >= recipe.storeys {
+        return None;
+    }
     let chimney = recipe.chimney.as_ref()?;
-    let frame = Frame { recipe, chimney };
+    let frame = Frame {
+        recipe,
+        chimney,
+        stack_uv: false,
+        storey,
+    };
     Some(frame.bounds(
         [-chimney.width * 0.5 - 0.1, frame.back(), 0.],
         [
@@ -106,8 +156,21 @@ pub fn hearth_bounds(recipe: &BuildingRecipe) -> Option<BoxCollider> {
 }
 #[must_use]
 pub fn fireplace_centre(recipe: &BuildingRecipe) -> Option<[f32; 3]> {
+    fireplace_centre_on_floor(recipe, 0)
+}
+/// Inspection target for the fireplace on a particular floor.
+#[must_use]
+pub fn fireplace_centre_on_floor(recipe: &BuildingRecipe, storey: u8) -> Option<[f32; 3]> {
+    if storey >= recipe.storeys {
+        return None;
+    }
     let chimney = recipe.chimney.as_ref()?;
-    let frame = Frame { recipe, chimney };
+    let frame = Frame {
+        recipe,
+        chimney,
+        stack_uv: false,
+        storey,
+    };
     Some(frame.point(
         0.,
         frame.front() - chimney.firebox_depth * 0.5,
@@ -117,7 +180,7 @@ pub fn fireplace_centre(recipe: &BuildingRecipe) -> Option<[f32; 3]> {
 /// Top of the structural roof, including its vertical slab thickness.
 #[must_use]
 pub fn roof_height(recipe: &BuildingRecipe, x: f32) -> f32 {
-    recipe.wall_height
+    recipe.eaves_height()
         + recipe.roof.effective_thickness()
         + match recipe.roof.kind {
             RoofKind::Gable => recipe.roof.rise * (1. - x.abs() / (recipe.width * 0.5)),
@@ -152,12 +215,49 @@ pub(crate) fn near(b: &mut Builder, recipe: &BuildingRecipe, colliders: &mut Vec
     let Some(chimney) = recipe.chimney.as_ref() else {
         return;
     };
-    let frame = Frame { recipe, chimney };
-    fireplace_body(b, &frame, colliders);
-    breast(b, &frame);
-    surround(b, &frame, colliders);
+    for storey in 0..recipe.storeys {
+        let frame = Frame {
+            recipe,
+            chimney,
+            stack_uv: false,
+            storey,
+        };
+        floor_fireplace(b, &frame, colliders);
+    }
+    let frame = Frame {
+        recipe,
+        chimney,
+        stack_uv: true,
+        storey: 0,
+    };
     let (min, max) = frame.stack_local();
     let top = stack_bounds(recipe).expect("enabled chimney").max[2];
+    let bottom = recipe.floor_height(recipe.storeys - 1) + super::top_storey_ceiling_top(recipe);
+    let wall = flue_wall(chimney);
+    ring(b, &frame, min, max, bottom, top - CAP_HEIGHT, wall, true);
+    cap(b, &frame, min, max, top, wall, true);
+    colliders.extend(shell_solids(
+        &frame,
+        (min, max),
+        (
+            [min[0] + wall, min[1] + wall],
+            [max[0] - wall, max[1] - wall],
+        ),
+        [bottom, top],
+    ));
+    flashing(b, recipe, MaterialSlot::Chimney, true);
+}
+
+fn floor_fireplace(b: &mut Builder, frame: &Frame<'_>, colliders: &mut Vec<BoxCollider>) {
+    fireplace_body(b, frame, colliders);
+    breast(b, frame);
+    surround(b, frame, colliders);
+    let frame = Frame {
+        stack_uv: true,
+        ..*frame
+    };
+    let chimney = frame.chimney;
+    let (min, max) = frame.stack_local();
     let wall = flue_wall(chimney);
     ring(
         b,
@@ -165,12 +265,10 @@ pub(crate) fn near(b: &mut Builder, recipe: &BuildingRecipe, colliders: &mut Vec
         min,
         max,
         frame.hood_end(),
-        top - CAP_HEIGHT,
+        frame.ceiling(),
         wall,
         true,
     );
-    cap(b, &frame, min, max, top, wall, true);
-    // An inaccessible hood envelope is conservative above the low firebox opening.
     colliders.push(frame.bounds(
         [-chimney.width * 0.5, frame.back(), frame.hood_start()],
         [chimney.width * 0.5, frame.front(), frame.hood_end()],
@@ -182,7 +280,7 @@ pub(crate) fn near(b: &mut Builder, recipe: &BuildingRecipe, colliders: &mut Vec
             [min[0] + wall, min[1] + wall],
             [max[0] - wall, max[1] - wall],
         ),
-        [frame.hood_end(), top],
+        [frame.hood_end(), frame.ceiling()],
     ));
     colliders.extend(shell_solids(
         &frame,
@@ -191,22 +289,19 @@ pub(crate) fn near(b: &mut Builder, recipe: &BuildingRecipe, colliders: &mut Vec
             [chimney.width * 0.5, frame.front()],
         ),
         (min, max),
-        [frame.hood_end(), super::ceiling_top(recipe)],
+        [frame.hood_end(), frame.ceiling()],
     ));
-    flashing(b, recipe, MaterialSlot::Chimney, true);
 }
+
 fn fireplace_body(b: &mut Builder, f: &Frame<'_>, colliders: &mut Vec<BoxCollider>) {
     let c = f.chimney;
     let half = c.width * 0.5;
     let opening = c.firebox_width * 0.5;
     let back = f.front() - c.firebox_depth;
     let top = f.hood_start();
-    f.solid(
-        b,
-        colliders,
-        [-half - 0.1, f.back(), 0.],
-        [half + 0.1, f.front() + c.hearth_depth, c.hearth_height],
-    );
+    let hearth = hearth_bounds_on_floor(f.recipe, f.storey).expect("enabled fireplace");
+    super::slabs::stone_box(b, MaterialSlot::StoneSlab, hearth);
+    colliders.push(hearth);
     f.solid(
         b,
         colliders,
@@ -266,16 +361,7 @@ fn fireplace_body(b: &mut Builder, f: &Frame<'_>, colliders: &mut Vec<BoxCollide
             [right, f.front(), z1],
         ],
     );
-    f.face(
-        b,
-        MaterialSlot::Firebox,
-        [
-            [left, rear, z0],
-            [right, rear, z0],
-            [right, f.front(), z0],
-            [left, f.front(), z0],
-        ],
-    );
+    // The exposed floor is the same uninterrupted stone hearth as the apron.
     f.face(
         b,
         MaterialSlot::Firebox,
@@ -310,7 +396,7 @@ fn breast(b: &mut Builder, f: &Frame<'_>) {
     let outer1 = rectangle(
         [-c.width * 0.5, f.back()],
         [c.width * 0.5, f.front()],
-        super::ceiling_top(f.recipe),
+        f.ceiling(),
     );
     let inner0 = rectangle(
         [-c.firebox_width * 0.5, f.front() - c.firebox_depth],
@@ -494,7 +580,12 @@ pub(crate) fn middle(b: &mut Builder, recipe: &BuildingRecipe) {
     let Some(chimney) = recipe.chimney.as_ref() else {
         return;
     };
-    let f = Frame { recipe, chimney };
+    let f = Frame {
+        recipe,
+        chimney,
+        stack_uv: true,
+        storey: 0,
+    };
     let (min, max) = f.stack_local();
     let bounds = stack_bounds(recipe).expect("enabled chimney");
     let bottom = lowest_roof(recipe, bounds) - 0.02;
@@ -520,24 +611,6 @@ pub(crate) fn middle(b: &mut Builder, recipe: &BuildingRecipe) {
         ),
     );
     flashing(b, recipe, MaterialSlot::Chimney, false);
-}
-
-fn masonry_box(b: &mut Builder, slot: MaterialSlot, min: [f32; 3], max: [f32; 3]) {
-    let start = b.mesh(slot).positions.len();
-    b.cube(slot, min, max);
-    project_uvs(b, slot, start);
-}
-fn project_uvs(b: &mut Builder, slot: MaterialSlot, start: usize) {
-    let mesh = b.mesh(slot);
-    for index in start..mesh.positions.len() {
-        let p = mesh.positions[index];
-        let n = mesh.normals[index];
-        mesh.uvs[index] = if n[2].abs() > 0.8 {
-            [p[0] * 0.5, p[1] * 0.5]
-        } else {
-            [(-p[0] * n[1] + p[1] * n[0]) * 0.5, p[2] * 0.5]
-        };
-    }
 }
 
 fn flashing(b: &mut Builder, recipe: &BuildingRecipe, slot: MaterialSlot, near: bool) {

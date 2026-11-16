@@ -8,8 +8,11 @@ use crate::{
 pub mod chimney;
 pub(crate) mod door_panels;
 pub mod foundation;
-mod hardware;
+pub(crate) mod hardware;
+pub(crate) mod internal_stairs;
 pub(crate) mod roof_covering;
+pub(crate) mod slabs;
+pub(crate) mod stairwell;
 pub(crate) mod thatch;
 pub(crate) mod timber_frame;
 pub(crate) mod windows;
@@ -20,6 +23,7 @@ const DOOR_THICKNESS: f32 = 0.055;
 const DOOR_EDGE_CLEARANCE: f32 = 0.003;
 const DOOR_FLOOR_CLEARANCE: f32 = 0.006;
 const DOOR_JAMB_CLEARANCE: f32 = 0.001;
+pub(crate) const DOOR_FRAME_FLOOR_CLEARANCE: f32 = 0.02;
 const CEILING_THICKNESS: f32 = 0.08;
 
 #[derive(Default)]
@@ -27,6 +31,26 @@ pub(crate) struct Builder {
     parts: BTreeMap<MaterialSlot, BuildingMesh>,
 }
 impl Builder {
+    pub(crate) fn append(&mut self, lod: BuildingLod, height: f32) {
+        for part in lod.parts {
+            let mesh = self.mesh(part.material);
+            let offset = u32::try_from(mesh.positions.len()).expect("validated mesh budget");
+            mesh.positions
+                .extend(part.mesh.positions.into_iter().map(|mut p| {
+                    p[2] += height;
+                    p
+                }));
+            mesh.normals.extend(part.mesh.normals);
+            mesh.uvs.extend(part.mesh.uvs.into_iter().map(|mut uv| {
+                if part.material == MaterialSlot::Wall {
+                    uv[1] += height * 0.5;
+                }
+                uv
+            }));
+            mesh.indices
+                .extend(part.mesh.indices.into_iter().map(|i| i + offset));
+        }
+    }
     pub(crate) fn mesh(&mut self, slot: MaterialSlot) -> &mut BuildingMesh {
         self.parts.entry(slot).or_default()
     }
@@ -105,37 +129,224 @@ pub(crate) fn quad(mesh: &mut BuildingMesh, p: [[f32; 3]; 4], uv: [[f32; 2]; 4])
         .extend([start, start + 1, start + 2, start, start + 2, start + 3]);
 }
 
-pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>, Vec<BoxCollider>) {
+pub(crate) fn generate_with_roof_pitch(
+    r: &BuildingRecipe,
+    roof_pitch: f32,
+) -> (BuildingLod, Vec<DoorDescriptor>, Vec<BoxCollider>) {
     let mut b = Builder::default();
     let mut colliders = Vec::new();
     let mut doors = Vec::new();
     slabs(&mut b, r, &mut colliders);
     foundation::generate(&mut b, r, false);
     colliders.push(foundation::bounds(r));
+    room(&mut b, r, &mut colliders, &mut doors, &[]);
+    roof(&mut b, r, true, roof_pitch);
+    chimney::near(&mut b, r, &mut colliders);
+    (b.finish(), doors, colliders)
+}
+
+fn room(
+    b: &mut Builder,
+    r: &BuildingRecipe,
+    colliders: &mut Vec<BoxCollider>,
+    doors: &mut Vec<DoorDescriptor>,
+    cuts: &[BoxCollider],
+) {
     for facade in Facade::ALL {
-        wall(&mut b, r, facade, true, &mut colliders);
+        wall(b, r, facade, true, colliders);
     }
     for opening in &r.openings {
         match opening.kind {
             OpeningKind::Window => {
-                windows::casing(&mut b, r, opening);
-                window(&mut b, r, opening, &mut colliders);
+                windows::casing(b, r, opening);
+                window(b, r, opening, colliders);
             }
             OpeningKind::Door => {
-                frame(&mut b, r, opening, false);
+                frame(b, r, opening, false);
                 doors.push(door_leaf(r, opening));
             }
         }
     }
-    timber_frame::generate(&mut b, r, true);
+    timber_frame::generate(b, r, true);
     colliders.extend(timber_frame::corner_colliders(r));
-    timber_frame::joists::generate(&mut b, r, &mut colliders);
-    for p in &r.partitions {
-        partition(&mut b, r, p, &mut colliders);
+    if cuts.is_empty() {
+        timber_frame::joists::generate(b, r, colliders);
+    } else {
+        timber_frame::joists::generate_with_cuts(b, r, cuts, colliders);
     }
-    roof(&mut b, r, true);
-    chimney::near(&mut b, r, &mut colliders);
-    (b.finish(), doors, colliders)
+    for p in &r.partitions {
+        partition(b, r, p, colliders);
+    }
+}
+
+pub(crate) fn generate_level(
+    r: &BuildingRecipe,
+    ground: bool,
+    top: bool,
+    roof_pitch: f32,
+    stairs: Option<&crate::stairs::StaircaseLayout>,
+) -> crate::storeys::Structure {
+    let mut b = Builder::default();
+    let mut colliders = Vec::new();
+    let mut supports = Vec::new();
+    let mut doors = Vec::new();
+    if ground {
+        let floor = BoxCollider {
+            min: [-r.width * 0.5, -r.depth * 0.5, -r.floor_thickness],
+            max: [r.width * 0.5, r.depth * 0.5, 0.],
+        };
+        ground_floor(&mut b, r, floor);
+        colliders.push(floor);
+        supports.push(floor);
+    } else {
+        intermediate_floor(&mut b, r, stairs, &mut colliders, &mut supports);
+    }
+    if top {
+        roof_ceiling(&mut b, r, &mut colliders);
+    }
+    let cut = stairs.filter(|_| !top).map(|s| s.opening);
+    room(&mut b, r, &mut colliders, &mut doors, cut.as_slice());
+    if top {
+        roof(&mut b, r, true, roof_pitch);
+    }
+    crate::storeys::Structure {
+        near: b.finish(),
+        doors,
+        colliders,
+        supports,
+    }
+}
+
+fn intermediate_floor(
+    b: &mut Builder,
+    r: &BuildingRecipe,
+    stairs: Option<&crate::stairs::StaircaseLayout>,
+    colliders: &mut Vec<BoxCollider>,
+    supports: &mut Vec<BoxCollider>,
+) {
+    let floor = BoxCollider {
+        min: [-r.width * 0.5, -r.depth * 0.5, -r.floor_thickness],
+        max: [r.width * 0.5, r.depth * 0.5, 0.],
+    };
+    let cuts: Vec<_> = stairs
+        .map(|s| s.opening)
+        .into_iter()
+        .chain(chimney::stack_bounds(r))
+        .collect();
+    for cell in crate::storeys::cells(floor, &cuts) {
+        floor_cell(b, r, cell, floor, &cuts);
+        colliders.push(cell);
+        supports.push(cell);
+    }
+    if let Some(stairs) = stairs {
+        timber_frame::joists::landing_header(b, r, stairs, colliders);
+    }
+}
+
+fn floor_cell(
+    b: &mut Builder,
+    r: &BuildingRecipe,
+    cell: BoxCollider,
+    whole: BoxCollider,
+    cuts: &[BoxCollider],
+) {
+    let [a, c, z] = cell.min;
+    let [d, e, f] = cell.max;
+    for (slot, points) in [
+        (
+            MaterialSlot::Floor,
+            [[a, c, f], [d, c, f], [d, e, f], [a, e, f]],
+        ),
+        (
+            MaterialSlot::Ceiling,
+            [[a, e, z], [d, e, z], [d, c, z], [a, c, z]],
+        ),
+    ] {
+        b.quad(
+            slot,
+            points,
+            points.map(|p| {
+                [
+                    (p[0] + r.width * 0.5 - r.wall_thickness) * 0.5,
+                    (p[1] + r.depth * 0.5 - r.wall_thickness) * 0.5,
+                ]
+            }),
+        );
+    }
+    for (facade, edge, outer, points) in [
+        (
+            Facade::South,
+            c,
+            whole.min[1],
+            [[a, c, z], [d, c, z], [d, c, f], [a, c, f]],
+        ),
+        (
+            Facade::North,
+            e,
+            whole.max[1],
+            [[d, e, z], [a, e, z], [a, e, f], [d, e, f]],
+        ),
+        (
+            Facade::East,
+            d,
+            whole.max[0],
+            [[d, c, z], [d, e, z], [d, e, f], [d, c, f]],
+        ),
+        (
+            Facade::West,
+            a,
+            whole.min[0],
+            [[a, e, z], [a, c, z], [a, c, f], [a, e, f]],
+        ),
+    ] {
+        if (edge - outer).abs() < 0.00001 {
+            let t = facade.tangent();
+            let timber = r.walls.style == crate::WallStyle::WattleAndDaub;
+            b.quad(
+                if timber {
+                    MaterialSlot::Timber
+                } else {
+                    MaterialSlot::Wall
+                },
+                points,
+                points.map(|p| {
+                    let uv =
+                        crate::units::wall_uv(facade.length(r), p[0] * t[0] + p[1] * t[1], p[2]);
+                    if timber {
+                        [-(p[2] + r.floor_thickness) * 0.5, uv[0]]
+                    } else {
+                        uv
+                    }
+                }),
+            );
+        } else {
+            floor_cut_edge(b, facade, points, cuts);
+        }
+    }
+}
+
+fn floor_cut_edge(b: &mut Builder, facade: Facade, points: [[f32; 3]; 4], cuts: &[BoxCollider]) {
+    let normal = facade.normal();
+    let sample =
+        std::array::from_fn::<_, 2, _>(|i| (points[0][i] + points[2][i]) * 0.5 + normal[i] * 0.001);
+    if !cuts
+        .iter()
+        .any(|cut| (0..2).all(|i| sample[i] > cut.min[i] && sample[i] < cut.max[i]))
+    {
+        return;
+    }
+    let inset = points.map(|mut p| {
+        for i in 0..2 {
+            p[i] += normal[i] * timber_frame::joists::RIM_INSET;
+        }
+        p
+    });
+    b.face(MaterialSlot::Timber, inset);
+    // Cover just the lip inside the opening; the floorboards end at the old edge.
+    b.face(
+        MaterialSlot::Timber,
+        [points[2], points[3], inset[3], inset[2]],
+    );
 }
 
 fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) {
@@ -143,8 +354,12 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
         min: [-r.width * 0.5, -r.depth * 0.5, -r.floor_thickness],
         max: [r.width * 0.5, r.depth * 0.5, 0.],
     };
-    board_slab(b, r, MaterialSlot::Floor, floor);
+    ground_floor(b, r, floor);
     colliders.push(floor);
+    roof_ceiling(b, r, colliders);
+}
+
+fn roof_ceiling(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) {
     let min = [
         -r.width * 0.5 + r.wall_thickness,
         -r.depth * 0.5 + r.wall_thickness,
@@ -153,25 +368,42 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
         r.width * 0.5 - r.wall_thickness,
         r.depth * 0.5 - r.wall_thickness,
     ];
-    for (a, c) in chimney::roof_cells(r, min, max) {
-        let ceiling = BoxCollider {
+    let ceilings: Vec<_> = chimney::roof_cells(r, min, max)
+        .into_iter()
+        .map(|(a, c)| BoxCollider {
             min: [a[0], a[1], ceiling_height(r)],
             max: [c[0], c[1], ceiling_top(r)],
-        };
-        board_slab(b, r, MaterialSlot::Ceiling, ceiling);
-        colliders.push(ceiling);
-    }
+        })
+        .collect();
+    let start = b.mesh(MaterialSlot::Ceiling).positions.len();
+    slabs::joined_boxes(b, MaterialSlot::Ceiling, &ceilings);
+    let mesh = b.mesh(MaterialSlot::Ceiling);
+    // Only this roof-level ceiling has an enclosed top: exterior openings end
+    // below the lintel, and cutaway removes both roof and ceiling together.
+    // Upper-storey floor undersides are generated independently by floor_cell.
+    mesh.indices.retain(|index| {
+        let index = *index as usize;
+        index < start || mesh.normals[index][2] < 0.5
+    });
+    board_uvs(b, r, MaterialSlot::Ceiling, start);
+    colliders.extend(ceilings);
 }
 
-fn board_slab(
-    builder: &mut Builder,
-    recipe: &BuildingRecipe,
-    slot: MaterialSlot,
-    bounds: BoxCollider,
-) {
-    let origin = timber_frame::joists::grid(recipe).map_or(0., |grid| grid.origin);
-    let start = builder.mesh(slot).positions.len();
-    builder.cube(slot, bounds.min, bounds.max);
+fn ground_floor(builder: &mut Builder, recipe: &BuildingRecipe, bounds: BoxCollider) {
+    let start = builder.mesh(MaterialSlot::Floor).positions.len();
+    builder.cube(MaterialSlot::Floor, bounds.min, bounds.max);
+    // Every ground floor has an always-present full-footprint solid foundation
+    // below it. This omission never applies to the exposed upper-storey underside.
+    let mesh = builder.mesh(MaterialSlot::Floor);
+    mesh.indices.truncate(mesh.indices.len() - 6);
+    board_uvs(builder, recipe, MaterialSlot::Floor, start);
+}
+
+fn board_uvs(builder: &mut Builder, recipe: &BuildingRecipe, slot: MaterialSlot, start: usize) {
+    let origin = timber_frame::joists::grid(recipe)
+        .map_or(-recipe.depth * 0.5 + recipe.wall_thickness, |grid| {
+            grid.origin
+        });
     let mesh = builder.mesh(slot);
     for ((point, normal), uv) in mesh.positions[start..]
         .iter()
@@ -181,7 +413,10 @@ fn board_slab(
         // One room-wide chart keeps boards continuous around the chimney cutout.
         // U runs across the boards; V follows their length, across the joists.
         *uv = if normal[2].abs() > 0.5 {
-            [point[0] * 0.5, (point[1] - origin) * 0.5]
+            [
+                (point[0] + recipe.width * 0.5 - recipe.wall_thickness) * 0.5,
+                (point[1] - origin) * 0.5,
+            ]
         } else {
             [
                 if normal[0].abs() > 0.5 {
@@ -200,7 +435,8 @@ fn ceiling_height(recipe: &BuildingRecipe) -> f32 {
         return recipe.wall_height - CEILING_THICKNESS;
     }
     let inner = recipe.width * 0.5 - recipe.wall_thickness;
-    let roof_top = chimney::roof_height(recipe, -inner).min(chimney::roof_height(recipe, inner));
+    let roof_top = chimney::roof_height(recipe, -inner).min(chimney::roof_height(recipe, inner))
+        - recipe.floor_height(recipe.storeys - 1);
     let roof_bottom = roof_top - recipe.roof.effective_thickness();
     // Meet the top of the wall plate, while fitting shallow roofs too.
     (recipe.wall_height + timber_frame::roof_overlap(recipe))
@@ -209,6 +445,13 @@ fn ceiling_height(recipe: &BuildingRecipe) -> f32 {
 }
 
 fn ceiling_top(recipe: &BuildingRecipe) -> f32 {
+    if recipe.storeys > 1 {
+        return recipe.wall_height;
+    }
+    top_storey_ceiling_top(recipe)
+}
+
+pub(crate) fn top_storey_ceiling_top(recipe: &BuildingRecipe) -> f32 {
     if recipe.walls.style == crate::WallStyle::Plain {
         recipe.wall_height
     } else {
@@ -252,7 +495,7 @@ fn window(
     colliders.push(BoxCollider { min, max });
 }
 
-fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescriptor {
+pub(crate) fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescriptor {
     let right = opening.hinge == HingeSide::Right;
     let tangent = opening.facade.tangent();
     let angle = tangent[1].atan2(tangent[0]) + if right { std::f32::consts::PI } else { 0. };
@@ -269,10 +512,34 @@ fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescript
         // thickness swings into the opening rather than through the hinge jamb.
         r.wall_thickness + DOOR_JAMB_CLEARANCE,
     );
-    let width = opening.width - DOOR_EDGE_CLEARANCE * 2.;
-    let height = opening.height - DOOR_EDGE_CLEARANCE - DOOR_FLOOR_CLEARANCE;
+    door_leaf_at(
+        opening.id.clone(),
+        [opening.width, opening.height],
+        hinge,
+        [
+            angle,
+            opening.swing_degrees.to_radians() * if right { -1. } else { 1. },
+        ],
+        opening.door_style,
+        true,
+        if right { 0.5 } else { -0.5 },
+    )
+}
+
+/// Dimensions are the clear opening; angles are the closed yaw and signed swing.
+pub(crate) fn door_leaf_at(
+    id: String,
+    size: [f32; 2],
+    hinge: [f32; 3],
+    angles: [f32; 2],
+    style: crate::DoorStyle,
+    exterior: bool,
+    depth_fraction: f32,
+) -> DoorDescriptor {
+    let width = size[0] - DOOR_EDGE_CLEARANCE * 2.;
+    let height = size[1] - DOOR_EDGE_CLEARANCE - DOOR_FLOOR_CLEARANCE;
     let thickness = DOOR_THICKNESS;
-    let mut mesh = if opening.door_style == crate::DoorStyle::FrameAndPanel {
+    let mut mesh = if style == crate::DoorStyle::FrameAndPanel {
         door_panels::near(width, height, thickness)
     } else {
         let mut leaf = Builder::default();
@@ -283,7 +550,7 @@ fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescript
         );
         leaf.finish().parts.remove(0).mesh
     };
-    let depth_offset = thickness * if right { 0.5 } else { -0.5 };
+    let depth_offset = thickness * depth_fraction;
     let mut hardware_mesh = hardware::door_knobs(width, height, thickness);
     for point in mesh
         .positions
@@ -293,17 +560,18 @@ fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescript
         point[1] += depth_offset;
     }
     DoorDescriptor {
-        id: opening.id.clone(),
+        id,
         hinge,
-        closed_angle: angle,
-        swing_angle: opening.swing_degrees.to_radians() * if right { -1. } else { 1. },
+        closed_angle: angles[0],
+        swing_angle: angles[1],
         width,
         height,
         thickness,
         depth_offset,
+        collision_sections: Vec::new(),
         mesh,
         hardware_mesh,
-        exterior: true,
+        exterior,
     }
 }
 
@@ -314,6 +582,7 @@ pub(crate) fn wall(
     interior: bool,
     colliders: &mut Vec<BoxCollider>,
 ) {
+    let start = b.mesh(MaterialSlot::Wall).positions.len();
     let half = f.length(r) * 0.5;
     let mut xs = vec![-half, half];
     let mut zs = vec![0., r.wall_height];
@@ -369,6 +638,11 @@ pub(crate) fn wall(
         }
     }
     gable(b, r, f);
+    let mesh = b.mesh(MaterialSlot::Wall);
+    for (point, uv) in mesh.positions[start..].iter().zip(&mut mesh.uvs[start..]) {
+        let along = point[0] * f.tangent()[0] + point[1] * f.tangent()[1];
+        *uv = crate::units::wall_uv(f.length(r), along, point[2]);
+    }
     if interior && ceiling_top(r) > r.wall_height {
         let half = half - r.wall_thickness;
         b.face(
@@ -388,22 +662,21 @@ pub(crate) fn frame(b: &mut Builder, r: &BuildingRecipe, o: &crate::OpeningRecip
     let c = o.offset + o.width * 0.5;
     let z = o.sill;
     let top = z + o.height;
+    let bottom = if o.kind == OpeningKind::Door {
+        z + DOOR_FRAME_FLOOR_CLEARANCE
+    } else {
+        z - 0.05
+    };
     let mut bars = vec![
-        (a - 0.07, a, z - 0.05, top + 0.07),
-        (c, c + 0.07, z - 0.05, top + 0.07),
+        (a - 0.07, a, bottom, top + 0.07),
+        (c, c + 0.07, bottom, top + 0.07),
         (a, c, top, top + 0.07),
     ];
     if o.kind == OpeningKind::Window {
         bars.push((a, c, z - 0.07, z));
     }
     if mullions {
-        bars.push((o.offset - 0.022, o.offset + 0.022, z, top));
-        bars.push((
-            a,
-            c,
-            z + o.height * 0.52 - 0.018,
-            z + o.height * 0.52 + 0.018,
-        ));
+        windows::proxy(b, r, o);
     }
     let lining_depth = if o.kind == OpeningKind::Door {
         r.wall_thickness + DOOR_JAMB_CLEARANCE
@@ -458,6 +731,9 @@ fn partition(
     }
 }
 fn gable(b: &mut Builder, r: &BuildingRecipe, f: Facade) {
+    if r.roof.rise <= 0. {
+        return;
+    }
     let w = r.width * 0.5;
     let h = r.wall_height;
     match r.roof.kind {
@@ -523,7 +799,7 @@ fn gable(b: &mut Builder, r: &BuildingRecipe, f: Facade) {
         RoofKind::Gable => {}
     }
 }
-pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool) {
+pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool, course_pitch: f32) {
     if r.roof.covering == RoofCovering::Thatch {
         thatch::generate(
             b,
@@ -609,7 +885,7 @@ pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool) {
         if detailed {
             match r.roof.covering {
                 RoofCovering::StandingSeam => roof_seams(b, r, section),
-                RoofCovering::Slate => roof_covering::courses(b, r, section),
+                RoofCovering::Slate => roof_covering::courses(b, r, section, course_pitch),
                 RoofCovering::Thatch => {
                     unreachable!("thatched shell has its own prismatic profile")
                 }

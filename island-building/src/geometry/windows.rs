@@ -1,5 +1,6 @@
 //! Near-LOD window casing, recessed sash and projecting weather sill.
 use super::Builder;
+use crate::window_panes::PaneGrid;
 use crate::{BuildingRecipe, MaterialSlot, OpeningRecipe, collision::BoxCollider};
 
 pub(super) const CASING_WIDTH: f32 = 0.065;
@@ -61,25 +62,46 @@ fn sash(builder: &mut Builder, frame: &Frame<'_>, x: [f32; 2], z: [f32; 2]) {
     let glass = frame.recipe.wall_thickness * 0.48;
     let half_depth = (frame.recipe.wall_thickness * 0.175).min(0.024);
     let depth = [glass - half_depth, glass + half_depth];
-    let left = a + 0.055;
-    let right = c - 0.055;
-    let low = bottom + 0.055;
-    let high = top - 0.055;
-    let centre = frame.opening.offset;
-    let crossbar = bottom + frame.opening.height * 0.52;
-    for (x, z) in [
-        ([a + 0.012, left], [bottom + 0.012, top - 0.012]),
-        ([right, c - 0.012], [bottom + 0.012, top - 0.012]),
-        ([left, right], [high, top - 0.012]),
-        ([left, right], [bottom + 0.012, low]),
-        ([centre - 0.018, centre + 0.018], [low, high]),
-        ([left, centre - 0.018], [crossbar - 0.014, crossbar + 0.014]),
-        (
-            [centre + 0.018, right],
-            [crossbar - 0.014, crossbar + 0.014],
-        ),
-    ] {
+    let grid = PaneGrid::new(frame.recipe, frame.opening);
+    for (x, z) in sash_bars(&grid, [a, c], [bottom, top]) {
         frame.timber(builder, x, z, depth);
+    }
+}
+
+fn sash_bars(
+    grid: &PaneGrid,
+    [a, c]: [f32; 2],
+    [bottom, top]: [f32; 2],
+) -> impl Iterator<Item = ([f32; 2], [f32; 2])> + '_ {
+    [
+        ([a + 0.012, grid.left], [bottom + 0.012, top - 0.012]),
+        ([grid.right, c - 0.012], [bottom + 0.012, top - 0.012]),
+        ([grid.left, grid.right], [grid.top, top - 0.012]),
+        ([grid.left, grid.right], [bottom + 0.012, grid.bottom]),
+    ]
+    .into_iter()
+    .chain(grid.bars())
+}
+
+/// The opaque middle LOD retains the pane pattern using front-facing ribbons.
+pub(crate) fn proxy(builder: &mut Builder, recipe: &BuildingRecipe, opening: &OpeningRecipe) {
+    let frame = Frame { recipe, opening };
+    let grid = PaneGrid::new(recipe, opening);
+    let x = [
+        opening.offset - opening.width * 0.5,
+        opening.offset + opening.width * 0.5,
+    ];
+    let z = [opening.sill, opening.sill + opening.height];
+    for ([left, right], [bottom, top]) in sash_bars(&grid, x, z) {
+        builder.face(
+            MaterialSlot::Trim,
+            [
+                frame.point(left, bottom, -0.045),
+                frame.point(right, bottom, -0.045),
+                frame.point(right, top, -0.045),
+                frame.point(left, top, -0.045),
+            ],
+        );
     }
 }
 

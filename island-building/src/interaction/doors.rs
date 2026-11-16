@@ -1,7 +1,7 @@
 use super::{
     BuildingBlocker, BuildingInstance, BuildingObserver, BuildingOccupant, BuildingRuntimeSettings,
     DoorLeaf,
-    collision::{door_local, local_radius, native_point, ray_door, sphere_box},
+    collision::{door_local, local_radius, native_point, ray_door},
 };
 use crate::{
     DoorDescriptor,
@@ -161,17 +161,9 @@ fn capsule_hits_door(
     door: &DoorDescriptor,
     angle: f32,
 ) -> bool {
-    let mut point = door_local(feet, door, angle);
-    let bounds = door.local_bounds();
-    let lower = point.z + radius;
-    let upper = (point.z + height - radius).max(lower);
-    point.z = (door.height * 0.5).clamp(lower, upper);
-    sphere_box(
-        point,
-        radius,
-        Vec3::from_array(bounds.min),
-        Vec3::from_array(bounds.max),
-    )
+    let point = door_local(feet, door, angle);
+    door.local_sections()
+        .any(|bounds| bounds.intersects_capsule(point.to_array(), radius, height))
 }
 
 pub(super) fn sync_door_leaves(
@@ -219,6 +211,7 @@ mod tests {
             height: 2.2,
             thickness: 0.05,
             depth_offset: 0.,
+            collision_sections: Vec::new(),
             mesh: crate::BuildingMesh::default(),
             hardware_mesh: crate::BuildingMesh::default(),
             exterior: true,

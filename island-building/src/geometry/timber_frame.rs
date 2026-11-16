@@ -75,6 +75,34 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     if recipe.walls.style != WallStyle::WattleAndDaub {
         return Vec::new();
     }
+    if recipe.storeys > 1 {
+        let mut members: Vec<_> = (0..recipe.storeys)
+            .flat_map(|storey| {
+                let local = crate::storeys::recipe_for_storey(recipe, storey);
+                let height = recipe.floor_height(storey);
+                layout(&local, facade).into_iter().map(move |mut member| {
+                    for p in &mut member.polygon {
+                        p[1] += height;
+                    }
+                    member.origin[1] += height;
+                    member.bounds[0][1] += height;
+                    member.bounds[1][1] += height;
+                    member
+                })
+            })
+            .collect();
+        for storey in 1..recipe.storeys {
+            let half = facade.length(recipe) * 0.5;
+            let top = recipe.floor_height(storey);
+            let bottom = top - recipe.floor_thickness;
+            members.push(Member::new(
+                vec![[-half, bottom], [half, bottom], [half, top], [-half, top]],
+                [-half, bottom],
+                [1., 0.],
+            ));
+        }
+        return members;
+    }
     let width = recipe.walls.beam_width;
     let half = facade.length(recipe) * 0.5;
     let height = recipe.wall_height;
@@ -221,6 +249,9 @@ fn roof_members(
     profile: &[Point],
     half: f32,
 ) {
+    if recipe.roof.rise <= 0. {
+        return;
+    }
     if recipe.roof.kind == RoofKind::Gable {
         if matches!(facade, Facade::South | Facade::North) {
             let slope = recipe.roof.rise / half;

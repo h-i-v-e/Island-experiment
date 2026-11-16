@@ -3,6 +3,7 @@
 
 mod camera;
 mod capture;
+mod loading;
 mod ui;
 
 use crate::{
@@ -11,8 +12,10 @@ use crate::{
     export::{ExportManifest, export_package},
     generate_with_base,
     interaction::{BuildingInstance, BuildingObserver, BuildingRuntimePlugin, BuildingRuntimeSet},
-    render::{compile_building, spawn_building},
-    validate_recipe,
+    render::{
+        BuildingArrayMaterial, BuildingArrayPlugin, BuildingGrubPlugin, GrubMaterial,
+        compile_building_with_arrays, compile_building_with_grub, spawn_building,
+    },
 };
 use bevy::{
     app::ScheduleRunnerPlugin,
@@ -39,6 +42,7 @@ pub struct Settings {
     pub lod: usize,
     pub automatic: bool,
     pub view: String,
+    pub storey: u8,
     pub door_open: bool,
     pub terrain_slope: f32,
     pub terrain_heading: f32,
@@ -51,6 +55,7 @@ pub struct Settings {
     pub ambient: f32,
     pub room_light: f32,
     pub exposure: f32,
+    pub arrays: bool,
 }
 
 impl Default for Settings {
@@ -62,6 +67,7 @@ impl Default for Settings {
             lod: 0,
             automatic: true,
             view: "exterior".into(),
+            storey: 0,
             door_open: false,
             terrain_slope: 0.,
             terrain_heading: 0.,
@@ -74,6 +80,7 @@ impl Default for Settings {
             ambient: 450.,
             room_light: 160_000.,
             exposure: 9.7,
+            arrays: false,
         }
     }
 }
@@ -130,6 +137,8 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<(), String> {
     }
     app.add_plugins(plugins)
         .add_plugins(BuildingRuntimePlugin)
+        .add_plugins(BuildingGrubPlugin)
+        .add_plugins(BuildingArrayPlugin)
         .add_plugins(WireframePlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.60, 0.71, 0.76)))
         .insert_resource(GlobalAmbientLight {
@@ -196,11 +205,28 @@ fn headless_output(document: &StudioDocument, settings: &Settings) -> Result<(),
 }
 
 pub(super) fn preset(name: &str) -> BuildingRecipe {
-    match name {
+    if name == "church" {
+        return BuildingRecipe::gothic_church();
+    }
+    let mut recipe = match name {
         "cottage" => BuildingRecipe::cottage(),
         "workshop" => BuildingRecipe::workshop(),
         _ => BuildingRecipe::hut(),
+    };
+    if let Some(door) = recipe
+        .openings
+        .iter()
+        .find(|o| o.kind == crate::OpeningKind::Door)
+    {
+        recipe.opening_defaults.door.width = door.width;
+        recipe.opening_defaults.door.height = door.height;
     }
+    recipe.opening_generation = Some(crate::OpeningGeneration::default());
+    for partition in &mut recipe.partitions {
+        partition.use_default_door_dimensions = true;
+    }
+    recipe.openings.clear();
+    recipe
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -212,6 +238,7 @@ enum Tab {
     Roof,
     Chimney,
     Materials,
+    Grub,
     Bake,
 }
 
@@ -246,6 +273,7 @@ struct ExportResponse {
 pub(super) struct StudioState {
     document: StudioDocument,
     tab: Tab,
+    units: ui::units::EditorUnits,
     status: String,
     error: Option<String>,
     pending_action: Option<PendingAction>,
@@ -256,6 +284,7 @@ pub(super) struct StudioState {
     root: Option<Entity>,
     export_task: Option<Task<ExportResponse>>,
     file_dialog: Option<Task<ui::dialogs::Completion>>,
+    load_task: Option<Task<loading::OpenedDocument>>,
     baked_serial: Option<u64>,
     build_seconds: f32,
     bake_seconds: f32,
@@ -275,6 +304,7 @@ pub(super) struct StudioState {
     exposure: f32,
     recipe_revision: u64,
     final_preview: bool,
+    arrays: bool,
     exit_requested: bool,
 }
 
@@ -284,6 +314,7 @@ impl StudioState {
             recipe_revision: document.revision(),
             document,
             tab: Tab::Structure,
+            units: ui::units::EditorUnits::default(),
             status: "Preparing first preview…".into(),
             error: None,
             pending_action: None,
@@ -294,6 +325,7 @@ impl StudioState {
             root: None,
             export_task: None,
             file_dialog: None,
+            load_task: None,
             baked_serial: None,
             build_seconds: 0.,
             bake_seconds: 0.,
@@ -308,6 +340,7 @@ impl StudioState {
             terrain_heading: settings.terrain_heading,
             recompile: false,
             final_preview: settings.screenshot.is_some(),
+            arrays: settings.arrays,
             exit_requested: false,
             light: settings.sun,
             ambient: settings.ambient,
@@ -322,7 +355,7 @@ impl StudioState {
         self.serial += 1;
         self.recipe_revision = self.document.revision();
         self.pending = None;
-        if let Err(error) = validate_recipe(self.document.recipe()) {
+        if let Err(error) = crate::validation::validate_authoring(self.document.recipe()) {
             self.error = Some(error.to_string());
             self.status = "Invalid draft · last good preview retained".into();
             return;
@@ -403,7 +436,8 @@ impl StudioState {
                 Ok(())
             }
             PendingAction::Open(path) => {
-                StudioDocument::open(&path).map(|document| self.document = document)
+                loading::start(self, path);
+                return;
             }
             PendingAction::Revert => self.document.revert(),
             PendingAction::Quit => {
@@ -491,12 +525,46 @@ fn setup(
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct PreviewAssets<'w> {
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    grub_materials: ResMut<'w, Assets<GrubMaterial>>,
+    array_materials: ResMut<'w, Assets<BuildingArrayMaterial>>,
+    images: ResMut<'w, Assets<Image>>,
+}
+
+impl PreviewAssets<'_> {
+    fn compile(
+        &mut self,
+        source: Arc<BuildingPrototype>,
+        arrays: bool,
+    ) -> Arc<crate::render::CompiledBuildingPrototype> {
+        if arrays {
+            compile_building_with_arrays(
+                source,
+                &mut self.meshes,
+                &mut self.materials,
+                &mut self.grub_materials,
+                &mut self.array_materials,
+                &mut self.images,
+            )
+        } else {
+            compile_building_with_grub(
+                source,
+                &mut self.meshes,
+                &mut self.materials,
+                &mut self.grub_materials,
+                &mut self.images,
+            )
+        }
+    }
+}
+
 fn poll_preview(
     mut commands: Commands,
     mut state: ResMut<StudioState>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
+    mut assets: PreviewAssets,
     mut controls: ResMut<camera::CameraControls>,
     settings: Res<Settings>,
     instances: Query<&BuildingInstance>,
@@ -514,12 +582,8 @@ fn poll_preview(
             match response.result {
                 Ok(prototype) => {
                     let prototype = Arc::new(prototype);
-                    let compiled = compile_building(
-                        display_prototype(&prototype, state.cutaway),
-                        &mut meshes,
-                        &mut materials,
-                        &mut images,
-                    );
+                    let display = display_prototype(&prototype, state.cutaway);
+                    let compiled = assets.compile(display, state.arrays);
                     let saved = state
                         .root
                         .and_then(|root| instances.get(root).ok())
@@ -546,6 +610,9 @@ fn poll_preview(
                         commands.entity(root).insert(instance);
                     }
                     state.root = Some(root);
+                    if state.last_good.is_none() || settings.screenshot.is_some() {
+                        controls.storey = settings.storey;
+                    }
                     controls.frame(&prototype, &settings.view);
                     state.last_good = Some(prototype);
                     state.build_seconds = response.seconds;
@@ -567,12 +634,8 @@ fn poll_preview(
     if state.recompile {
         state.recompile = false;
         if let Some(prototype) = state.last_good.as_ref().map(Arc::clone) {
-            let compiled = compile_building(
-                display_prototype(&prototype, state.cutaway),
-                &mut meshes,
-                &mut materials,
-                &mut images,
-            );
+            let display = display_prototype(&prototype, state.cutaway);
+            let compiled = assets.compile(display, state.arrays);
             let saved = state
                 .root
                 .and_then(|root| instances.get(root).ok())
@@ -619,7 +682,7 @@ fn display_prototype(source: &Arc<BuildingPrototype>, cutaway: bool) -> Arc<Buil
                 .chunks_exact(3)
                 .filter(|triangle| {
                     !triangle.iter().all(|index| {
-                        mesh.positions[*index as usize][2] >= source.recipe.wall_height - 0.02
+                        mesh.positions[*index as usize][2] >= source.recipe.eaves_height() - 0.02
                     })
                 })
                 .flatten()
@@ -658,10 +721,16 @@ fn diagnostics(
     mut gizmos: Gizmos,
     mut wireframe: ResMut<WireframeConfig>,
     mut exposure: Single<&mut bevy::camera::Exposure, With<StudioCamera>>,
-    mut interior: Single<&mut PointLight, With<StudioInteriorLight>>,
+    mut interior: Single<(&mut PointLight, &mut Transform), With<StudioInteriorLight>>,
+    controls: Res<camera::CameraControls>,
 ) {
     exposure.ev100 = state.exposure;
-    interior.intensity = state.room_light;
+    interior.0.intensity = state.room_light;
+    interior.1.translation = if controls.walkthrough {
+        controls.feet + Vec3::Y * 2.1
+    } else {
+        Vec3::new(0., 2.3, 0.)
+    };
     wireframe.global = state.wireframe;
     if !state.collision_overlay {
         return;
@@ -681,16 +750,17 @@ fn diagnostics(
                 .doors
                 .get(&descriptor.id)
                 .map_or(0., |door| door.angle);
-            let shape = descriptor.collider_at(angle);
-            let transform =
-                Transform::from_translation(crate::render::native_to_bevy(shape.centre))
-                    .with_rotation(Quat::from_rotation_y(shape.yaw))
-                    .with_scale(Vec3::new(
-                        shape.half_extents[0] * 2.,
-                        shape.half_extents[2] * 2.,
-                        shape.half_extents[1] * 2.,
-                    ));
-            gizmos.cube(transform, Color::srgb(1., 0.65, 0.2));
+            for shape in descriptor.colliders_at(angle) {
+                let transform =
+                    Transform::from_translation(crate::render::native_to_bevy(shape.centre))
+                        .with_rotation(Quat::from_rotation_y(shape.yaw))
+                        .with_scale(Vec3::new(
+                            shape.half_extents[0] * 2.,
+                            shape.half_extents[2] * 2.,
+                            shape.half_extents[1] * 2.,
+                        ));
+                gizmos.cube(transform, Color::srgb(1., 0.65, 0.2));
+            }
         }
     }
 }
@@ -741,6 +811,39 @@ fn poll_export(mut state: ResMut<StudioState>) {
     }
 }
 
+fn camera_argument(settings: &mut Settings, flag: &str, value: &str) -> Result<(), String> {
+    if flag == "--storey" {
+        settings.storey = value.parse().map_err(|_| "--storey needs 0..5")?;
+        if settings.storey > 5 {
+            return Err("--storey needs 0..5".into());
+        }
+    } else if [
+        "exterior",
+        "entrance",
+        "interior",
+        "stairs",
+        "stair-door",
+        "fireplace",
+        "foundation",
+        "roof-end",
+        "roof-under",
+        "eaves",
+        "window",
+        "corner",
+        "south",
+        "east",
+        "north",
+        "west",
+    ]
+    .contains(&value)
+    {
+        value.clone_into(&mut settings.view);
+    } else {
+        return Err("Unknown camera view".into());
+    }
+    Ok(())
+}
+
 pub fn parse_arguments(
     arguments: impl Iterator<Item = String>,
 ) -> Result<Option<Settings>, String> {
@@ -751,7 +854,7 @@ pub fn parse_arguments(
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
+                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop|church\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|stairs|stair-door|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--storey 0..5] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --renderer standard|arrays\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
                 );
                 return Ok(None);
             }
@@ -760,8 +863,8 @@ pub fn parse_arguments(
             }
             "--preset" => {
                 settings.preset = args.next().ok_or("--preset needs a name")?;
-                if !["hut", "cottage", "workshop"].contains(&settings.preset.as_str()) {
-                    return Err("Preset must be hut, cottage, or workshop".into());
+                if !["hut", "cottage", "workshop", "church"].contains(&settings.preset.as_str()) {
+                    return Err("Preset must be hut, cottage, workshop, or church".into());
                 }
             }
             "--seed" => {
@@ -788,29 +891,11 @@ pub fn parse_arguments(
                     }
                 }
             }
-            "--view" => {
-                settings.view = args.next().ok_or("--view needs a name")?;
-                if ![
-                    "exterior",
-                    "entrance",
-                    "interior",
-                    "fireplace",
-                    "foundation",
-                    "roof-end",
-                    "roof-under",
-                    "eaves",
-                    "window",
-                    "corner",
-                    "south",
-                    "east",
-                    "north",
-                    "west",
-                ]
-                .contains(&settings.view.as_str())
-                {
-                    return Err("Unknown camera view".into());
-                }
-            }
+            "--view" | "--storey" => camera_argument(
+                &mut settings,
+                &arg,
+                &args.next().ok_or("Camera flag needs a value")?,
+            )?,
             "--door-open" => settings.door_open = true,
             "--hide-stairs" => settings.hide_stairs = true,
             "--terrain-slope" | "--terrain-heading" => terrain_argument(
@@ -819,6 +904,13 @@ pub fn parse_arguments(
                 &args.next().ok_or("Terrain flag needs degrees")?,
             )?,
             "--capture-ui" => settings.capture_ui = true,
+            "--renderer" => {
+                let mode = args.next().ok_or("--renderer needs standard or arrays")?;
+                if !["standard", "arrays"].contains(&mode.as_str()) {
+                    return Err("--renderer needs standard or arrays".into());
+                }
+                settings.arrays = mode == "arrays";
+            }
             "--validate" => settings.validate = true,
             "--sun" | "--ambient" | "--room-light" | "--exposure" => lighting_argument(
                 &mut settings,

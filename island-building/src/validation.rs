@@ -67,9 +67,34 @@ impl Checks {
 }
 
 pub fn validate(recipe: &BuildingRecipe) -> Result<(), BuildingError> {
+    validate_with_base(recipe, std::path::Path::new("."))
+}
+
+pub fn validate_with_base(
+    recipe: &BuildingRecipe,
+    base: &std::path::Path,
+) -> Result<(), BuildingError> {
+    let mut resolved = crate::openings::resolve(recipe)?;
+    validate_structure(resolved.as_ref())?;
+    if resolved.church.is_some() {
+        return crate::church::validate(resolved.as_ref());
+    }
+    let staircase = crate::stairs::resolve_placement(resolved.as_ref(), base)?;
+    if let Some(placement) = &staircase {
+        crate::openings::apply_entrance_offsets(&mut resolved, &placement.entrance_offsets);
+        crate::stairs::fit_windows(&mut resolved, &placement.layout);
+    }
+    let recipe = resolved.as_ref();
     validate_structure(recipe)?;
-    let (_, doors, colliders) = crate::geometry::generate(recipe);
-    validate_door_swings(&doors, &colliders)
+    let staircase = staircase.map(|p| p.layout);
+    let structure = crate::storeys::near(recipe, 0.25, staircase.as_ref());
+    validate_door_swings(&structure.doors, &structure.colliders)
+}
+
+#[cfg(feature = "studio")]
+pub(crate) fn validate_authoring(recipe: &BuildingRecipe) -> Result<(), BuildingError> {
+    let resolved = crate::openings::resolve(recipe)?;
+    validate_structure(resolved.as_ref())
 }
 
 pub(crate) fn validate_door_swings(
@@ -104,10 +129,11 @@ fn swing_blocked(
     let steps = ((door.swing_angle.abs() * door.width / 0.02).ceil() as u16).max(1);
     (0..=steps).any(|step| {
         let angle = door.swing_angle * f32::from(step) / f32::from(steps);
-        let leaf = door.collider_at(angle);
-        colliders
-            .iter()
-            .any(|collider| leaf.intersects_box(collider))
+        door.colliders_at(angle).any(|leaf| {
+            colliders
+                .iter()
+                .any(|collider| leaf.intersects_box(collider))
+        })
     })
 }
 
@@ -124,7 +150,11 @@ pub(crate) fn validate_structure(recipe: &BuildingRecipe) -> Result<(), Building
         partition_rules(recipe, partition, index, &mut checks);
     }
     palette(recipe, &mut checks);
+    grub(recipe, &mut checks);
     chimney_rules(recipe, &mut checks);
+    if recipe.church.is_some() {
+        crate::church::validate(recipe)?;
+    }
     if checks.0.is_empty() {
         Ok(())
     } else {
@@ -147,7 +177,12 @@ fn structure(r: &BuildingRecipe, c: &mut Checks) {
     for (name, value, min, max) in [
         ("width", r.width, 3., 40.),
         ("depth", r.depth, 3., 40.),
-        ("wall_height", r.wall_height, 2.4, 8.),
+        (
+            "wall_height",
+            r.wall_height,
+            2.4,
+            if r.church.is_some() { 16. } else { 8. },
+        ),
         ("wall_thickness", r.wall_thickness, 0.08, 0.6),
         ("floor_thickness", r.floor_thickness, 0.05, 0.5),
         ("foundation.outset", r.foundation.outset, 0.02, 0.3),
@@ -177,14 +212,14 @@ fn structure(r: &BuildingRecipe, c: &mut Checks) {
         "must be 128, 256, 512, 1024, or 2048",
     );
     c.require(
-        r.openings.len() <= 64,
+        r.openings.len() <= 64 * usize::from(r.storeys),
         "openings",
-        "at most 64 exterior openings are supported",
+        "at most 64 exterior openings per storey are supported",
     );
     c.require(
-        r.partitions.len() <= 8,
+        r.partitions.len() <= 8 * usize::from(r.storeys),
         "partitions",
-        "at most 8 parallel room partitions are supported",
+        "at most 8 parallel room partitions per storey are supported",
     );
     c.require(
         r.openings.iter().any(|o| o.kind == OpeningKind::Door),
@@ -193,6 +228,21 @@ fn structure(r: &BuildingRecipe, c: &mut Checks) {
     );
 }
 fn opening_rules(r: &BuildingRecipe, o: &OpeningRecipe, index: usize, c: &mut Checks) {
+    c.require(
+        o.window_panes.is_none_or(crate::WindowPanes::is_valid),
+        &o.id,
+        "pane rows and columns must each be between 1 and 32",
+    );
+    c.require(
+        o.storey < r.storeys,
+        &o.id,
+        "opening storey is outside the building",
+    );
+    c.require(
+        o.kind != OpeningKind::Door || o.storey == 0,
+        &o.id,
+        "exterior entrances must remain on the ground floor",
+    );
     let finite = [o.offset, o.width, o.height, o.sill, o.swing_degrees]
         .iter()
         .all(|v| v.is_finite());
@@ -224,7 +274,8 @@ fn opening_rules(r: &BuildingRecipe, o: &OpeningRecipe, index: usize, c: &mut Ch
         );
     }
     for other in &r.openings[..index] {
-        let separate = other.facade != o.facade
+        let separate = other.storey != o.storey
+            || other.facade != o.facade
             || (other.offset - o.offset).abs() >= (other.width + o.width) * 0.5 + 0.14
             || other.sill >= o.sill + o.height + 0.14
             || o.sill >= other.sill + other.height + 0.14;
@@ -232,6 +283,11 @@ fn opening_rules(r: &BuildingRecipe, o: &OpeningRecipe, index: usize, c: &mut Ch
     }
 }
 fn partition_rules(r: &BuildingRecipe, p: &PartitionRecipe, index: usize, c: &mut Checks) {
+    c.require(
+        p.storey < r.storeys,
+        &p.id,
+        "partition storey is outside the building",
+    );
     let finite = [p.offset, p.door_offset, p.door_width, p.door_height]
         .iter()
         .all(|v| v.is_finite());
@@ -257,6 +313,9 @@ fn partition_rules(r: &BuildingRecipe, p: &PartitionRecipe, index: usize, c: &mu
         "internal doorway must fit and provide player clearance",
     );
     for other in &r.partitions[..index] {
+        if other.storey != p.storey {
+            continue;
+        }
         c.require(
             other.axis == p.axis,
             &p.id,
@@ -269,6 +328,9 @@ fn partition_rules(r: &BuildingRecipe, p: &PartitionRecipe, index: usize, c: &mu
         );
     }
     for o in &r.openings {
+        if o.storey != p.storey {
+            continue;
+        }
         let endpoint = match (p.axis, o.facade) {
             (PartitionAxis::X, Facade::East) | (PartitionAxis::Y, Facade::South) => Some(p.offset),
             (PartitionAxis::X, Facade::West) | (PartitionAxis::Y, Facade::North) => Some(-p.offset),
@@ -283,6 +345,38 @@ fn partition_rules(r: &BuildingRecipe, p: &PartitionRecipe, index: usize, c: &mu
         );
     }
 }
+fn grub(recipe: &BuildingRecipe, c: &mut Checks) {
+    let filter = &recipe.grub_filter;
+    c.range("grub_filter.grime", filter.grime, 0., 1.);
+    c.range("grub_filter.moss", filter.moss, 0., 1.);
+    c.range(
+        "grub_filter.height_falloff",
+        filter.height_falloff,
+        0.1,
+        20.,
+    );
+    c.range("grub_filter.patch_size", filter.patch_size, 0.1, 20.);
+    c.range(
+        "grub_filter.fine_patch_size",
+        filter.fine_patch_size,
+        0.025,
+        20.,
+    );
+    c.range("grub_filter.fine_mix", filter.fine_mix, 0., 1.);
+    for (name, colour) in [
+        ("grub_filter.dirt_colour", filter.dirt_colour),
+        ("grub_filter.moss_colour", filter.moss_colour),
+    ] {
+        c.require(
+            colour
+                .iter()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+            name,
+            "colour components must be finite values between 0 and 1",
+        );
+    }
+}
+
 fn palette(r: &BuildingRecipe, c: &mut Checks) {
     let m = &r.materials;
     for (name, colour) in [
@@ -296,6 +390,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.chimney", m.chimney),
         ("materials.timber", m.timber),
         ("materials.foundation", m.foundation),
+        ("materials.stone_slab", m.stone_slab),
     ] {
         c.require(
             colour
@@ -321,6 +416,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.timber_recipe", &m.timber_recipe),
         ("materials.floor_recipe", &m.floor_recipe),
         ("materials.foundation_recipe", &m.foundation_recipe),
+        ("materials.stone_slab_recipe", &m.stone_slab_recipe),
         ("materials.ceiling_recipe", &m.ceiling_recipe),
     ] {
         c.require(

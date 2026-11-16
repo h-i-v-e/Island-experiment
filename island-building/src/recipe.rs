@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
 
+pub(crate) const fn one_storey() -> u8 {
+    1
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildingRecipe {
@@ -12,19 +16,35 @@ pub struct BuildingRecipe {
     pub width: f32,
     pub depth: f32,
     pub wall_height: f32,
+    /// Occupied storeys, including the ground floor. Wall height is per storey.
+    #[serde(default = "one_storey")]
+    pub storeys: u8,
+    #[serde(default)]
+    pub staircase: crate::stairs::StaircaseRecipe,
     pub wall_thickness: f32,
     pub floor_thickness: f32,
     #[serde(default)]
     pub foundation: FoundationRecipe,
     #[serde(default)]
     pub walls: WallRecipe,
+    /// A Gothic church uses a connected cruciform shell instead of rectangular storeys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub church: Option<crate::ChurchRecipe>,
     pub roof: RoofRecipe,
+    #[serde(default)]
+    pub opening_defaults: crate::openings::OpeningDefaults,
+    /// None preserves the authored opening list; Some regenerates it on resize.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening_generation: Option<crate::openings::OpeningGeneration>,
+    #[serde(default)]
     pub openings: Vec<OpeningRecipe>,
     pub partitions: Vec<PartitionRecipe>,
     /// One wall-attached, unlit fireplace and its roof-penetrating chimney.
     #[serde(default)]
     pub chimney: Option<ChimneyRecipe>,
     pub materials: MaterialPalette,
+    #[serde(default)]
+    pub grub_filter: crate::GrubFilter,
     pub atlas_size: u32,
 }
 
@@ -174,6 +194,9 @@ mod door_style_tests {
 #[serde(deny_unknown_fields)]
 pub struct OpeningRecipe {
     pub id: String,
+    /// Zero is the ground floor; sill remains relative to this floor.
+    #[serde(default)]
+    pub storey: u8,
     pub facade: Facade,
     pub kind: OpeningKind,
     /// Centre offset along the facade's tangent, measured from its midpoint.
@@ -181,6 +204,12 @@ pub struct OpeningRecipe {
     pub width: f32,
     pub height: f32,
     pub sill: f32,
+    /// Legacy openings retain their authored dimensions unless opted in.
+    #[serde(default)]
+    pub use_default_dimensions: bool,
+    /// None follows the building-wide rectangular window pane layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_panes: Option<crate::WindowPanes>,
     pub hinge: HingeSide,
     pub swing_degrees: f32,
     #[serde(default, skip_serializing_if = "DoorStyle::is_plank")]
@@ -289,11 +318,15 @@ pub enum PartitionAxis {
 #[serde(deny_unknown_fields)]
 pub struct PartitionRecipe {
     pub id: String,
+    #[serde(default)]
+    pub storey: u8,
     pub axis: PartitionAxis,
     pub offset: f32,
     pub door_offset: f32,
     pub door_width: f32,
     pub door_height: f32,
+    #[serde(default)]
+    pub use_default_door_dimensions: bool,
 }
 /// Dimensions of one wall-attached fireplace and chimney, all in metres.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -341,6 +374,8 @@ pub struct MaterialPalette {
     pub floor: [f32; 3],
     #[serde(default = "default_chimney_colour")]
     pub foundation: [f32; 3],
+    #[serde(default = "default_slab_colour")]
+    pub stone_slab: [f32; 3],
     #[serde(default = "default_ceiling_colour")]
     pub ceiling: [f32; 3],
     pub interior: [f32; 3],
@@ -367,6 +402,8 @@ pub struct MaterialPalette {
     #[serde(default)]
     pub foundation_recipe: Option<String>,
     #[serde(default)]
+    pub stone_slab_recipe: Option<String>,
+    #[serde(default)]
     pub ceiling_recipe: Option<String>,
 }
 impl Default for MaterialPalette {
@@ -376,6 +413,7 @@ impl Default for MaterialPalette {
             roof: [0.23, 0.28, 0.29],
             floor: [0.38, 0.27, 0.17],
             foundation: default_chimney_colour(),
+            stone_slab: default_slab_colour(),
             ceiling: default_ceiling_colour(),
             interior: [0.76, 0.72, 0.61],
             trim: [0.82, 0.76, 0.61],
@@ -390,12 +428,16 @@ impl Default for MaterialPalette {
             timber_recipe: None,
             floor_recipe: None,
             foundation_recipe: None,
+            stone_slab_recipe: None,
             ceiling_recipe: None,
         }
     }
 }
 const fn default_chimney_colour() -> [f32; 3] {
     [0.255, 0.25, 0.23]
+}
+const fn default_slab_colour() -> [f32; 3] {
+    [0.24, 0.25, 0.245]
 }
 const fn default_timber_colour() -> [f32; 3] {
     [0.09, 0.045, 0.022]
@@ -411,6 +453,29 @@ impl Default for BuildingRecipe {
 }
 impl BuildingRecipe {
     #[must_use]
+    pub fn floor_height(&self, storey: u8) -> f32 {
+        f32::from(storey) * (self.wall_height + self.floor_thickness)
+    }
+
+    #[must_use]
+    pub fn eaves_height(&self) -> f32 {
+        self.floor_height(self.storeys.saturating_sub(1)) + self.wall_height
+    }
+
+    /// Generate entrances and windows from the footprint and shared dimensions.
+    /// Validation reports dimensions that cannot accommodate the requested sizes.
+    #[must_use]
+    pub fn procedural(width: f32, depth: f32) -> Self {
+        Self {
+            width,
+            depth,
+            opening_generation: Some(crate::openings::OpeningGeneration::default()),
+            openings: Vec::new(),
+            ..Self::hut()
+        }
+    }
+
+    #[must_use]
     pub fn hut() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
@@ -419,10 +484,13 @@ impl BuildingRecipe {
             width: 6.,
             depth: 5.,
             wall_height: 2.8,
+            storeys: 1,
+            staircase: crate::stairs::StaircaseRecipe::default(),
             wall_thickness: 0.2,
             floor_thickness: 0.16,
             foundation: FoundationRecipe::default(),
             walls: WallRecipe::default(),
+            church: None,
             roof: RoofRecipe {
                 covering: RoofCovering::StandingSeam,
                 kind: RoofKind::Gable,
@@ -430,8 +498,11 @@ impl BuildingRecipe {
                 overhang: 0.35,
                 thickness: 0.12,
             },
+            opening_defaults: crate::openings::OpeningDefaults::default(),
+            opening_generation: None,
             openings: vec![
                 OpeningRecipe {
+                    storey: 0,
                     id: "entrance".into(),
                     facade: Facade::South,
                     kind: OpeningKind::Door,
@@ -439,11 +510,14 @@ impl BuildingRecipe {
                     width: 1.15,
                     height: 2.2,
                     sill: 0.,
+                    use_default_dimensions: false,
+                    window_panes: None,
                     hinge: HingeSide::Left,
                     swing_degrees: 105.,
                     door_style: DoorStyle::Plank,
                 },
                 OpeningRecipe {
+                    storey: 0,
                     id: "window-east".into(),
                     facade: Facade::East,
                     kind: OpeningKind::Window,
@@ -451,11 +525,14 @@ impl BuildingRecipe {
                     width: 1.4,
                     height: 1.1,
                     sill: 0.95,
+                    use_default_dimensions: false,
+                    window_panes: None,
                     hinge: HingeSide::Left,
                     swing_degrees: 90.,
                     door_style: DoorStyle::Plank,
                 },
                 OpeningRecipe {
+                    storey: 0,
                     id: "window-west".into(),
                     facade: Facade::West,
                     kind: OpeningKind::Window,
@@ -463,6 +540,8 @@ impl BuildingRecipe {
                     width: 1.4,
                     height: 1.1,
                     sill: 0.95,
+                    use_default_dimensions: false,
+                    window_panes: None,
                     hinge: HingeSide::Left,
                     swing_degrees: 90.,
                     door_style: DoorStyle::Plank,
@@ -471,6 +550,7 @@ impl BuildingRecipe {
             partitions: Vec::new(),
             chimney: Some(ChimneyRecipe::default()),
             materials: MaterialPalette::default(),
+            grub_filter: crate::GrubFilter::default(),
             atlas_size: 512,
         }
     }
@@ -485,15 +565,18 @@ impl BuildingRecipe {
         r.openings[1].offset = -1.5;
         r.openings[2].offset = 1.5;
         r.partitions.push(PartitionRecipe {
+            storey: 0,
             id: "cross-wall".into(),
             axis: PartitionAxis::X,
             offset: 0.7,
             door_offset: 0.,
             door_width: 1.1,
             door_height: 2.2,
+            use_default_door_dimensions: false,
         });
         r.openings.extend([
             OpeningRecipe {
+                storey: 0,
                 id: "front-window".into(),
                 facade: Facade::South,
                 kind: OpeningKind::Window,
@@ -501,11 +584,14 @@ impl BuildingRecipe {
                 width: 1.3,
                 height: 1.1,
                 sill: 0.95,
+                use_default_dimensions: false,
+                window_panes: None,
                 hinge: HingeSide::Left,
                 swing_degrees: 90.,
                 door_style: DoorStyle::Plank,
             },
             OpeningRecipe {
+                storey: 0,
                 id: "rear-window".into(),
                 facade: Facade::North,
                 kind: OpeningKind::Window,
@@ -513,6 +599,8 @@ impl BuildingRecipe {
                 width: 1.4,
                 height: 1.1,
                 sill: 0.95,
+                use_default_dimensions: false,
+                window_panes: None,
                 hinge: HingeSide::Left,
                 swing_degrees: 90.,
                 door_style: DoorStyle::Plank,

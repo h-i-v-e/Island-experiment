@@ -18,6 +18,7 @@ pub(super) struct CameraControls {
     pub distance: f32,
     pub target: Vec3,
     pub feet: Vec3,
+    pub storey: u8,
 }
 impl Default for CameraControls {
     fn default() -> Self {
@@ -28,6 +29,7 @@ impl Default for CameraControls {
             distance: 17.,
             target: Vec3::new(0., 1.5, 0.),
             feet: Vec3::new(0., 0.02, 5.),
+            storey: 0,
         }
     }
 }
@@ -35,10 +37,11 @@ impl Default for CameraControls {
 impl CameraControls {
     pub fn frame(&mut self, prototype: &BuildingPrototype, view: &str) {
         let recipe = &prototype.recipe;
+        self.storey = self.storey.min(recipe.storeys.saturating_sub(1));
         self.walkthrough = false;
         self.target = Vec3::new(0., recipe.wall_height * 0.5, 0.);
         self.distance = recipe.width.max(recipe.depth) * 2.25;
-        if recipe.chimney.is_some() {
+        if recipe.chimney.is_some() || recipe.storeys > 1 {
             let [min, max] = crate::render::above_ground_bounds(prototype).map(native_to_bevy);
             self.target = (min + max) * 0.5;
             let radius = min.distance(max) * 0.5;
@@ -69,29 +72,25 @@ impl CameraControls {
             self.pitch = 0.1;
             let entrance = prototype.layout.entrance;
             self.yaw = entrance[0].atan2(-entrance[1]);
+            if recipe.church.is_some() {
+                let height = prototype
+                    .doors
+                    .iter()
+                    .map(|d| d.hinge[2] + d.height)
+                    .fold(0., f32::max);
+                self.target = native_to_bevy(entrance) + Vec3::Y * height * 0.5;
+                self.distance = height * 1.7;
+                self.pitch = 0.03;
+            }
         }
         if view == "interior" {
-            self.walkthrough = true;
-            let partitioned = !recipe.partitions.is_empty();
-            self.feet = native_to_bevy([
-                recipe.width * 0.5 - 0.65,
-                if partitioned {
-                    -recipe.depth * 0.5 + 0.65
-                } else {
-                    recipe.depth * 0.5 - 0.65
-                },
-                0.025,
-            ]);
-            // Review the room from its opposite corner: floor, ceiling,
-            // entrance and side glazing remain visible together.
-            let target = native_to_bevy([
-                -recipe.width * 0.1,
-                -recipe.depth * if partitioned { 0.1 } else { 0.3 },
-                1.25,
-            ]);
-            let look = target - (self.feet + Vec3::Y * 1.65);
-            self.yaw = (-look.x).atan2(-look.z);
-            self.pitch = (-look.y / look.length()).asin();
+            self.frame_interior(prototype);
+        }
+        if view == "stair-door" {
+            self.frame_stair_door(prototype);
+        }
+        if view == "stairs" {
+            self.frame_stairs(prototype);
         }
         if view == "fireplace" && !self.frame_fireplace(prototype) {
             self.frame(prototype, "interior");
@@ -123,7 +122,7 @@ impl CameraControls {
             self.target = native_to_bevy([
                 recipe.width * 0.5,
                 -recipe.depth * 0.5,
-                recipe.wall_height - 0.08,
+                recipe.eaves_height() - 0.08,
             ]);
             self.distance = 2.;
             self.yaw = 0.78;
@@ -131,19 +130,180 @@ impl CameraControls {
         }
     }
 
+    fn frame_interior(&mut self, prototype: &BuildingPrototype) {
+        let recipe = &prototype.recipe;
+        if let Some(church) = recipe.church {
+            self.walkthrough = true;
+            self.feet = native_to_bevy([0., -recipe.depth * 0.36, 0.025]);
+            let target = native_to_bevy([0., church.crossing_offset, recipe.wall_height * 0.55]);
+            let look = target - (self.feet + Vec3::Y * 1.65);
+            self.yaw = (-look.x).atan2(-look.z);
+            self.pitch = (-look.y / look.length()).asin();
+            return;
+        }
+        self.walkthrough = true;
+        let partitioned = !recipe.partitions.is_empty();
+        self.feet = native_to_bevy([
+            recipe.width * 0.5 - 0.65,
+            if partitioned {
+                -recipe.depth * 0.5 + 0.65
+            } else {
+                recipe.depth * 0.5 - 0.65
+            },
+            0.025,
+        ]);
+        // Review the room from its opposite corner: floor, ceiling,
+        // entrance and side glazing remain visible together.
+        let target = native_to_bevy([
+            -recipe.width * 0.1,
+            -recipe.depth * if partitioned { 0.1 } else { 0.3 },
+            1.25,
+        ]);
+        let look = target - (self.feet + Vec3::Y * 1.65);
+        self.yaw = (-look.x).atan2(-look.z);
+        self.pitch = (-look.y / look.length()).asin();
+        if recipe.storeys > 1 {
+            self.frame_storey_interior(prototype);
+        }
+    }
+
+    fn frame_storey_interior(&mut self, prototype: &BuildingPrototype) {
+        let recipe = &prototype.recipe;
+        let height = recipe.floor_height(self.storey);
+        let x = recipe.width * 0.5 - 0.65;
+        let y = recipe.depth * 0.5 - 0.65;
+        let landing = prototype
+            .layout
+            .staircase
+            .as_ref()
+            .map(|s| s.point(s.span() * 0.5, s.landing_depth * 0.5, height + 0.025));
+        let feet = [
+            [x, y, height + 0.025],
+            [-x, y, height + 0.025],
+            [x, -y, height + 0.025],
+            [-x, -y, height + 0.025],
+            [0., 0., height + 0.025],
+        ]
+        .into_iter()
+        .chain(landing)
+        .find(|p| {
+            inspection_position_clear(prototype, *p)
+                && prototype.support_colliders.iter().any(|b| {
+                    (b.max[2] - height).abs() < 0.001
+                        && p[0] >= b.min[0]
+                        && p[0] <= b.max[0]
+                        && p[1] >= b.min[1]
+                        && p[1] <= b.max[1]
+                })
+        })
+        .unwrap_or([0., 0., height + 0.025]);
+        self.feet = native_to_bevy(feet);
+        self.walkthrough = true;
+        self.target = native_to_bevy([0., 0., height + 1.3]);
+        self.aim(self.target);
+    }
+
+    fn frame_stair_door(&mut self, prototype: &BuildingPrototype) {
+        let doorway = prototype
+            .layout
+            .staircase
+            .as_ref()
+            .and_then(|s| s.stairwell.as_ref())
+            .and_then(|s| s.doorways.get(usize::from(self.storey)));
+        let Some(doorway) = doorway else {
+            self.frame(prototype, "interior");
+            return;
+        };
+        let id = format!("stairwell-door-{}", self.storey);
+        let door = prototype.doors.iter().find(|d| d.id == id);
+        let mut candidates = [doorway.room_approach; 3];
+        if let Some(leaf) = door {
+            let (sin, cos) = leaf.closed_angle.sin_cos();
+            let tangent = [cos, sin];
+            let outward = [sin, -cos];
+            for (candidate, (along, out)) in candidates.iter_mut().zip([
+                (leaf.width * 0.5 + 0.2, 0.),
+                (-leaf.width * 0.5 - 0.35, 0.),
+                (0., leaf.width - 0.3),
+            ]) {
+                for i in 0..2 {
+                    candidate[i] += tangent[i] * along + outward[i] * out;
+                }
+            }
+        }
+        let feet = candidates
+            .into_iter()
+            .find(|p| {
+                inspection_position_clear(prototype, *p)
+                    && door.is_none_or(|d| {
+                        (0..=32_u16).all(|i| {
+                            !d.collider_at(d.swing_angle * f32::from(i) / 32.)
+                                .intersects_capsule(*p, 0.28, 1.8)
+                        })
+                    })
+            })
+            .unwrap_or(doorway.room_approach);
+        self.feet = native_to_bevy(feet);
+        self.target = native_to_bevy(doorway.centre);
+        self.walkthrough = true;
+        self.aim(self.target);
+    }
+
+    fn frame_stairs(&mut self, prototype: &BuildingPrototype) {
+        let Some(stairs) = &prototype.layout.staircase else {
+            self.frame(prototype, "interior");
+            return;
+        };
+        let level = self.storey.min(prototype.recipe.storeys - 2);
+        let base = prototype.recipe.floor_height(level);
+        self.feet = native_to_bevy(stairs.point(
+            stairs.width * 0.5,
+            stairs.landing_depth * 0.5,
+            base + 0.025,
+        ));
+        self.target = native_to_bevy(stairs.point(
+            stairs.width * 0.5,
+            stairs.landing_depth + stairs.run(),
+            base + prototype.recipe.floor_height(1) * 0.5 + 0.7,
+        ));
+        self.walkthrough = true;
+        self.aim(self.target);
+    }
+
+    fn aim(&mut self, target: Vec3) {
+        let look = target - (self.feet + Vec3::Y * 1.65);
+        self.yaw = (-look.x).atan2(-look.z);
+        self.pitch = (-look.y / look.length()).asin();
+    }
+
     fn frame_window(&mut self, prototype: &BuildingPrototype) {
         let recipe = &prototype.recipe;
+        if let Some(church) = recipe.church {
+            let start = -recipe.depth * 0.5 + church.tower_width;
+            let end = church.crossing_offset - church.transept_depth * 0.5;
+            let bays = ((end - start) / church.bay_spacing).floor().max(1.);
+            let window = recipe.opening_defaults.window;
+            self.target = native_to_bevy([
+                church.nave_width * 0.5 - recipe.wall_thickness * 0.48,
+                start + (end - start) / bays * 0.5,
+                window.sill + window.height * 0.5,
+            ]);
+            self.distance = (window.height + 0.2) * 2.3;
+            self.yaw = std::f32::consts::FRAC_PI_2 + 0.12;
+            self.pitch = 0.06;
+            return;
+        }
         let Some(opening) = recipe
             .openings
             .iter()
-            .find(|o| o.kind == crate::OpeningKind::Window)
+            .find(|o| o.kind == crate::OpeningKind::Window && o.storey == self.storey)
         else {
             return;
         };
         self.target = native_to_bevy(opening.facade.point(
             recipe,
             opening.offset,
-            opening.sill + opening.height * 0.5,
+            recipe.floor_height(opening.storey) + opening.sill + opening.height * 0.5,
             recipe.wall_thickness * 0.48,
         ));
         self.distance = ((opening.width.max(opening.height) + 0.2) * 2.3).max(1.8);
@@ -155,11 +315,12 @@ impl CameraControls {
     fn frame_eaves(&mut self, prototype: &BuildingPrototype) {
         let recipe = &prototype.recipe;
         let eye_height = 1.65;
-        let top = recipe.wall_height + recipe.roof.rise + recipe.roof.effective_thickness() + 0.22;
+        let top =
+            recipe.eaves_height() + recipe.roof.rise + recipe.roof.effective_thickness() + 0.22;
         self.target = native_to_bevy([
             0.,
             -recipe.depth * 0.5 - recipe.roof.overhang,
-            recipe.wall_height + recipe.roof.rise * 0.35,
+            recipe.eaves_height() + recipe.roof.rise * 0.35,
         ]);
         self.distance = (recipe.width.max(recipe.depth) * 2.).max((top - eye_height) * 2.4);
         self.pitch = ((eye_height - self.target.y) / self.distance).asin();
@@ -171,10 +332,11 @@ impl CameraControls {
         let Some(chimney) = &recipe.chimney else {
             return false;
         };
-        let Some(target) = crate::geometry::chimney::fireplace_centre(recipe) else {
+        let Some(target) = crate::geometry::chimney::fireplace_centre_on_floor(recipe, self.storey)
+        else {
             return false;
         };
-        let position = [1.6, 1.3, 1.0, 0.75, 0.45]
+        let position = [1.6, 1.3, 1.0, 0.75, 0.45, 0.33]
             .into_iter()
             .find_map(|distance| {
                 [0.0, 0.45, -0.45]
@@ -183,7 +345,7 @@ impl CameraControls {
                         chimney.facade.point(
                             recipe,
                             chimney.offset + shift,
-                            0.025,
+                            recipe.floor_height(self.storey) + 0.025,
                             recipe.wall_thickness + chimney.depth + chimney.hearth_depth + distance,
                         )
                     })
@@ -383,6 +545,61 @@ pub(super) fn sync_observer(
 mod tests {
     use super::*;
     use crate::{BuildingRecipe, generate, render::bevy_to_native};
+
+    #[test]
+    fn storey_and_stair_views_choose_clear_supported_positions() {
+        let mut recipe = BuildingRecipe::procedural(7., 6.);
+        recipe.storeys = 3;
+        recipe.atlas_size = 128;
+        recipe.walls.style = crate::WallStyle::WattleAndDaub;
+        recipe.roof.covering = crate::RoofCovering::Thatch;
+        let prototype = generate(&recipe).unwrap();
+        let mut controls = CameraControls::default();
+        for storey in 0..3 {
+            controls.storey = storey;
+            controls.frame(&prototype, "interior");
+            let feet = bevy_to_native(controls.feet);
+            assert!(inspection_position_clear(&prototype, feet));
+            assert!((feet[2] - recipe.floor_height(storey) - 0.025).abs() < 0.0001);
+            controls.frame(&prototype, "stair-door");
+            let door_feet = bevy_to_native(controls.feet);
+            assert!(inspection_position_clear(&prototype, door_feet));
+            let leaf = prototype
+                .doors
+                .iter()
+                .find(|d| d.id == format!("stairwell-door-{storey}"))
+                .unwrap();
+            assert!(
+                (0..=32_u16).all(|i| !leaf
+                    .collider_at(leaf.swing_angle * f32::from(i) / 32.)
+                    .intersects_capsule(door_feet, 0.28, 1.8)),
+                "door inspection stays outside its sweep"
+            );
+            assert!((door_feet[2] - recipe.floor_height(storey) - 0.025).abs() < 0.0001);
+            controls.frame(&prototype, "window");
+            assert!(controls.target.y > recipe.floor_height(storey));
+            controls.frame(&prototype, "fireplace");
+            assert!(inspection_position_clear(
+                &prototype,
+                bevy_to_native(controls.feet)
+            ));
+            assert!(
+                (bevy_to_native(controls.feet)[2] - recipe.floor_height(storey) - 0.025).abs()
+                    < 0.0001
+            );
+            assert!(controls.target.abs_diff_eq(
+                native_to_bevy(
+                    crate::geometry::chimney::fireplace_centre_on_floor(&recipe, storey).unwrap()
+                ),
+                0.00001
+            ));
+            controls.frame(&prototype, "stairs");
+            assert!(inspection_position_clear(
+                &prototype,
+                bevy_to_native(controls.feet)
+            ));
+        }
+    }
 
     #[test]
     fn fireplace_view_is_inside_clear_of_hearth_and_aims_at_the_firebox() {

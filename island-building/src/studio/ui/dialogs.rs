@@ -15,6 +15,7 @@ pub(super) enum MaterialTarget {
     Floor,
     Ceiling,
     Foundation,
+    StoneSlab,
 }
 
 pub(super) enum Intent {
@@ -143,6 +144,7 @@ fn finish(state: &mut StudioState, completion: Completion) {
                 MaterialTarget::Floor => recipe.materials.floor_recipe = Some(path),
                 MaterialTarget::Ceiling => recipe.materials.ceiling_recipe = Some(path),
                 MaterialTarget::Foundation => recipe.materials.foundation_recipe = Some(path),
+                MaterialTarget::StoneSlab => recipe.materials.stone_slab_recipe = Some(path),
             });
             // Explicit reselection also refreshes a dependency edited in Material Studio.
             state.request_preview();
@@ -191,6 +193,7 @@ mod tests {
             MaterialTarget::Floor,
             MaterialTarget::Ceiling,
             MaterialTarget::Foundation,
+            MaterialTarget::StoneSlab,
         ]
         .into_iter()
         .enumerate()
@@ -217,6 +220,7 @@ mod tests {
                 material.floor_recipe.as_deref(),
                 material.ceiling_recipe.as_deref(),
                 material.foundation_recipe.as_deref(),
+                material.stone_slab_recipe.as_deref(),
             ]
             .into_iter()
             .enumerate()
@@ -231,6 +235,14 @@ mod tests {
             assert!(state.document.recipe().materials.timber_recipe.is_none());
             assert!(state.document.recipe().materials.floor_recipe.is_none());
             assert!(state.document.recipe().materials.ceiling_recipe.is_none());
+            assert!(
+                state
+                    .document
+                    .recipe()
+                    .materials
+                    .stone_slab_recipe
+                    .is_none()
+            );
         }
     }
 

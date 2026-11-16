@@ -11,7 +11,7 @@ struct Vertex {
     uv: [f32; 2],
 }
 
-pub(super) fn door_knobs(width: f32, height: f32, thickness: f32) -> BuildingMesh {
+pub(crate) fn door_knobs(width: f32, height: f32, thickness: f32) -> BuildingMesh {
     let mut mesh = BuildingMesh::default();
     let latch = width - 0.075;
     let elevation = 1.02_f32.min(height * 0.55);

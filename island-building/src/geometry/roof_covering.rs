@@ -5,13 +5,14 @@ use crate::{BuildingRecipe, MaterialSlot, RoofCovering};
 /// Slate course lips provide depth while the material supplies individual joints.
 /// Large buildings retain a bounded number of broad bands.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub(super) fn courses(b: &mut Builder, recipe: &BuildingRecipe, section: RoofSection) {
+pub(super) fn courses(b: &mut Builder, recipe: &BuildingRecipe, section: RoofSection, pitch: f32) {
     let length = (section.x[1] - section.x[0]) * (1. + section.slope().powi(2)).sqrt();
-    let pitch: f32 = match recipe.roof.covering {
-        RoofCovering::Slate => 0.25,
+    match recipe.roof.covering {
+        RoofCovering::Slate => {}
         RoofCovering::StandingSeam | RoofCovering::Thatch => return,
-    };
-    let pitch = pitch.max(length / 128.);
+    }
+    // Keep the bounded relief on an integer multiple of the material courses.
+    let pitch = pitch * (length / (128. * pitch)).ceil().max(1.);
     let count = (length / pitch).ceil().clamp(1., 128.) as u16;
     let step = pitch / (1. + section.slope().powi(2)).sqrt();
     for index in 0..count {

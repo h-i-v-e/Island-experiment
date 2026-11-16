@@ -16,6 +16,7 @@ pub fn spawn_building(
     let root = commands
         .spawn((Name::new("Building"), transform, Visibility::Inherited))
         .id();
+    let mut near_root = root;
     for (level, parts) in prototype.lods.iter().enumerate() {
         let lod_root = commands
             .spawn((
@@ -33,6 +34,9 @@ pub fn spawn_building(
                 ChildOf(root),
             ))
             .id();
+        if level == 0 {
+            near_root = lod_root;
+        }
         for part in parts {
             let entity = spawn_part(commands, part, Transform::default(), lod_root);
             if part.stairs {
@@ -57,7 +61,7 @@ pub fn spawn_building(
                 rotation: Quat::from_rotation_y(door.closed_angle),
                 ..default()
             },
-            root,
+            if door.exterior { root } else { near_root },
         );
         if let Some(hardware) = prototype
             .door_hardware
@@ -91,11 +95,17 @@ fn spawn_part(
 ) -> Entity {
     let mut entity = commands.spawn((
         Mesh3d(part.mesh.clone()),
-        MeshMaterial3d(part.material.clone()),
         transform,
         Visibility::Inherited,
         ChildOf(parent),
     ));
+    if let Some(material) = &part.array_material {
+        entity.insert(MeshMaterial3d(material.clone()));
+    } else if let Some(material) = &part.grub_material {
+        entity.insert(MeshMaterial3d(material.clone()));
+    } else {
+        entity.insert(MeshMaterial3d(part.material.clone()));
+    }
     if part.glass {
         entity.insert((NotShadowCaster, NotShadowReceiver));
     }

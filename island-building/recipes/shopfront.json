@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "name": "Shopfront \u00b7 small pane display window",
+  "seed": 42,
+  "width": 10.0,
+  "depth": 7.0,
+  "wall_height": 3.3,
+  "wall_thickness": 0.2,
+  "floor_thickness": 0.16,
+  "roof": {
+    "kind": "gable",
+    "rise": 1.4,
+    "overhang": 0.35,
+    "thickness": 0.12
+  },
+  "openings": [
+    {
+      "id": "entrance",
+      "facade": "south",
+      "kind": "door",
+      "offset": -3.5,
+      "width": 1.15,
+      "height": 2.2,
+      "sill": 0.0,
+      "hinge": "left",
+      "swing_degrees": 105.0
+    },
+    {
+      "id": "shop-window",
+      "storey": 0,
+      "facade": "south",
+      "kind": "window",
+      "offset": 0.8,
+      "width": 5.2,
+      "height": 2.1,
+      "sill": 0.55,
+      "use_default_dimensions": false,
+      "hinge": "left",
+      "swing_degrees": 90.0,
+      "window_panes": {
+        "columns": 8,
+        "rows": 4
+      }
+    },
+    {
+      "id": "window-east",
+      "facade": "east",
+      "kind": "window",
+      "offset": 0.0,
+      "width": 1.4,
+      "height": 1.1,
+      "sill": 0.95,
+      "hinge": "left",
+      "swing_degrees": 90.0
+    },
+    {
+      "id": "window-west",
+      "facade": "west",
+      "kind": "window",
+      "offset": 0.0,
+      "width": 1.4,
+      "height": 1.1,
+      "sill": 0.95,
+      "hinge": "left",
+      "swing_degrees": 90.0
+    }
+  ],
+  "partitions": [],
+  "materials": {
+    "wall": [
+      0.62,
+      0.38,
+      0.22
+    ],
+    "roof": [
+      0.23,
+      0.28,
+      0.29
+    ],
+    "floor": [
+      0.38,
+      0.27,
+      0.17
+    ],
+    "interior": [
+      0.76,
+      0.72,
+      0.61
+    ],
+    "trim": [
+      0.82,
+      0.76,
+      0.61
+    ],
+    "door": [
+      0.3,
+      0.2,
+      0.12
+    ],
+    "glass": [
+      0.65,
+      0.82,
+      0.88,
+      0.16
+    ],
+    "wall_recipe": null,
+    "roof_recipe": null,
+    "chimney": [
+      0.255,
+      0.25,
+      0.23
+    ],
+    "chimney_recipe": null
+  },
+  "atlas_size": 1024,
+  "chimney": {
+    "facade": "north",
+    "offset": 0.0,
+    "width": 1.6,
+    "depth": 0.6,
+    "firebox_width": 1.0,
+    "firebox_height": 0.85,
+    "firebox_depth": 0.42,
+    "hearth_depth": 0.3,
+    "hearth_height": 0.12,
+    "stack_width": 0.65,
+    "stack_depth": 0.5,
+    "height_above_roof": 0.8
+  }
+}

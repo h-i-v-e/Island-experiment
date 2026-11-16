@@ -23,6 +23,12 @@ pub(crate) fn generate(
             r.materials.wall_recipe.as_deref(),
         ),
         (
+            MaterialSlot::Interior,
+            r.materials.interior,
+            r.materials.wall_recipe.as_deref(),
+        ),
+        (MaterialSlot::Trim, r.materials.trim, None),
+        (
             MaterialSlot::Timber,
             r.materials.timber,
             r.materials.timber_recipe.as_deref(),
@@ -48,6 +54,11 @@ pub(crate) fn generate(
             r.materials.foundation_recipe.as_deref(),
         ),
         (
+            MaterialSlot::StoneSlab,
+            r.materials.stone_slab,
+            r.materials.stone_slab_recipe.as_deref(),
+        ),
+        (
             MaterialSlot::Ceiling,
             r.materials.ceiling,
             r.materials.ceiling_recipe.as_deref(),
@@ -60,9 +71,13 @@ pub(crate) fn generate(
     ]
     .into_iter()
     .filter(|(slot, _, path)| match slot {
+        MaterialSlot::Interior | MaterialSlot::Trim => r.church.is_some(),
         MaterialSlot::Door => path.is_some(),
-        MaterialSlot::Timber => r.walls.style == WallStyle::WattleAndDaub || path.is_some(),
+        MaterialSlot::Timber => {
+            r.walls.style == WallStyle::WattleAndDaub || r.storeys > 1 || path.is_some()
+        }
         MaterialSlot::Chimney => r.chimney.is_some() || path.is_some(),
+        MaterialSlot::StoneSlab => r.foundation.stairs || r.chimney.is_some() || path.is_some(),
         _ => true,
     })
     .map(|(slot, colour, path)| material(r, base, slot, colour, path))
@@ -94,31 +109,27 @@ fn material(
     };
     let mut parameters = RecipeParameterValues::new();
     let colour_parameter = match slot {
+        MaterialSlot::Wall
+        | MaterialSlot::Interior
+        | MaterialSlot::Trim
+        | MaterialSlot::Floor
+        | MaterialSlot::Ceiling
+            if r.church.is_some() =>
+        {
+            Some("stone_colour")
+        }
         MaterialSlot::Wall if r.walls.style == WallStyle::WattleAndDaub => Some("plaster_colour"),
         MaterialSlot::Timber | MaterialSlot::Floor | MaterialSlot::Ceiling => Some("wood_colour"),
-        MaterialSlot::Chimney | MaterialSlot::Foundation => Some("stone_colour"),
+        MaterialSlot::Chimney | MaterialSlot::Foundation | MaterialSlot::StoneSlab => {
+            Some("stone_colour")
+        }
         MaterialSlot::Roof if r.roof.covering != RoofCovering::StandingSeam => Some("roof_colour"),
         _ => None,
     };
     if let Some(parameter) = colour_parameter.filter(|_| path.is_none()) {
         parameters.insert_colour(parameter, LinearRgb::from(colour));
     }
-    let (mut recipe, source_hash) = if let Some(path) = path {
-        let bytes =
-            std::fs::read(base.join(path)).map_err(|e| BuildingError::new(path, e.to_string()))?;
-        let recipe: TextureRecipe =
-            serde_json::from_slice(&bytes).map_err(|e| BuildingError::new(path, e.to_string()))?;
-        (recipe, hash_bytes(&bytes))
-    } else {
-        let recipe = default_material(r, slot, colour)?;
-        let bytes = if parameters.is_empty() {
-            serde_json::to_vec(&recipe)
-        } else {
-            serde_json::to_vec(&(&recipe, &parameters))
-        }
-        .map_err(|e| BuildingError::new("material", e.to_string()))?;
-        (recipe, hash_bytes(&bytes))
-    };
+    let (mut recipe, source_hash) = load_material(r, base, slot, colour, path, &parameters)?;
     recipe.width = size;
     recipe.height = size;
     align_board_length(&mut recipe, r, slot);
@@ -166,6 +177,73 @@ fn material(
     })
 }
 
+fn load_material(
+    r: &BuildingRecipe,
+    base: &Path,
+    slot: MaterialSlot,
+    colour: [f32; 3],
+    path: Option<&str>,
+    parameters: &RecipeParameterValues,
+) -> Result<(TextureRecipe, String), BuildingError> {
+    if let Some(path) = path {
+        let bytes =
+            std::fs::read(base.join(path)).map_err(|e| BuildingError::new(path, e.to_string()))?;
+        let recipe: TextureRecipe =
+            serde_json::from_slice(&bytes).map_err(|e| BuildingError::new(path, e.to_string()))?;
+        Ok((recipe, hash_bytes(&bytes)))
+    } else {
+        let recipe = default_material(r, slot, colour)?;
+        let bytes = if parameters.is_empty() {
+            serde_json::to_vec(&recipe)
+        } else {
+            serde_json::to_vec(&(&recipe, &parameters))
+        }
+        .map_err(|e| BuildingError::new("material", e.to_string()))?;
+        Ok((recipe, hash_bytes(&bytes)))
+    }
+}
+
+/// Read the authored physical repeat without generating image buffers or fitting board lengths.
+pub(crate) fn unit_material(
+    recipe: &BuildingRecipe,
+    base: &Path,
+    slot: MaterialSlot,
+) -> Result<TextureRecipe, BuildingError> {
+    let path = match slot {
+        MaterialSlot::Wall => recipe.materials.wall_recipe.as_deref(),
+        MaterialSlot::Timber => recipe.materials.timber_recipe.as_deref(),
+        MaterialSlot::Roof => recipe.materials.roof_recipe.as_deref(),
+        MaterialSlot::Door => recipe.materials.door_recipe.as_deref(),
+        MaterialSlot::Floor => recipe.materials.floor_recipe.as_deref(),
+        MaterialSlot::Ceiling => recipe.materials.ceiling_recipe.as_deref(),
+        MaterialSlot::Foundation => recipe.materials.foundation_recipe.as_deref(),
+        MaterialSlot::StoneSlab => recipe.materials.stone_slab_recipe.as_deref(),
+        MaterialSlot::Chimney => recipe.materials.chimney_recipe.as_deref(),
+        _ => {
+            return Err(BuildingError::new(
+                "units",
+                "Surface has no material recipe",
+            ));
+        }
+    };
+    if slot == MaterialSlot::Door && path.is_none() {
+        return Err(BuildingError::new(
+            "door grid",
+            "Assign a door material recipe first",
+        ));
+    }
+    let colour = colour(recipe, slot);
+    load_material(
+        recipe,
+        base,
+        slot,
+        [colour[0], colour[1], colour[2]],
+        path,
+        &RecipeParameterValues::new(),
+    )
+    .map(|(material, _)| material)
+}
+
 fn align_board_length(material: &mut TextureRecipe, building: &BuildingRecipe, slot: MaterialSlot) {
     if matches!(slot, MaterialSlot::Floor | MaterialSlot::Ceiling)
         && let MaterialModel::WoodenPlanks(settings) = &material.material
@@ -184,6 +262,18 @@ fn default_material(
     colour: [f32; 3],
 ) -> Result<TextureRecipe, BuildingError> {
     let bytes: &[u8] = match slot {
+        MaterialSlot::Wall
+        | MaterialSlot::Interior
+        | MaterialSlot::Trim
+        | MaterialSlot::Ceiling
+        | MaterialSlot::Foundation
+            if recipe.church.is_some() =>
+        {
+            include_bytes!("../../island-rs/texture-recipes/rough-stone.json")
+        }
+        MaterialSlot::Floor if recipe.church.is_some() => {
+            include_bytes!("../../island-rs/texture-recipes/stone-slab.json")
+        }
         MaterialSlot::Wall if recipe.walls.style == WallStyle::WattleAndDaub => {
             include_bytes!("../../island-rs/texture-recipes/wattle-daub.json")
         }
@@ -194,7 +284,10 @@ fn default_material(
             include_bytes!("../../island-rs/texture-recipes/wooden-floorboards.json")
         }
         MaterialSlot::Chimney | MaterialSlot::Foundation => {
-            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json")
+            include_bytes!("../../island-rs/texture-recipes/rough-stone.json")
+        }
+        MaterialSlot::StoneSlab => {
+            include_bytes!("../../island-rs/texture-recipes/stone-slab.json")
         }
         MaterialSlot::Roof => match recipe.roof.covering {
             RoofCovering::Slate => {
@@ -282,9 +375,10 @@ pub(crate) fn prototype_hash(
     portable.materials.timber_recipe = None;
     portable.materials.floor_recipe = None;
     portable.materials.foundation_recipe = None;
+    portable.materials.stone_slab_recipe = None;
     portable.materials.ceiling_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry30:material12:bake14");
+    hash.update(b"island-building:geometry53:material20:bake22");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );
@@ -312,6 +406,7 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
         | MaterialSlot::ThatchShell4 => m.roof,
         MaterialSlot::Floor => m.floor,
         MaterialSlot::Foundation | MaterialSlot::Stairs => m.foundation,
+        MaterialSlot::StoneSlab | MaterialSlot::StairTreads => m.stone_slab,
         MaterialSlot::Ceiling => m.ceiling,
         MaterialSlot::Interior => m.interior,
         MaterialSlot::Trim => m.trim,
@@ -483,7 +578,7 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let path = directory.join("stone.json");
         let mut texture: TextureRecipe = serde_json::from_slice(include_bytes!(
-            "../../island-rs/texture-recipes/coursed-stone.json"
+            "../../island-rs/texture-recipes/rough-stone.json"
         ))
         .unwrap();
         fs::write(&path, serde_json::to_vec(&texture).unwrap()).unwrap();
@@ -491,10 +586,10 @@ mod tests {
         recipe.atlas_size = 128;
         recipe.materials.chimney_recipe = Some("stone.json".into());
         let original = crate::generate_with_base(&recipe, &directory).unwrap();
-        let MaterialModel::Masonry(settings) = &mut texture.material else {
+        let MaterialModel::LayeredNoise { frequency, .. } = &mut texture.material else {
             unreachable!()
         };
-        settings.cells_x = 6;
+        *frequency = 16.;
         texture.seed += 17;
         fs::write(&path, serde_json::to_vec(&texture).unwrap()).unwrap();
         let changed = crate::generate_with_base(&recipe, &directory).unwrap();

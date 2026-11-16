@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::{BuildingRecipe, validate_recipe};
+use crate::BuildingRecipe;
 
 const HISTORY_LIMIT: usize = 96;
 const MAX_RECIPE_BYTES: u64 = 4 * 1024 * 1024;
@@ -86,7 +86,8 @@ impl StudioDocument {
         }
         let source_bytes = fs::read(path)?;
         let recipe: BuildingRecipe = serde_json::from_slice(&source_bytes)?;
-        validate_recipe(&recipe).map_err(|e| DocumentError::Invalid(e.to_string()))?;
+        crate::validation::validate_with_base(&recipe, path.parent().unwrap_or(Path::new(".")))
+            .map_err(|e| DocumentError::Invalid(e.to_string()))?;
         validate_dependencies(&recipe, path.parent().unwrap_or(Path::new(".")))?;
         let saved_recipe = Some(serde_json::to_vec(&recipe)?);
         Ok(Self {
@@ -213,6 +214,7 @@ impl StudioDocument {
                 &mut relocated.materials.timber_recipe,
                 &mut relocated.materials.floor_recipe,
                 &mut relocated.materials.foundation_recipe,
+                &mut relocated.materials.stone_slab_recipe,
                 &mut relocated.materials.ceiling_recipe,
             ]
             .into_iter()
@@ -237,7 +239,11 @@ impl StudioDocument {
     }
 
     fn write(&mut self, path: &Path, expected: Option<&[u8]>) -> Result<(), DocumentError> {
-        validate_recipe(&self.recipe).map_err(|e| DocumentError::Invalid(e.to_string()))?;
+        crate::validation::validate_with_base(
+            &self.recipe,
+            self.base_directory().unwrap_or(Path::new(".")),
+        )
+        .map_err(|e| DocumentError::Invalid(e.to_string()))?;
         validate_dependencies(
             &self.recipe,
             self.base_directory().unwrap_or(Path::new(".")),
@@ -265,6 +271,7 @@ fn validate_dependencies(recipe: &BuildingRecipe, base: &Path) -> Result<(), Doc
         &recipe.materials.timber_recipe,
         &recipe.materials.floor_recipe,
         &recipe.materials.foundation_recipe,
+        &recipe.materials.stone_slab_recipe,
         &recipe.materials.ceiling_recipe,
     ]
     .into_iter()
@@ -329,6 +336,11 @@ pub(crate) fn protected_write(
             }
             fs::rename(&temporary, path)?;
         }
+        // A macOS save-panel grant can permit the selected file without granting
+        // folder reads. Opening its directory here can then block the UI's save
+        // completion. Keep the synced file and atomic publication on macOS;
+        // request the additional directory durability sync on other platforms.
+        #[cfg(not(target_os = "macos"))]
         if let Ok(directory) = fs::File::open(parent) {
             directory.sync_all()?;
         }
@@ -415,6 +427,7 @@ mod tests {
         recipe.materials.floor_recipe = Some("wood.json".into());
         recipe.materials.ceiling_recipe = Some("wood.json".into());
         recipe.materials.foundation_recipe = Some("wood.json".into());
+        recipe.materials.stone_slab_recipe = Some("wood.json".into());
         fs::write(
             source.join("building.json"),
             serde_json::to_vec(&recipe).unwrap(),
@@ -430,6 +443,7 @@ mod tests {
             &loaded.recipe().materials.floor_recipe,
             &loaded.recipe().materials.ceiling_recipe,
             &loaded.recipe().materials.foundation_recipe,
+            &loaded.recipe().materials.stone_slab_recipe,
         ] {
             assert_eq!(
                 fs::canonicalize(reference.as_deref().unwrap()).unwrap(),
@@ -448,7 +462,7 @@ mod tests {
         fs::create_dir(&destination).unwrap();
         fs::write(
             source.join("stone.json"),
-            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json"),
+            include_bytes!("../../island-rs/texture-recipes/rough-stone.json"),
         )
         .unwrap();
         let mut recipe = BuildingRecipe::hut();

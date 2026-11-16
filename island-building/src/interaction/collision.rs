@@ -39,13 +39,15 @@ pub(crate) fn door_local(point: Vec3, door: &DoorDescriptor, angle: f32) -> Vec3
 }
 
 pub(crate) fn sphere_door(point: Vec3, radius: f32, door: &DoorDescriptor, angle: f32) -> bool {
-    let bounds = door.local_bounds();
-    sphere_box(
-        door_local(point, door, angle),
-        radius,
-        Vec3::from_array(bounds.min),
-        Vec3::from_array(bounds.max),
-    )
+    let local = door_local(point, door, angle);
+    door.local_sections().any(|bounds| {
+        sphere_box(
+            local,
+            radius,
+            Vec3::from_array(bounds.min),
+            Vec3::from_array(bounds.max),
+        )
+    })
 }
 
 /// Slab ray query. Direction need not be normalized; parameter units are retained.
@@ -84,14 +86,19 @@ pub(crate) fn ray_door(
     limit: f32,
 ) -> Option<f32> {
     let rotation = Quat::from_rotation_z(-door.closed_angle - angle);
-    let bounds = door.local_bounds();
-    ray_box(
-        door_local(origin, door, angle),
-        rotation * direction,
-        Vec3::from_array(bounds.min),
-        Vec3::from_array(bounds.max),
-        limit,
-    )
+    let origin = door_local(origin, door, angle);
+    let direction = rotation * direction;
+    door.local_sections()
+        .filter_map(|bounds| {
+            ray_box(
+                origin,
+                direction,
+                Vec3::from_array(bounds.min),
+                Vec3::from_array(bounds.max),
+                limit,
+            )
+        })
+        .min_by(f32::total_cmp)
 }
 
 impl BuildingInstance {
@@ -128,8 +135,8 @@ impl BuildingInstance {
         self.active_colliders()
             .any(|shape| shape.intersects_capsule(feet, radius, height))
             || self.prototype.source.doors.iter().any(|door| {
-                door.collider_at(self.doors.get(&door.id).map_or(0.0, |state| state.angle))
-                    .intersects_capsule(feet, radius, height)
+                door.colliders_at(self.doors.get(&door.id).map_or(0.0, |state| state.angle))
+                    .any(|shape| shape.intersects_capsule(feet, radius, height))
             })
     }
 
@@ -226,6 +233,7 @@ impl BuildingInstance {
         let max_step = max_step_world / root.affine().matrix3.y_axis.length();
         let floor = crate::geometry::foundation::bounds(&self.prototype.source.recipe);
         std::iter::once(&floor)
+            .chain(&self.prototype.source.support_colliders)
             .chain(
                 self.prototype
                     .source
