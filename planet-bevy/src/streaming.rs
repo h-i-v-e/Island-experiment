@@ -36,8 +36,8 @@ use std::{
 
 const LEVELS: usize = 4;
 const LOAD_LIMIT: usize = 4;
-// Retire banks baked before the dry apron received upstream grading too.
-const CACHE_GENERATION: u64 = 11;
+// Retire geometry baked before river sources persisted through refinement.
+const CACHE_GENERATION: u64 = 12;
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]

@@ -241,6 +241,7 @@ pub(super) fn generate_final_rivers(
     source_rule: RiverSourceRule,
     channel_settings: RiverChannelSettings,
     coastal_strip: Option<super::coastal_strip::CoastalStripField>,
+    inherited_sources: &[Vec2],
 ) -> Result<FinalRiverGeneration, String> {
     let _timer = StageTimer::new("rivers.final");
     let mut prepared_lod0 = lod0.clone();
@@ -263,13 +264,14 @@ pub(super) fn generate_final_rivers(
         let excluded = coastal_strip
             .map(|field| field.river_exclusions(&attempt_lod0, &detail_adjacency))
             .unwrap_or_default();
-        let mut network = RiverNetwork::generate_with_ocean_avoiding(
+        let mut network = RiverNetwork::generate_with_ocean_avoiding_sources(
             &mut attempt_lod0,
             &detail_adjacency,
             source_rule,
             ocean.clone(),
             seed,
             &excluded,
+            inherited_sources,
         );
         network.shape_with_settings_and_waterfall_rejections(
             &mut attempt_lod0,
@@ -664,6 +666,7 @@ impl Island {
             context.river_source_rule,
             options.river_channel_settings(),
             context.coastal_strip,
+            &scratch.river_sources,
         )?;
         if let Some(field) = context.coastal_strip {
             let splits = field.add_blend_support(&mut lod0);
@@ -1324,6 +1327,8 @@ pub(super) struct GenerationScratch {
     #[cfg(feature = "gpu-generation")]
     pub(super) gpu_particle_erosion: GpuParticleErosionScratch,
     pub(super) bedrock_rates: Vec<f32>,
+    // Keep accepted source locations across topology-changing LOD stages.
+    river_sources: Vec<Vec2>,
     pub(super) coastal_strip: Option<super::coastal_strip::CoastalStripField>,
 }
 
@@ -1344,22 +1349,36 @@ impl GenerationContext {
         )
     }
 
-    fn rivers(self, mesh: &mut Mesh, adjacency: &Adjacency) -> RiverNetwork {
-        if let Some(field) = self.coastal_strip {
-            let ocean = crate::rivers::fix_coastal_inland_seas(mesh, adjacency);
-            let excluded = field.river_exclusions(mesh, adjacency);
-            RiverNetwork::generate_with_ocean_avoiding(
-                mesh,
-                adjacency,
-                self.river_source_rule,
-                ocean,
-                self.seed,
-                &excluded,
-            )
+    fn rivers(
+        self,
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        retained_sources: &mut Vec<Vec2>,
+    ) -> RiverNetwork {
+        let ocean = if self.coastal_strip.is_some() {
+            crate::rivers::fix_coastal_inland_seas(mesh, adjacency)
         } else {
-            RiverNetwork::generate(mesh, adjacency, self.river_source_rule, self.seed)
-        }
+            fix_inland_seas(mesh, adjacency)
+        };
+        let excluded = self
+            .coastal_strip
+            .map(|field| field.river_exclusions(mesh, adjacency))
+            .unwrap_or_default();
+        let network = RiverNetwork::generate_with_ocean_avoiding_sources(
+            mesh,
+            adjacency,
+            self.river_source_rule,
+            ocean,
+            self.seed,
+            &excluded,
+            retained_sources,
+        );
+        // Only successful traces on this topology survive into the next pass.
+        retained_sources.clear();
+        retained_sources.extend(network.source_positions());
+        network
     }
+
     pub(super) fn new(seed: u64, options: IslandOptions) -> Self {
         Self {
             seed,
@@ -1618,7 +1637,7 @@ pub(super) fn generate_lod2(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = context.rivers(&mut mesh, &adjacency);
+    let mut rivers = context.rivers(&mut mesh, &adjacency, &mut scratch.river_sources);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1654,7 +1673,7 @@ pub(super) fn generate_first_lod1(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = context.rivers(&mut mesh, &adjacency);
+    let mut rivers = context.rivers(&mut mesh, &adjacency, &mut scratch.river_sources);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1708,7 +1727,7 @@ pub(super) fn generate_broad_lod0(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
-    let mut rivers = context.rivers(&mut mesh, &adjacency);
+    let mut rivers = context.rivers(&mut mesh, &adjacency, &mut scratch.river_sources);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1772,7 +1791,7 @@ pub(super) fn refine_lod1_again(
         scratch,
     )?;
     erode_mesh(&mut refined, &adjacency, &mut material, context.options, 3);
-    let mut rivers = context.rivers(&mut refined, &adjacency);
+    let mut rivers = context.rivers(&mut refined, &adjacency, &mut scratch.river_sources);
     rivers.shape_with_settings(
         &mut refined,
         &adjacency,
@@ -2473,3 +2492,7 @@ mod sea_proximity_tests {
         assert_eq!(suppression, [1.0, 1.0, 1.0, 0.0, 0.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "generation/river_source_tests.rs"]
+mod river_source_tests;

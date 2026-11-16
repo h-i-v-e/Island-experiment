@@ -2,13 +2,13 @@
 //! and terrain then share the same vertices; no later normal blend can move it.
 use super::{
     Drainage, RiverSegment, TerrainOptions,
-    channels::{BankStation, Footprints},
+    channels::{BankStation, BankSupport, Footprints},
     drainage,
     graph::SurfaceGraph,
     refine,
     water_mesh::{self, BuiltSurface, RiverSurface, Source},
 };
-use crate::{PlanetError, PlanetMesh};
+use crate::{DVec3, PlanetError, PlanetMesh};
 use std::collections::BTreeMap;
 
 pub(super) struct Fields<'a> {
@@ -18,6 +18,7 @@ pub(super) struct Fields<'a> {
     pub original: &'a mut Vec<f64>,
     pub water: &'a mut Vec<f64>,
     pub sea_proximity: &'a mut Vec<f64>,
+    pub bank_supports: &'a [Option<BankSupport>],
 }
 
 pub(super) struct Finished {
@@ -41,6 +42,41 @@ fn upstream_edge(a: usize, b: usize, stations: &[Option<BankStation>]) -> Option
     }
 }
 
+fn contact_station(
+    point: DVec3,
+    source: Source,
+    fields: &Fields<'_>,
+    footprints: &Footprints<'_>,
+) -> Option<BankStation> {
+    let vertex = match source {
+        Source::Terrain(vertex) => vertex,
+        Source::Edge {
+            vertices: [a, b], ..
+        } => {
+            let (a, b) = (a as usize, b as usize);
+            // Clipping crosses from the wet endpoint to its dry bank. Keep the
+            // wet profile's owner instead of looking for a different river.
+            if fields.water[b] - fields.heights[b] > fields.water[a] - fields.heights[a] {
+                b
+            } else {
+                a
+            }
+        }
+        Source::Sea => return None,
+    };
+    let support = fields.bank_supports.get(vertex).copied().flatten()?;
+    let frozen = footprints.bank_station_on_support(point, support);
+    // Resolve confluences at the contact itself when they belong to the same
+    // outlet. Extrapolating an endpoint's branch can reverse the local order.
+    // A nearby disconnected river must never replace the wet profile's owner.
+    Some(
+        footprints
+            .bank_station_at(point)
+            .filter(|station| station.outlet == frozen.outlet)
+            .unwrap_or(frozen),
+    )
+}
+
 /// Preserve the original blend/clearance while lifting the explicit contact.
 #[allow(clippy::too_many_lines)]
 pub(super) fn finish(
@@ -59,7 +95,12 @@ pub(super) fn finish(
         for id in [a, b] {
             let id = id as usize;
             if stations[id].is_none() {
-                stations[id] = footprints.bank_station_at(built.surface.positions[id].normalize());
+                stations[id] = contact_station(
+                    built.surface.positions[id].normalize(),
+                    built.sources[id],
+                    &fields,
+                    footprints,
+                );
             }
             if stations[id].is_none() {
                 return Err(PlanetError::InvalidTopology(
@@ -80,6 +121,8 @@ pub(super) fn finish(
             rivers: old_rivers,
         });
     }
+    let mut sources = Vec::new();
+    drainage::retain_sources(&mut sources, &mesh.directions, &old_rivers);
     drop(old_drainage);
     drop(old_rivers);
     let contacts = insert_contacts(mesh, &mut fields, &built, &edges)?;
@@ -103,13 +146,14 @@ pub(super) fn finish(
     // the lift-only flood; recomputing normals here would recreate the dips.
     let before = fields.heights.clone();
     let graph = SurfaceGraph::new(mesh);
-    let (drainage, rivers) = drainage::lift_banks(
+    let (drainage, rivers) = drainage::lift_banks_with_sources(
         &mesh.directions,
         &graph,
         fields.heights,
         fields.soil,
         &constraints,
         settings,
+        &sources,
     )?;
     for ((water, &height), &old) in fields
         .water
@@ -244,6 +288,61 @@ mod tests {
     use super::*;
     use crate::DVec3;
 
+    #[test]
+    fn clipped_contact_keeps_wet_profile_ownership_in_either_edge_order() {
+        let mesh = PlanetMesh {
+            directions: [(0.03, 0.0), (0.0, 0.0), (0.03, 0.002), (0.0, 0.002)]
+                .map(|(x, y)| DVec3::new(x, y, 1.0).normalize())
+                .to_vec(),
+            triangles: Vec::new(),
+            radius: 1000.0,
+        };
+        let settings = TerrainOptions::default();
+        let rivers = [(0, 1), (2, 3)].map(|(from, to)| RiverSegment {
+            from,
+            to,
+            catchment: 0.02,
+        });
+        let footprints = Footprints::new(&mesh, &rivers, &[0.02; 4], &settings, 0.0);
+        let supports = footprints.bank_supports(&mesh, &SurfaceGraph::new(&mesh));
+        let mut heights = vec![0.02; 4];
+        let mut hardness = vec![0.5; 4];
+        let mut soil = vec![0.0; 4];
+        let mut original = heights.clone();
+        let mut water = vec![0.03, 0.02, 0.01999, 0.02];
+        let mut sea_proximity = vec![0.0; 4];
+        let fields = Fields {
+            heights: &mut heights,
+            hardness: &mut hardness,
+            soil: &mut soil,
+            original: &mut original,
+            water: &mut water,
+            sea_proximity: &mut sea_proximity,
+            bank_supports: &supports,
+        };
+        let fraction = 1000.0 / 1001.0;
+        let point = mesh.directions[0]
+            .lerp(mesh.directions[2], fraction)
+            .normalize();
+        assert_eq!(footprints.bank_station_at(point).unwrap().outlet, 3);
+        for vertices in [[0, 2], [2, 0]] {
+            let source = Source::Edge {
+                vertices,
+                fraction: if vertices[0] == 0 {
+                    fraction
+                } else {
+                    1.0 - fraction
+                },
+            };
+            assert_eq!(
+                contact_station(point, source, &fields, &footprints)
+                    .unwrap()
+                    .outlet,
+                1
+            );
+        }
+    }
+
     fn dips(surface: &RiverSurface, footprints: &Footprints<'_>) -> usize {
         let stations: Vec<_> = surface
             .positions
@@ -329,6 +428,7 @@ mod tests {
             let mut hardness = vec![0.5; heights.len()];
             let mut soil = vec![0.002; heights.len()];
             let graph = SurfaceGraph::new(&mesh);
+            let bank_supports = footprints.bank_supports(&mesh, &graph);
             let (drainage, _, _) =
                 drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, &settings);
             let before_surface = water_mesh::build(&mesh, &heights, &water);
@@ -352,6 +452,7 @@ mod tests {
                     original: &mut original,
                     water: &mut water,
                     sea_proximity: &mut sea_proximity,
+                    bank_supports: &bank_supports,
                 },
                 &footprints,
                 &banks,

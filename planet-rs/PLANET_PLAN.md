@@ -277,6 +277,16 @@ radius scaling, downhill routes reaching water, all-dry/all-wet worlds, and
 seam/pole continuity of the 3D noise.
 
 
+## River source continuity
+
+Accepted river head directions now carry through initial erosion, every terrain
+refinement pass, final channel carving and contact-bank grading. Each pass remaps
+them to nearby current vertices and rejects submerged or disconnected sources;
+new catchment-selected reaches join the same deterministic drainage network.
+This is the spherical counterpart of Island's source inheritance. Catchment
+remains the actual accumulated solid angle, and Planet retains its uncapped
+global river network rather than adopting Island's per-tile 96-river budget.
+
 ## Upstream river narrowing
 
 A shared per-vertex width field combines flow growth with represented river-path

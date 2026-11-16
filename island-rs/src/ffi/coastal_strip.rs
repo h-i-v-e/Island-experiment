@@ -12,7 +12,7 @@ pub extern "C" fn GetCoastalStripApiVersion() -> u32 {
 /// Baked coastal geometry revision, independent of the stable option layout.
 #[unsafe(no_mangle)]
 pub extern "C" fn GetCoastalStripAlgorithmRevision() -> u32 {
-    4
+    5
 }
 
 /// Scalar layout guard, callable before the host passes the new option block.
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn additive_coastal_api_has_a_stable_layout_and_reports_invalid_sections() {
         assert_eq!(GetCoastalStripApiVersion(), 1);
-        assert_eq!(GetCoastalStripAlgorithmRevision(), 4);
+        assert_eq!(GetCoastalStripAlgorithmRevision(), 5);
         assert_eq!(GetCoastalStripOptionsSize(), 20);
         let invalid = CoastalStripOptions {
             section_count: 0,

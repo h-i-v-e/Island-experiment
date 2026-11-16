@@ -56,6 +56,10 @@ pub(super) struct BankStation {
     pub(super) distance: f64,
 }
 
+/// The frozen reach that supplied a terrain vertex's water profile.
+#[derive(Clone, Copy)]
+pub(super) struct BankSupport(usize);
+
 impl<'a> Footprints<'a> {
     #[cfg(test)]
     pub fn new(
@@ -186,7 +190,30 @@ impl<'a> Footprints<'a> {
     }
 
     pub(super) fn bank_station_at(&self, point: DVec3) -> Option<BankStation> {
-        let sample = self.owner(point)?;
+        self.owner(point)
+            .map(|sample| self.bank_station(point, sample))
+    }
+
+    pub(super) fn bank_supports(
+        &self,
+        mesh: &PlanetMesh,
+        graph: &SurfaceGraph,
+    ) -> Vec<Option<BankSupport>> {
+        self.field_samples(mesh, graph)
+            .into_iter()
+            .map(|sample| sample.map(|sample| BankSupport(sample.reach)))
+            .collect()
+    }
+
+    pub(super) fn bank_station_on_support(
+        &self,
+        point: DVec3,
+        support: BankSupport,
+    ) -> BankStation {
+        self.bank_station(point, self.sample(support.0, point))
+    }
+
+    fn bank_station(&self, point: DVec3, sample: Sample) -> BankStation {
         if let Some(fall_id) = sample.fall
             && let Some(base) = self.fall_stations[fall_id]
         {
@@ -194,18 +221,18 @@ impl<'a> Footprints<'a> {
             // Order the straightened face by its actual flow axis, rather than
             // projecting each bank onto a different natural reach at bends.
             let along = point.dot(fall.direction).atan2(point.dot(fall.lip));
-            return Some(BankStation {
+            return BankStation {
                 outlet: base.outlet,
                 distance: base.distance - along,
-            });
+            };
         }
         let reach = self.reaches[sample.reach];
         let edge = reach.b - reach.a;
         let t = (point - reach.a).dot(edge) / edge.length_squared();
-        Some(BankStation {
+        BankStation {
             outlet: reach.outlet,
             distance: reach.outlet_distance + (1.0 - t) * arc(reach.a, reach.b),
-        })
+        }
     }
 
     /// Actual outline edges, directed downstream -> upstream on each bank.

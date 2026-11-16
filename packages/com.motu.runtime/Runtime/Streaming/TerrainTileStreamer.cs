@@ -154,6 +154,8 @@ namespace Motu.Streaming
         private Material rockMaterial;
         internal Material meshEdgeMaterial;
         private IslandPreparedMesh[] preparedRiverTiles;
+        private int generatedRiverTileCount;
+        private Vector3? riverInspectionPoint;
         private IslandPreparedMesh[] preparedRiverRockTiles;
         internal IslandPreparedBoulderCollider[][] preparedBoulderColliders;
         private bool rocksVisible;
@@ -183,6 +185,35 @@ namespace Motu.Streaming
         public int BaseVertexCount { get; private set; }
         public int BaseTriangleCount { get; private set; }
         public int WaterfallFootCount => waterfallMistPool?.FootCount ?? 0;
+        internal int GeneratedRiverTileCount => generatedRiverTileCount;
+
+        internal bool TryGetRiverInspectionPoint(out Vector3 point)
+        {
+            point = default;
+            if (!riverInspectionPoint.HasValue) return false;
+            point = transform.TransformPoint(riverInspectionPoint.Value);
+            return true;
+        }
+
+        internal void CacheRiverInspectionData(IslandPreparedMesh[] tiles)
+        {
+            generatedRiverTileCount = 0;
+            riverInspectionPoint = null;
+            IslandPreparedMesh selected = null;
+            if (tiles != null)
+                foreach (var tile in tiles)
+                {
+                    if (tile != null && tile.triangles.Length >= 3
+                        && (selected == null || tile.triangles.Length > selected.triangles.Length)) selected = tile;
+                    if (tile != null && tile.triangles.Length > 0) generatedRiverTileCount++;
+                }
+            if (selected == null) return;
+            var indices = selected.triangles;
+            // Upload consumes the prepared arrays. Retain only these small
+            // diagnostics so counts and repeat visits survive feature streaming.
+            riverInspectionPoint = (selected.vertices[indices[0]] + selected.vertices[indices[1]]
+                + selected.vertices[indices[2]]) / 3 + Vector3.up * .025f;
+        }
         internal int Lod1GroupCount => lod1Groups.Count;
         internal int Lod0GroupCount => lod0Groups.Count;
         internal int TerrainColliderCount => colliderTiles.Count;
@@ -252,6 +283,7 @@ namespace Motu.Streaming
             rockMaterial = sharedRockMaterial;
             meshEdgeMaterial = sharedMeshEdgeMaterial;
             preparedRiverTiles = riverTiles;
+            CacheRiverInspectionData(riverTiles);
             preparedRiverRockTiles = riverRockTiles;
             preparedBoulderColliders = boulderColliders;
             rocksVisible = showRocks;
@@ -652,6 +684,7 @@ namespace Motu.Streaming
             DestroyUnityObject(colliderRoot);
             colliderRoot = null;
             preparedRiverTiles = null;
+            CacheRiverInspectionData(null);
             preparedRiverRockTiles = null;
             preparedBoulderColliders = null;
             colliderHeightMap = null;

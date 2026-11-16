@@ -11,6 +11,10 @@ use std::{
     collections::{BinaryHeap, HashMap},
 };
 
+#[path = "river_sources.rs"]
+mod river_sources;
+pub(super) use river_sources::retain_sources;
+
 #[derive(Debug, PartialEq)]
 pub struct Drainage {
     /// A land site's next adjacent site. Submerged sites always have no receiver.
@@ -142,28 +146,13 @@ impl Drainage {
             }
         }
     }
-
-    fn rivers(&self, options: &TerrainOptions) -> Vec<RiverSegment> {
-        let threshold = options.river_catchment * 4.0 * std::f64::consts::PI;
-        self.receivers
-            .iter()
-            .enumerate()
-            .filter_map(|(from, &receiver)| {
-                let to = receiver?;
-                (self.catchment[from] >= threshold).then_some(RiverSegment {
-                    from,
-                    to,
-                    catchment: self.catchment[from],
-                })
-            })
-            .collect()
-    }
 }
 
 /// Finish banks by lifting, never incising. A bank can be finalized only after
 /// all its downstream bank neighbours, so an upstream dip is raised to their
 /// maximum height. The same sea-seeded flood raises any newly trapped feeding
 /// terrain and builds valid downhill receivers on the finished surface.
+#[cfg(test)]
 pub(super) fn lift_banks(
     directions: &[DVec3],
     graph: &SurfaceGraph,
@@ -171,6 +160,26 @@ pub(super) fn lift_banks(
     soil: &mut [f64],
     upstream_banks: &[(usize, usize)],
     options: &TerrainOptions,
+) -> Result<(Drainage, Vec<RiverSegment>), PlanetError> {
+    lift_banks_with_sources(
+        directions,
+        graph,
+        heights,
+        soil,
+        upstream_banks,
+        options,
+        &[],
+    )
+}
+
+pub(super) fn lift_banks_with_sources(
+    directions: &[DVec3],
+    graph: &SurfaceGraph,
+    heights: &mut [f64],
+    soil: &mut [f64],
+    upstream_banks: &[(usize, usize)],
+    options: &TerrainOptions,
+    inherited_sources: &[DVec3],
 ) -> Result<(Drainage, Vec<RiverSegment>), PlanetError> {
     let count = heights.len();
     let mut upstream = HashMap::<usize, Vec<usize>>::new();
@@ -249,10 +258,18 @@ pub(super) fn lift_banks(
         order,
     };
     drainage.accumulate(graph, heights);
-    let rivers = drainage.rivers(options);
+    let rivers = river_sources::select(
+        directions,
+        graph,
+        heights,
+        &drainage,
+        options,
+        inherited_sources,
+    );
     Ok((drainage, rivers))
 }
 
+#[cfg(test)]
 pub(super) fn carve(
     directions: &[DVec3],
     graph: &SurfaceGraph,
@@ -260,19 +277,37 @@ pub(super) fn carve(
     soil: &mut [f64],
     options: &TerrainOptions,
 ) -> (Drainage, Vec<RiverSegment>, f64) {
+    carve_with_sources(directions, graph, heights, soil, options, &[])
+}
+
+pub(super) fn carve_with_sources(
+    directions: &[DVec3],
+    graph: &SurfaceGraph,
+    heights: &mut [f64],
+    soil: &mut [f64],
+    options: &TerrainOptions,
+    inherited_sources: &[DVec3],
+) -> (Drainage, Vec<RiverSegment>, f64) {
     let mut drainage = route(directions, graph, heights);
     let threshold = options.river_catchment * 4.0 * std::f64::consts::PI;
+    let selected = river_sources::select(
+        directions,
+        graph,
+        heights,
+        &drainage,
+        options,
+        inherited_sources,
+    );
     let mut removed = 0.0;
-    for &i in &drainage.order {
-        if heights[i] >= 0.0 && drainage.catchment[i] >= threshold {
-            let depth = options.river_depth * (drainage.catchment[i] / threshold).sqrt().min(4.0);
-            heights[i] -= depth;
-            soil[i] = (soil[i] - depth).max(0.0);
-            removed += depth * graph.areas[i];
-        }
+    for river in selected {
+        let i = river.from;
+        let depth = options.river_depth * (river.catchment / threshold).sqrt().min(4.0);
+        heights[i] -= depth;
+        soil[i] = (soil[i] - depth).max(0.0);
+        removed += depth * graph.areas[i];
     }
     let mut depths = vec![0.0; heights.len()];
-    let (rivers, repaired) = repair(
+    let (rivers, repaired) = repair_with_sources(
         directions,
         graph,
         heights,
@@ -280,10 +315,12 @@ pub(super) fn carve(
         options,
         &mut drainage,
         &mut depths,
+        inherited_sources,
     );
     (drainage, rivers, removed + repaired)
 }
 
+#[cfg(test)]
 pub(super) fn repair(
     directions: &[DVec3],
     graph: &SurfaceGraph,
@@ -292,6 +329,29 @@ pub(super) fn repair(
     options: &TerrainOptions,
     drainage: &mut Drainage,
     depths: &mut [f64],
+) -> (Vec<RiverSegment>, f64) {
+    repair_with_sources(
+        directions,
+        graph,
+        heights,
+        soil,
+        options,
+        drainage,
+        depths,
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // Mirrors repair's terrain buffers plus borrowed source anchors.
+pub(super) fn repair_with_sources(
+    directions: &[DVec3],
+    graph: &SurfaceGraph,
+    heights: &mut [f64],
+    soil: &mut [f64],
+    options: &TerrainOptions,
+    drainage: &mut Drainage,
+    depths: &mut [f64],
+    inherited_sources: &[DVec3],
 ) -> (Vec<RiverSegment>, f64) {
     let mut removed = 0.0;
     // Incise downstream saddles in upstream-to-outlet order. Never raise sea
@@ -316,7 +376,14 @@ pub(super) fn repair(
         }
     }
     drainage.accumulate(graph, heights);
-    let rivers = drainage.rivers(options);
+    let rivers = river_sources::select(
+        directions,
+        graph,
+        heights,
+        drainage,
+        options,
+        inherited_sources,
+    );
     (rivers, removed)
 }
 

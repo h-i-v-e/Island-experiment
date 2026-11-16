@@ -12,3 +12,12 @@ navigation. An example does not need to overwrite your project's scene settings.
 Alternatively add `SingleIslandExample` to an empty GameObject. Assign a viewer
 and seed; it creates a child island when Play starts. Use this script as the
 smallest example of integrating without importing any demonstration scene.
+
+If the host uses `WorldEnvironmentController`, initialize that environment and
+call `singleIsland.Generator.ConfigureEnvironment(environment)` before generating.
+Set `GenerateOnStart` to false when the host coordinates asynchronous startup.
+This optional binding registers the terrain's coastal mask with the existing
+ocean, enables its shoreline wave field and land attenuation, and shares its
+water lighting. Keep the environment on a separate GameObject: its follow target
+moves the ocean anchor, while the generated terrain must stay fixed. Clearing or
+regenerating the island unregisters the old mask; the host still owns the ocean.

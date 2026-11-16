@@ -8,6 +8,7 @@ const RIVER_MEANDER_NOISE_SEED: u64 = 0x6d65_616e_6465_7273;
 const RIVER_MEANDER_NOISE_OCTAVES: u8 = 2;
 const RIVER_MEANDER_WAVELENGTH_EDGE_MULTIPLIER: f32 = 10.0;
 const RIVER_MEANDER_HEIGHT_EDGE_MULTIPLIER: f32 = 0.025;
+const MAX_ACCEPTED_RIVERS: usize = 96;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RiverMeanderScale {
@@ -205,8 +206,61 @@ pub(super) fn find_sources(
             .z
             .total_cmp(&mesh.vertices[right].z)
             .then_with(|| catchment_areas[right].total_cmp(&catchment_areas[left]))
+            .then_with(|| left.cmp(&right))
     });
-    sources.truncate(96);
+    sources
+}
+
+/// Remap earlier accepted sources locally, then retain the usual candidate order.
+/// Checking the nearest vertex before eligibility prevents a coast or seam source
+/// from jumping to a distant inland channel after a topology change.
+pub(super) fn prioritize_inherited_sources(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    candidates: &[usize],
+    inherited_sources: &[Vec2],
+    excluded: &[bool],
+) -> Vec<usize> {
+    let eligible = |vertex: usize| {
+        mesh.vertices[vertex].z > 0.0 && !excluded.get(vertex).copied().unwrap_or(false)
+    };
+    let mut sources = Vec::with_capacity(candidates.len() + inherited_sources.len());
+    let mut seen = HashSet::with_capacity(candidates.len() + inherited_sources.len());
+    let maximum_snap_distance = if inherited_sources.is_empty() {
+        0.0
+    } else {
+        average_edge_length(mesh, adjacency) * 2.0
+    };
+    for &anchor in inherited_sources {
+        if !anchor.is_finite() {
+            continue;
+        }
+        let nearest = mesh
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(vertex, position)| (vertex, position.truncate().distance_squared(anchor)))
+            .min_by(
+                |(left_vertex, left_distance), (right_vertex, right_distance)| {
+                    left_distance
+                        .total_cmp(right_distance)
+                        .then_with(|| left_vertex.cmp(right_vertex))
+                },
+            );
+        if let Some((vertex, distance_squared)) = nearest
+            && distance_squared <= maximum_snap_distance * maximum_snap_distance
+            && eligible(vertex)
+            && seen.insert(vertex)
+        {
+            sources.push(vertex);
+        }
+    }
+    sources.extend(
+        candidates
+            .iter()
+            .copied()
+            .filter(|&vertex| eligible(vertex) && seen.insert(vertex)),
+    );
     sources
 }
 
@@ -661,7 +715,13 @@ pub(super) fn trace_rivers_avoiding(
     let mut footprints = RiverFootprintIndex::new(mesh.vertices.len());
     let mut source_exclusion = RiverSourceExclusionGrid::new(&mesh.vertices);
     for &source in sources {
-        if source_exclusion.contains(mesh.vertices[source]) {
+        if rivers.len() == MAX_ACCEPTED_RIVERS {
+            break;
+        }
+        if mesh.vertices[source].z <= 0.0
+            || excluded.get(source).copied().unwrap_or(false)
+            || source_exclusion.contains(mesh.vertices[source])
+        {
             continue;
         }
         let source_rings = river_ring_count(flow[source], max_flow);

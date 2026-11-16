@@ -18,6 +18,9 @@ The generator provides:
 - persistent unconsolidated cover and noise-aligned bedrock hardness shared by
   hydraulic, thermal, and river-valley erosion;
 - topology reuse across smoothing, erosion, and river passes at each LOD;
+- successful river sources retained across terrain LODs and retraced locally
+  before new catchment candidates, with the 96-river budget applied only to
+  accepted routes for both ordinary islands and coastal sections;
 - conforming land/relief tessellation with coarse seabed preservation;
 - sink-safe drainage routing with tributary joins and per-node flow accumulation;
 - river jiggle/corridor smoothing, staged LOD carving, bank incision, graded
@@ -327,9 +330,10 @@ establish clearance at a bend. Conflicting drops move upstream using their
 existing recorded heights, preserving the total drop on accepted rivers. If
 separate drops cannot fit, they combine at a clear upstream site. Flat flags
 left by profile reconciliation reserve no support space. A river rejected by the existing site policy releases its provisional reservations.
-Unity snapshot cache schema 23 and Island Bevy cache format 17 retire geometry
-built before these placement checks. Restart an open Unity editor/player after
-installing the rebuilt native plugin, then regenerate cached islands.
+Unity snapshot cache schema 27 and Island Bevy cache format 18 retire geometry
+built before these placement checks and retained LOD river sources. Restart an
+open Unity editor/player after installing the rebuilt native plugin, then
+regenerate cached islands.
 
 Procedural trees use up to 45 degrees of twist per growth step, with no total
 trunk rotation cap. Intermediate rings are retained wherever merging would exceed

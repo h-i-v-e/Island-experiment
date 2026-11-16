@@ -76,6 +76,8 @@ use waterfalls::{
 };
 
 #[cfg(test)]
+mod source_tests;
+#[cfg(test)]
 mod tests;
 
 pub(crate) struct RiverParts {
@@ -317,6 +319,7 @@ pub(crate) struct RiverNetwork {
 }
 
 impl RiverNetwork {
+    #[cfg(test)]
     pub(crate) fn generate(
         mesh: &mut Mesh,
         adjacency: &Adjacency,
@@ -327,6 +330,7 @@ impl RiverNetwork {
         Self::generate_with_ocean(mesh, adjacency, source_rule, ocean, seed)
     }
 
+    #[cfg(test)]
     pub(crate) fn generate_with_ocean(
         mesh: &mut Mesh,
         adjacency: &Adjacency,
@@ -337,6 +341,7 @@ impl RiverNetwork {
         Self::generate_with_ocean_avoiding(mesh, adjacency, source_rule, ocean, seed, &[])
     }
 
+    #[cfg(test)]
     pub(crate) fn generate_with_ocean_avoiding(
         mesh: &mut Mesh,
         adjacency: &Adjacency,
@@ -345,12 +350,38 @@ impl RiverNetwork {
         seed: u64,
         excluded: &[bool],
     ) -> Self {
+        Self::generate_with_ocean_avoiding_sources(
+            mesh,
+            adjacency,
+            source_rule,
+            ocean,
+            seed,
+            excluded,
+            &[],
+        )
+    }
+
+    pub(crate) fn generate_with_ocean_avoiding_sources(
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        source_rule: RiverSourceRule,
+        ocean: Vec<bool>,
+        seed: u64,
+        excluded: &[bool],
+        inherited_sources: &[Vec2],
+    ) -> Self {
         debug_assert_eq!(ocean.len(), mesh.vertices.len());
         let perimeter = mesh.perimeter_mask();
         let downstream = map_downstream(mesh, adjacency);
         let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
-        let mut sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
-        sources.retain(|&source| !excluded.get(source).copied().unwrap_or(false));
+        let candidates = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
+        let sources = tracing::prioritize_inherited_sources(
+            mesh,
+            adjacency,
+            &candidates,
+            inherited_sources,
+            excluded,
+        );
         let (mut rivers, join_vertices) = tracing::trace_rivers_avoiding(
             mesh, adjacency, &flow, &sources, &ocean, seed, excluded,
         );
@@ -386,6 +417,13 @@ impl RiverNetwork {
             perimeter,
             cross_sections,
         }
+    }
+
+    pub(crate) fn source_positions(&self) -> impl Iterator<Item = Vec2> + '_ {
+        self.rivers
+            .iter()
+            .filter_map(|river| river.nodes.first())
+            .map(|node| node.position.truncate())
     }
 
     #[cfg(test)]

@@ -50,6 +50,7 @@ pub struct TerrainOptions {
     /// The field name is retained for saved settings compatibility.
     pub connect_seas: bool,
     /// Rainfall catchment as a fraction of the whole sphere's surface area.
+    /// Admits new reaches; accepted headwaters persist through refinement.
     pub river_catchment: f64,
     /// River incision depth relative to the original sphere radius.
     pub river_depth: f64,
@@ -290,13 +291,8 @@ impl PlanetTerrain {
                 .collect::<Vec<_>>()
         });
         let mut soil_depth = vec![0.002; elevations.len()];
-        let mut formation = Formation {
-            seed,
-            settings,
-            tectonics: tectonic_field,
-            impacts: impacts::ImpactField::new(seed, settings.impacts, topology.directions.len()),
-            river_exported: 0.0,
-        };
+        let mut formation =
+            Formation::new(seed, settings, tectonic_field, topology.directions.len());
         let mut ocean_passes = Vec::new();
         formation.initialize(
             &topology,
@@ -342,6 +338,7 @@ impl PlanetTerrain {
             &mut soil_depth,
             settings,
             &mut refinement_vertices,
+            &formation.river_sources,
         )?;
         refine::validate(&topology)?;
         let normals = normals(&topology, &elevations);
@@ -545,6 +542,7 @@ fn finish_channels(
     soil_depth: &mut Vec<f64>,
     settings: &TerrainOptions,
     refinement_vertices: &mut Vec<usize>,
+    inherited_sources: &[DVec3],
 ) -> Result<FinishedChannels, PlanetError> {
     let mut graph = SurfaceGraph::new(topology);
     let routing = TerrainOptions {
@@ -552,13 +550,16 @@ fn finish_channels(
         ..*settings
     };
     let mut incised_material = 0.0;
-    let (drainage, rivers, removed) = drainage::carve(
+    let (drainage, rivers, removed) = drainage::carve_with_sources(
         &topology.directions,
         &graph,
         elevations,
         soil_depth,
         &routing,
+        inherited_sources,
     );
+    let mut sources = Vec::new();
+    drainage::retain_sources(&mut sources, &topology.directions, &rivers);
     incised_material += removed;
     let widths = river_widths::build(topology, &drainage, &rivers, settings);
     if river_banks::narrow(topology, &graph, elevations, &rivers, &widths, settings) > 0 {
@@ -606,6 +607,7 @@ fn finish_channels(
     let mut original = elevations.clone();
     let mut pre_carve_sea_proximity = sea_proximity::build(topology, &graph, &original);
     footprints.carve(topology, elevations, soil_depth);
+    let bank_supports = footprints.bank_supports(topology, &graph);
     let mut pins = footprints.bank_pins(topology, &graph, elevations);
     if settings.connect_seas {
         // A deep inland river bed can cross zero during excavation. It is
@@ -621,13 +623,15 @@ fn finish_channels(
     pins.smooth_waterfall_approach(&graph, elevations, soil_depth);
     // Outline smoothing and bank lifting alter geometry/saddles. Route rainfall
     // on that final terrain, then bind water to the repaired banks.
-    let (mut drainage, mut rivers, _) = drainage::carve(
+    let (mut drainage, mut rivers, _) = drainage::carve_with_sources(
         &topology.directions,
         &graph,
         elevations,
         soil_depth,
         &routing,
+        &sources,
     );
+    drainage::retain_sources(&mut sources, &topology.directions, &rivers);
     // Keep the extra face tessellation local, but smooth the complete river
     // and bank apron so no smoothing boundary remains at a waterfall lip/foot.
     // Hydraulic bounds and upstream lifts preserve the existing downhill paths.
@@ -666,14 +670,16 @@ fn finish_channels(
             }
             break;
         }
-        (drainage, rivers) = drainage::lift_banks(
+        (drainage, rivers) = drainage::lift_banks_with_sources(
             &topology.directions,
             &graph,
             elevations,
             soil_depth,
             &bank_edges,
             &routing,
+            &sources,
         )?;
+        drainage::retain_sources(&mut sources, &topology.directions, &rivers);
     }
     if pins
         .sea_openings
@@ -696,6 +702,7 @@ fn finish_channels(
             original: &mut original,
             water: &mut water_elevations,
             sea_proximity: &mut pre_carve_sea_proximity,
+            bank_supports: &bank_supports,
         },
         &footprints,
         &bank_edges,
@@ -836,9 +843,26 @@ struct Formation<'a> {
     tectonics: Option<&'a tectonics::TectonicField>,
     impacts: impacts::ImpactField,
     river_exported: f64,
+    river_sources: Vec<DVec3>,
 }
 
-impl Formation<'_> {
+impl<'a> Formation<'a> {
+    fn new(
+        seed: u64,
+        settings: &'a TerrainOptions,
+        tectonics: Option<&'a tectonics::TectonicField>,
+        vertices: usize,
+    ) -> Self {
+        Self {
+            seed,
+            settings,
+            tectonics,
+            impacts: impacts::ImpactField::new(seed, settings.impacts, vertices),
+            river_exported: 0.0,
+            river_sources: Vec::new(),
+        }
+    }
+
     fn initialize(
         &mut self,
         topology: &PlanetMesh,
@@ -866,9 +890,16 @@ impl Formation<'_> {
             soil,
             self.settings,
         );
-        self.river_exported +=
-            river_stages::carve(topology, &graph, elevations, hardness, soil, self.settings)
-                .exported;
+        self.river_exported += river_stages::carve_with_sources(
+            topology,
+            &graph,
+            elevations,
+            hardness,
+            soil,
+            self.settings,
+            &mut self.river_sources,
+        )
+        .exported;
         ocean::fill_stage(
             topology,
             &graph,
@@ -895,6 +926,7 @@ fn refine_stages(
         tectonics: tectonic_field,
         impacts,
         river_exported,
+        river_sources,
     } = formation;
     let settings = *settings;
     let seed = *seed;
@@ -960,13 +992,14 @@ fn refine_stages(
             soil_depth,
             settings,
         );
-        *river_exported += river_stages::carve(
+        *river_exported += river_stages::carve_with_sources(
             topology,
             &graph,
             elevations,
             bedrock_hardness,
             soil_depth,
             settings,
+            river_sources,
         )
         .exported;
         refinement_vertices.push(topology.directions.len());

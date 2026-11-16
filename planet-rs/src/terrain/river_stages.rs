@@ -20,7 +20,7 @@ pub(super) struct Budget {
 
 /// All scratch belongs to this stage; topology and material arrays are borrowed.
 /// No river positions, tessellation, waterfall supports or water meshes change.
-#[allow(clippy::too_many_lines)] // One preparation pass followed by one downstream transport pass.
+#[cfg(test)]
 pub(super) fn carve(
     mesh: &PlanetMesh,
     graph: &SurfaceGraph,
@@ -29,10 +29,34 @@ pub(super) fn carve(
     soil: &mut [f64],
     settings: &TerrainOptions,
 ) -> Budget {
+    carve_with_sources(
+        mesh,
+        graph,
+        heights,
+        hardness,
+        soil,
+        settings,
+        &mut Vec::new(),
+    )
+}
+
+/// Retain accepted source directions between terrain stages, remapping them on
+/// the current sphere before each drainage repair.
+#[allow(clippy::too_many_lines)]
+pub(super) fn carve_with_sources(
+    mesh: &PlanetMesh,
+    graph: &SurfaceGraph,
+    heights: &mut [f64],
+    hardness: &[f64],
+    soil: &mut [f64],
+    settings: &TerrainOptions,
+    sources: &mut Vec<DVec3>,
+) -> Budget {
     if settings.river_depth == 0.0
         || !heights.iter().any(|&h| h < 0.0)
         || !heights.iter().any(|&h| h > 0.0)
     {
+        sources.clear();
         return Budget::default();
     }
     let mut drainage = drainage::route(&mesh.directions, graph, heights);
@@ -49,7 +73,7 @@ pub(super) fn carve(
         })
         .collect();
     // Include saddle excavation in the same sediment ledger as the corridor.
-    let (rivers, _) = drainage::repair(
+    let (rivers, _) = drainage::repair_with_sources(
         &mesh.directions,
         graph,
         heights,
@@ -57,7 +81,9 @@ pub(super) fn carve(
         settings,
         &mut drainage,
         &mut cuts,
+        sources,
     );
+    drainage::retain_sources(sources, &mesh.directions, &rivers);
     let mut sediment: Vec<_> = cuts
         .iter()
         .zip(&graph.areas)
@@ -88,7 +114,7 @@ pub(super) fn carve(
     drop(footprints);
     drop(widths);
     cuts.fill(0.0);
-    let (rivers, _) = drainage::repair(
+    let (rivers, _) = drainage::repair_with_sources(
         &mesh.directions,
         graph,
         heights,
@@ -96,7 +122,9 @@ pub(super) fn carve(
         settings,
         &mut drainage,
         &mut cuts,
+        sources,
     );
+    drainage::retain_sources(sources, &mesh.directions, &rivers);
     for (i, &cut) in cuts.iter().enumerate() {
         sediment[i] += cut * graph.areas[i];
         protected[i] |= cut > 0.0;
@@ -392,6 +420,67 @@ mod tests {
     }
 
     #[test]
+    fn inherited_sources_survive_both_stage_repairs_without_new_candidates() {
+        let (mesh, graph, original, mut settings) = valley();
+        settings.river_catchment = 1.0;
+        let source = mesh.directions[8];
+        let hardness = vec![0.35; original.len()];
+        let mut heights = original.clone();
+        let mut soil = vec![0.00002; heights.len()];
+        let without_sources = carve(&mesh, &graph, &mut heights, &hardness, &mut soil, &settings);
+        let mut heights = original;
+        let mut soil = vec![0.00002; heights.len()];
+        let mut sources = vec![source];
+        for _ in 0..2 {
+            let before = material(&graph, &heights);
+            let budget = carve_with_sources(
+                &mesh,
+                &graph,
+                &mut heights,
+                &hardness,
+                &mut soil,
+                &settings,
+                &mut sources,
+            );
+            assert!(budget.excavated > without_sources.excavated + 1e-10);
+            assert_eq!(sources, [source]);
+            assert!((before - material(&graph, &heights) - budget.exported).abs() < 1e-14);
+        }
+    }
+
+    #[test]
+    fn final_channel_finishing_keeps_inherited_reaches_below_the_source_threshold() {
+        let (mut mesh, _, mut heights, mut settings) = valley();
+        // Leave enough relief for the frozen waterfall/terrace profile to keep
+        // its headwater above sea after excavation.
+        for height in &mut heights {
+            *height *= 10.0;
+        }
+        settings.river_catchment = 1.0;
+        settings.river_refinement_passes = 1;
+        let source = mesh.directions[8];
+        let mut hardness = vec![0.35; heights.len()];
+        let mut soil = vec![0.00002; heights.len()];
+        let finished = super::super::finish_channels(
+            &mut mesh,
+            &mut heights,
+            &mut hardness,
+            &mut soil,
+            &settings,
+            &mut Vec::new(),
+            &[source],
+        )
+        .unwrap();
+        assert!(!finished.rivers.is_empty());
+        assert!(!finished.river_surface.triangles.is_empty());
+        assert!(finished.rivers.iter().all(|river| {
+            river.catchment < settings.river_catchment * 4.0 * std::f64::consts::PI
+                && river.catchment.to_bits() == finished.drainage.catchment[river.from].to_bits()
+                && heights[river.to] < heights[river.from]
+        }));
+    }
+
+    #[test]
     fn hard_rock_resists_stage_channel_excavation_and_zero_depth_or_no_sea_skips_it() {
         let (mesh, graph, original, settings) = valley();
         let excavation = |hardness| {
@@ -464,7 +553,7 @@ mod tests {
 
     #[test]
     fn initial_and_each_terrain_refinement_stage_carve_before_final_river_finishing() {
-        use super::super::{Formation, impacts, refine_stages};
+        use super::super::{Formation, refine_stages};
         use crate::{PlanetOptions, generate};
 
         let mut mesh = generate(PlanetOptions {
@@ -486,17 +575,17 @@ mod tests {
         for layer in &mut settings.noise_layers {
             layer.weight = 0.0;
         }
-        let mut formation = Formation {
-            seed: 42,
-            settings: &settings,
-            tectonics: None,
-            impacts: impacts::ImpactField::new(42, settings.impacts, heights.len()),
-            river_exported: 0.0,
-        };
+        let mut formation = Formation::new(42, &settings, None, heights.len());
         let mut ocean = Vec::new();
         let before = heights.clone();
         formation.initialize(&mesh, &mut heights, &hardness, &mut soil, &mut ocean);
         assert!(heights.iter().zip(&before).any(|(&h, &old)| h < old - 1e-6));
+        assert!(!formation.river_sources.is_empty());
+        let inherited_only = TerrainOptions {
+            river_catchment: 1.0,
+            ..settings
+        };
+        formation.settings = &inherited_only;
         for _ in 0..2 {
             let before = heights.clone();
             let counts = refine_stages(
@@ -516,6 +605,10 @@ mod tests {
             assert!(
                 heights.iter().zip(&before).any(|(&h, &old)| h < old - 1e-6),
                 "old vertices need further excavation, not just interpolation onto new ones"
+            );
+            assert!(
+                !formation.river_sources.is_empty(),
+                "accepted sources must survive refinement when new candidates are disabled"
             );
         }
     }

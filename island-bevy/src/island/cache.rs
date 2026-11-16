@@ -50,7 +50,8 @@ use crate::{
 // 15 feathers final river smoothing into two additional dry terrain rings.
 // 16 grades shared clipped contacts after freezing the inclination blend.
 // 17 separates full waterfall support patches, including bends and bank aprons.
-const CACHE_FORMAT_VERSION: u32 = 17;
+// 18 retains accepted river sources through the terrain LOD passes.
+const CACHE_FORMAT_VERSION: u32 = 18;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

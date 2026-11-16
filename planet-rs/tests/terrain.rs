@@ -9,6 +9,44 @@ fn planet(seed: u64) -> PlanetOptions {
 }
 
 #[test]
+fn viewer_erosion_profile_keeps_repeatable_rivers_and_actual_catchments() {
+    let settings = TerrainOptions {
+        relief: 0.2,
+        tectonics: planet_rs::TectonicOptions {
+            steps: 32,
+            boundary_width: 1.0,
+            branching: 1.0,
+            detail: 0.25,
+            ..Default::default()
+        },
+        impacts: planet_rs::ImpactOptions {
+            enabled: true,
+            per_stage: 8,
+            ..Default::default()
+        },
+        erosion_strength: 6.0,
+        hydraulic_passes: 2,
+        thermal_passes: 4,
+        // Exercise the interactive erosion profile with a smaller topology.
+        refinement_passes: 2,
+        river_refinement_passes: 1,
+        ..TerrainOptions::default()
+    };
+    let first = generate_terrain(planet(42), settings).unwrap();
+    first.validate().unwrap();
+    assert!(!first.rivers.is_empty());
+    assert!(!first.river_surface.triangles.is_empty());
+    assert!(first.rivers.iter().all(|river| {
+        river.catchment.to_bits() == first.drainage.catchment[river.from].to_bits()
+            && first.elevations[river.to] < first.elevations[river.from]
+    }));
+    assert!(first.incised_material.is_finite() && first.incised_material >= 0.0);
+    println!("Reduced viewer seed 42: {:?}", first.stats());
+    let second = generate_terrain(planet(42), settings).unwrap();
+    assert_eq!(first, second);
+}
+
+#[test]
 fn twenty_seeded_worlds_have_valid_radial_terrain_and_downhill_rivers() {
     for seed in 0..20 {
         let terrain = generate_terrain(planet(seed), TerrainOptions::default()).unwrap();

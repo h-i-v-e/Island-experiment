@@ -12,6 +12,15 @@ below zero retain their above-sea water profile; existing ocean openings stay
 clear. The moving ocean is flattened at actual river contact edges and blends
 back to waves beyond each outlet.
 
+Successful river sources persist through terrain refinement and final bank
+finishing. Their unit-sphere directions are matched locally to the current mesh,
+then retraced along valid drainage to the sea before new catchment candidates.
+Inherited reaches retain their actual rainfall catchment even when refinement
+puts them below the source threshold. The planet's global network stays uncapped.
+The generation cache revision retires geometry built before source retention.
+Final bank contacts retain their water profile's river ownership, including
+thin inherited tributaries and contacts outside the direct reach lookup.
+
 The spherical planet generator and Bevy viewer in the Island-experiment
 repository. A closed spherical mesh is built from seeded random surface vertices,
 using a translating plane to order an incremental

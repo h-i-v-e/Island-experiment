@@ -40,15 +40,40 @@ namespace Motu.Settings
         [Min(0.05f)]
         [SerializeField] private float maximumDepthMetres = 2f;
 
-        internal float SourceCatchmentHectares => Mathf.Clamp(sourceCatchmentHectares, 0.01f, 10f);
-        internal float SteepSourceCatchmentMultiplier => Mathf.Clamp(
-            steepSourceCatchmentMultiplier,
-            1f,
-            8f);
-        internal float SourceElevationBoost => Mathf.Clamp(sourceElevationBoost, 0f, 20f);
-        internal float SourceWidthMetres => Mathf.Max(sourceWidthMetres, 0.25f);
-        internal float MaximumWidthMetres => Mathf.Max(maximumWidthMetres, SourceWidthMetres);
-        internal float SourceDepthMetres => Mathf.Max(sourceDepthMetres, 0.05f);
-        internal float MaximumDepthMetres => Mathf.Max(maximumDepthMetres, SourceDepthMetres);
+        public float SourceCatchmentHectares
+        {
+            get => Mathf.Clamp(sourceCatchmentHectares, 0.01f, 10f);
+            set => sourceCatchmentHectares = Mathf.Clamp(value, 0.01f, 10f);
+        }
+        public float SteepSourceCatchmentMultiplier
+        {
+            get => Mathf.Clamp(steepSourceCatchmentMultiplier, 1f, 8f);
+            set => steepSourceCatchmentMultiplier = Mathf.Clamp(value, 1f, 8f);
+        }
+        public float SourceElevationBoost
+        {
+            get => Mathf.Clamp(sourceElevationBoost, 0f, 20f);
+            set => sourceElevationBoost = Mathf.Clamp(value, 0f, 20f);
+        }
+        public float SourceWidthMetres
+        {
+            get => Mathf.Max(sourceWidthMetres, 0.25f);
+            set => sourceWidthMetres = Mathf.Max(value, 0.25f);
+        }
+        public float MaximumWidthMetres
+        {
+            get => Mathf.Max(maximumWidthMetres, SourceWidthMetres);
+            set => maximumWidthMetres = Mathf.Max(value, SourceWidthMetres);
+        }
+        public float SourceDepthMetres
+        {
+            get => Mathf.Max(sourceDepthMetres, 0.05f);
+            set => sourceDepthMetres = Mathf.Max(value, 0.05f);
+        }
+        public float MaximumDepthMetres
+        {
+            get => Mathf.Max(maximumDepthMetres, SourceDepthMetres);
+            set => maximumDepthMetres = Mathf.Max(value, SourceDepthMetres);
+        }
     }
 }

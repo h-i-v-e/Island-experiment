@@ -98,6 +98,12 @@ namespace Motu.Islands
             && worldEnvironment.SkyMaterial != null
             && worldEnvironment.SeaMaterial != null;
         public IslandRuntime Runtime => islandRuntime;
+        public int GeneratedRiverTileCount => terrainStreamer != null ? terrainStreamer.GeneratedRiverTileCount : 0;
+        public bool TryGetRiverInspectionPoint(out Vector3 point)
+        {
+            point = default;
+            return terrainStreamer != null && terrainStreamer.TryGetRiverInspectionPoint(out point);
+        }
         internal float Lod3DistanceMetres
         {
             get => lod3DistanceMetres;
@@ -310,15 +316,21 @@ namespace Motu.Islands
             terrainStreamer?.ClearPlayerFocus();
         }
 
-        internal void ConfigureWorldManagement(WorldEnvironmentController environment)
+        /// <summary>Bind a host-owned ocean and lighting before standalone generation.</summary>
+        public void ConfigureEnvironment(WorldEnvironmentController environment)
         {
             if (generationLifecycle.IsGenerating || islandRuntime != null)
             {
                 throw new InvalidOperationException(
-                    "World management must be configured before island generation starts.");
+                    "The environment must be configured before island generation starts.");
             }
             worldEnvironment = environment
                 ?? throw new ArgumentNullException(nameof(environment));
+        }
+
+        internal void ConfigureWorldManagement(WorldEnvironmentController environment)
+        {
+            ConfigureEnvironment(environment);
             managedByWorld = true;
         }
 

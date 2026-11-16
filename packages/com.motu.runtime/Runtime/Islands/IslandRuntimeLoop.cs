@@ -23,7 +23,11 @@ namespace Motu.Islands
                 if (generator.activeProfile == null) return;
                 generator.UpdateMaterialTransforms();
                 generator.ApplyLiveSettings();
-                if (!generator.managedByWorld) generator.SyncHostLighting();
+                if (!generator.managedByWorld)
+                {
+                    if (generator.worldEnvironment != null) generator.SyncSharedWorldLighting(generator.worldEnvironment);
+                    else generator.SyncHostLighting();
+                }
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime?.SetViewPosition(viewer.position);
                 if (generator.terrainStreamer != null
