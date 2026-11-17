@@ -25,7 +25,7 @@ namespace Motu.Tests
         {
             var catalogue = Resources.Load<TownRecipeCatalogue>("Towns/DefaultTownCatalogue");
             Assert.That(catalogue, Is.Not.Null);
-            Assert.That(catalogue.Entries.Length, Is.EqualTo(3));
+            Assert.That(catalogue.Entries.Length, Is.EqualTo(4));
             Assert.That(catalogue.Entries[0].placement, Is.EqualTo(TownPlacement.Centre));
             Assert.That(catalogue.Entries[0].minimumCount, Is.EqualTo(1));
             Assert.That(catalogue.CaptureJson(), Does.Contain("building_json").And.Contain("gothic").IgnoreCase);

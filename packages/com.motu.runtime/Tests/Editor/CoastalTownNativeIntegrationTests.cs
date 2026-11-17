@@ -30,7 +30,7 @@ namespace Motu.Tests
             try
             {
                 var paths = TownPrefabBaker.Bake(Resources.Load<TownRecipeCatalogue>("Towns/DefaultTownCatalogue"), 42, destination);
-                Assert.That(paths.Length, Is.EqualTo(3));
+                Assert.That(paths.Length, Is.EqualTo(4));
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                 foreach (var path in paths)
                 {

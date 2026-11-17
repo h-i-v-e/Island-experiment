@@ -39,20 +39,32 @@ struct Search<'a> {
     mouth: TownMouth,
     cancelled: &'a dyn Fn() -> bool,
     occupied: Vec<ClearanceRect>,
+    access: Vec<ClearanceRect>,
+    rows: Vec<roads::Row>,
+    plaza: Option<ClearanceRect>,
     total_attempts: u32,
     remaining_samples: usize,
+    layout: LayoutTrial,
+    reached_rings: usize,
 }
+
+#[derive(Clone, Copy, Default)]
+struct LayoutTrial {
+    rings: usize,
+    anchor: Option<(usize, PlacementPose)>,
+}
+
 struct EntryGeneration<'a> {
     building: &'a crate::BuildingRecipe,
     base: &'a Path,
     id: &'a str,
-    prototype: Option<BuildingPrototype>,
+    prototype: &'a mut Option<BuildingPrototype>,
     foundations: Vec<BoxCollider>,
 }
 impl EntryGeneration<'_> {
     fn resolved_recipe(&mut self) -> Result<&crate::BuildingRecipe, TownError> {
         if self.prototype.is_none() {
-            self.prototype = Some(crate::generate_with_base(self.building, self.base).map_err(
+            *self.prototype = Some(crate::generate_with_base(self.building, self.base).map_err(
                 |error| TownError::Building {
                     entry: self.id.into(),
                     reason: error.to_string(),
@@ -71,6 +83,7 @@ struct Placed {
     pose: PlacementPose,
     supports: terrain_support::FittedSupports,
     clearance: ClearanceRect,
+    occupied: Vec<ClearanceRect>,
     access: Option<Access>,
     streets: Option<Streets>,
 }
@@ -82,6 +95,63 @@ pub(super) fn generate(
     base: &Path,
     cancelled: &impl Fn() -> bool,
 ) -> Result<TownOutput, TownError> {
+    let mut prototypes: Vec<_> = (0..recipe.catalogue.len()).map(|_| None).collect();
+    let mut trial = LayoutTrial {
+        rings: 1,
+        anchor: None,
+    };
+    let (mut best, mut reached) = generate_layout(
+        recipe,
+        input,
+        mouth,
+        base,
+        cancelled,
+        trial,
+        &mut prototypes,
+    )?;
+    if let Some(instance) = best.instances.first() {
+        trial.anchor = Some((
+            instance.prototype_index,
+            PlacementPose {
+                origin: instance.position,
+                yaw: instance.yaw,
+            },
+        ));
+    }
+    // Refit all entrances on each candidate grade, retaining the smallest layout
+    // with the best copy count. A disconnected next ring cannot lead to another.
+    while best.skipped_count > 0 && reached == trial.rings {
+        trial.rings += 1;
+        let (expanded, connected_rings) = generate_layout(
+            recipe,
+            input,
+            mouth,
+            base,
+            cancelled,
+            trial,
+            &mut prototypes,
+        )?;
+        if connected_rings < trial.rings {
+            break;
+        }
+        reached = connected_rings;
+        if expanded.instances.len() > best.instances.len() {
+            best = expanded;
+        }
+    }
+    finish_prototypes(&mut best, &mut prototypes, recipe);
+    Ok(best)
+}
+
+fn generate_layout(
+    recipe: &TownRecipe,
+    input: &TownInput,
+    mouth: TownMouth,
+    base: &Path,
+    cancelled: &dyn Fn() -> bool,
+    layout: LayoutTrial,
+    prototypes: &mut [Option<BuildingPrototype>],
+) -> Result<(TownOutput, usize), TownError> {
     let mut output = TownOutput {
         tile_seed: input.tile_seed,
         mouth: Some(mouth),
@@ -93,26 +163,53 @@ pub(super) fn generate(
         mouth,
         cancelled,
         occupied: Vec::new(),
+        access: Vec::new(),
+        rows: Vec::new(),
+        plaza: None,
         total_attempts: 0,
         remaining_samples: 8_000_000,
+        layout,
+        reached_rings: 0,
     };
-    for placement in [TownPlacement::Centre, TownPlacement::Other] {
-        for entry in recipe
-            .catalogue
-            .iter()
-            .filter(|entry| entry.placement == placement)
-        {
-            generate_entry(entry, &mut search, &mut output, base)?;
+    let mut entries: Vec<_> = recipe.catalogue.iter().enumerate().collect();
+    entries.sort_by_cached_key(|&(index, entry)| {
+        let later = entry.placement == TownPlacement::Other;
+        let area = if later && recipe.settings.roads.is_some() {
+            let bounds = shell_footprint(&entry.building);
+            (bounds.max[0] - bounds.min[0]) * (bounds.max[1] - bounds.min[1])
+        } else {
+            0.
+        };
+        // Retry the same centre first, then fill smaller gaps with narrower buildings.
+        (
+            layout.anchor.is_none_or(|(anchor, _)| index != anchor),
+            later,
+            std::cmp::Reverse(area.to_bits()),
+        )
+    });
+    for (index, entry) in entries {
+        generate_entry(
+            entry,
+            index,
+            &mut prototypes[index],
+            &mut search,
+            &mut output,
+            base,
+        )?;
+        if layout.anchor.is_some() && search.reached_rings < layout.rings {
+            break;
         }
     }
     if let Some(roads) = &output.roads {
         output.clearance.extend(roads::clearance(roads, 0.25));
     }
-    Ok(output)
+    Ok((output, search.reached_rings))
 }
 
 fn generate_entry(
     entry: &super::TownCatalogueEntry,
+    index: usize,
+    prototype: &mut Option<BuildingPrototype>,
     search: &mut Search<'_>,
     output: &mut TownOutput,
     base: &Path,
@@ -135,62 +232,112 @@ fn generate_entry(
         entry: entry.id.clone(),
         reason: error.to_string(),
     })?;
-    let footprint = footprint(resolved.as_ref(), search.settings);
-    let first_instance = output.instances.len();
+    let footprint = if search.settings.roads.is_some() {
+        shell_footprint(resolved.as_ref())
+    } else {
+        footprint(resolved.as_ref(), search.settings)
+    };
     let mut generation = EntryGeneration {
         building: &building,
         base,
         id: &entry.id,
-        prototype: None,
+        prototype,
         foundations: terrain_support::foundation_footprints(&building),
     };
+    let mut lots = None;
     for _ in 0..copies {
-        let Some(mut placed) = find_placement(
-            search,
-            output,
-            &mut generation,
-            footprint,
-            entry.placement,
-            &mut random,
-        )?
-        else {
-            output.skipped_count += 1;
-            continue;
+        let found = if let Some(network) = &output.roads {
+            if lots.is_none() {
+                let building = generation.resolved_recipe()?;
+                let candidates = roads::entrance(building).map_or_else(Vec::new, |door| {
+                    roads::lots(&search.rows, building, door, footprint, search.settings)
+                });
+                lots = Some(candidates.into_iter());
+            }
+            find_frontage(
+                search,
+                &mut generation,
+                footprint,
+                network,
+                lots.as_mut().expect("road lots prepared"),
+            )?
+        } else {
+            find_placement(
+                search,
+                output,
+                &mut generation,
+                footprint,
+                entry.placement,
+                &mut random,
+            )?
         };
-        output
-            .centre
-            .get_or_insert([placed.pose.origin[0], placed.pose.origin[1]]);
-        search.occupied.push(placed.clearance);
-        if let Some(access) = &placed.access {
-            search.occupied.push(access.clearance);
+        if let Some(placed) = found {
+            accept_placement(search, output, placed, index)?;
+            if search.layout.anchor.is_some() && search.reached_rings < search.layout.rings {
+                return Ok(());
+            }
+        } else {
+            output.skipped_count += 1;
         }
-        if let Some(streets) = placed.streets.take() {
-            output.roads = Some(streets.network);
-            output.bridge_candidates = streets.bridges;
-        }
-        publish_placement(output, placed)?;
-    }
-    if output.instances.len() > first_instance
-        && let Some(mut prototype) = generation.prototype
-    {
-        if output.support_material.is_none()
-            && let Some(index) = prototype
-                .materials
-                .iter()
-                .position(|material| material.slot == MaterialSlot::Foundation)
-        {
-            output.support_material = Some(prototype.materials.remove(index));
-        }
-        terrain_support::remove_supports(&mut prototype);
-        prototype
-            .materials
-            .retain(|material| material.slot != MaterialSlot::Foundation);
-        output.prototypes.push(TownPrototype {
-            entry_id: entry.id.clone(),
-            building: prototype,
-        });
     }
     Ok(())
+}
+
+fn finish_prototypes(
+    output: &mut TownOutput,
+    cache: &mut [Option<BuildingPrototype>],
+    recipe: &TownRecipe,
+) {
+    let mut mapped = vec![None; cache.len()];
+    for instance in &mut output.instances {
+        let index = instance.prototype_index;
+        instance.prototype_index = *mapped[index].get_or_insert_with(|| {
+            let mut prototype = cache[index]
+                .take()
+                .expect("placed buildings have generated prototypes");
+            if output.support_material.is_none()
+                && let Some(index) = prototype
+                    .materials
+                    .iter()
+                    .position(|material| material.slot == MaterialSlot::Foundation)
+            {
+                output.support_material = Some(prototype.materials.remove(index));
+            }
+            terrain_support::remove_supports(&mut prototype);
+            prototype
+                .materials
+                .retain(|material| material.slot != MaterialSlot::Foundation);
+            let final_index = output.prototypes.len();
+            output.prototypes.push(TownPrototype {
+                entry_id: recipe.catalogue[index].id.clone(),
+                building: prototype,
+            });
+            final_index
+        });
+    }
+}
+
+fn accept_placement(
+    search: &mut Search<'_>,
+    output: &mut TownOutput,
+    mut placed: Placed,
+    index: usize,
+) -> Result<(), TownError> {
+    output
+        .centre
+        .get_or_insert([placed.pose.origin[0], placed.pose.origin[1]]);
+    search.occupied.append(&mut placed.occupied);
+    if let Some(access) = &placed.access {
+        search.access.push(access.clearance);
+    }
+    if let Some(streets) = placed.streets.take() {
+        search.rows = roads::rows(&streets.network);
+        search.plaza = Some(streets.plaza);
+        search.reached_rings = streets.ring_count;
+        output.roads = Some(streets.network);
+        output.bridge_candidates = streets.bridges;
+    }
+    publish_placement(output, placed, index)
 }
 
 fn find_placement(
@@ -205,7 +352,13 @@ fn find_placement(
     let mut site_attempt = 0;
     let mut alternate_sites = None;
     let mut fallback = None::<Placed>;
-    for _ in 0..settings.attempts_per_copy {
+    let anchor = search.layout.anchor.map(|(_, pose)| pose);
+    let attempts = if anchor.is_some() {
+        1
+    } else {
+        settings.attempts_per_copy
+    };
+    for _ in 0..attempts {
         if (search.cancelled)() {
             return Err(TownError::Cancelled);
         }
@@ -213,59 +366,25 @@ fn find_placement(
             break;
         }
         search.total_attempts += 1;
-        let lot = if let Some(network) = &output.roads {
-            let building = generation.resolved_recipe()?;
-            let Some(lot) = roads::entrance(building).and_then(|door| {
-                roads::lot(
-                    network,
-                    building,
-                    door,
-                    settings,
-                    std::array::from_fn(|_| random.unit()),
-                )
-            }) else {
-                return Ok(None);
-            };
-            let centre = output.centre.expect("roads have a centre");
-            let radius = settings.town_radius
-                * if placement == TownPlacement::Centre {
-                    0.65
-                } else {
-                    1.
-                };
-            if distance(centre, lot.position) > radius {
-                continue;
-            }
-            Some(lot)
-        } else {
-            None
-        };
         let alternate = alternate_sites.as_mut().and_then(Iterator::next);
-        let (position, yaw) = if let Some(lot) = lot {
-            (lot.position, lot.yaw)
-        } else if let Some(alternate) = alternate {
-            alternate
+        let (position, yaw) = if let Some(pose) = anchor {
+            ([pose.origin[0], pose.origin[1]], pose.yaw)
         } else {
-            let site = candidate(
-                search.mouth,
-                output.centre,
-                placement,
-                site_attempt,
-                &footprint,
-                settings,
-                random,
-            );
-            site_attempt += 1;
-            site
+            alternate.unwrap_or_else(|| {
+                let site = candidate(
+                    search.mouth,
+                    output.centre,
+                    placement,
+                    site_attempt,
+                    &footprint,
+                    settings,
+                    random,
+                );
+                site_attempt += 1;
+                site
+            })
         };
-        let Some(mut placed) = fit_placement(
-            search,
-            generation,
-            footprint,
-            position,
-            yaw,
-            output.roads.as_ref(),
-        )?
+        let Some(mut placed) = fit_placement(search, generation, footprint, position, yaw, None)?
         else {
             continue;
         };
@@ -277,8 +396,8 @@ fn find_placement(
                 search,
                 generation.resolved_recipe()?,
                 &mut placed,
-                lot,
-                output.roads.as_ref(),
+                None,
+                None,
             )? {
                 continue;
             }
@@ -288,6 +407,51 @@ fn find_placement(
         }
     }
     Ok(fallback)
+}
+
+fn find_frontage(
+    search: &mut Search<'_>,
+    generation: &mut EntryGeneration<'_>,
+    footprint: BoxCollider,
+    network: &RoadNetwork,
+    lots: &mut impl Iterator<Item = Lot>,
+) -> Result<Option<Placed>, TownError> {
+    let settings = search.settings;
+    let mut attempts = 0;
+    for lot in lots {
+        if (search.cancelled)() {
+            return Err(TownError::Cancelled);
+        }
+        if search.total_attempts >= settings.max_total_attempts || search.remaining_samples == 0 {
+            break;
+        }
+        let rect = posed_rect(footprint, lot.position, lot.yaw, 0.);
+        if blocked(&rect, search) || roads::obstructs(network, &rect, false) {
+            continue;
+        }
+        attempts += 1;
+        search.total_attempts += 1;
+        if let Some(mut placed) = fit_placement(
+            search,
+            generation,
+            footprint,
+            lot.position,
+            lot.yaw,
+            Some((network, lot)),
+        )? && connect_street(
+            search,
+            generation.resolved_recipe()?,
+            &mut placed,
+            Some(lot),
+            Some(network),
+        )? {
+            return Ok(Some(placed));
+        }
+        if attempts >= settings.attempts_per_copy {
+            break;
+        }
+    }
+    Ok(None)
 }
 
 fn prefer_ring_frontage(placed: Placed, fallback: &mut Option<Placed>) -> Option<Placed> {
@@ -327,13 +491,12 @@ fn fit_placement(
     footprint: BoxCollider,
     position: [f32; 2],
     yaw: f32,
-    roads: Option<&RoadNetwork>,
+    street: Option<(&RoadNetwork, Lot)>,
 ) -> Result<Option<Placed>, TownError> {
     let settings = search.settings;
-    let input = search.input;
     let rect = posed_rect(footprint, position, yaw, 0.);
     if blocked(&rect, search)
-        || roads.is_some_and(|network| roads::obstructs(network, &rect, false))
+        || street.is_some_and(|(network, _)| roads::obstructs(network, &rect, false))
     {
         return Ok(None);
     }
@@ -354,12 +517,7 @@ fn fit_placement(
         ],
         yaw,
     };
-    let sampler = |x, y| input.terrain.sample(x, y);
-    let options = terrain_support::SupportOptions {
-        sample_spacing: settings.sample_spacing.min(input.terrain.spacing * 0.5),
-        ..terrain_support::SupportOptions::default()
-    };
-    let Ok(supports) = terrain_support::fit_with_options(building, pose, &sampler, options) else {
+    let Some(supports) = fit_supports(building, pose, search, street) else {
         return Ok(None);
     };
     if supports
@@ -382,13 +540,61 @@ fn fit_placement(
     }
     let reserved = enclose(supports.clearance_bounds, footprint);
     let clearance = posed_rect(reserved, position, yaw, settings.clearance_margin);
-    Ok((!blocked(&clearance, search)).then_some(Placed {
+    let occupied = if settings.roads.is_some() {
+        let occupied = std::iter::once(rect).chain(
+            supports
+                .stairs
+                .iter()
+                .map(|stair| posed_rect(stair.bounds, position, yaw, 0.)),
+        );
+        if occupied.clone().any(|region| blocked(&region, search)) {
+            return Ok(None);
+        }
+        occupied.collect()
+    } else if blocked(&clearance, search) {
+        return Ok(None);
+    } else {
+        vec![clearance]
+    };
+    Ok(Some(Placed {
         pose,
         supports,
         clearance,
+        occupied,
         access: None,
         streets: None,
     }))
+}
+
+fn fit_supports(
+    building: &crate::BuildingRecipe,
+    pose: PlacementPose,
+    search: &Search<'_>,
+    street: Option<(&RoadNetwork, Lot)>,
+) -> Option<terrain_support::FittedSupports> {
+    let terrain = &search.input.terrain;
+    let options = terrain_support::SupportOptions {
+        sample_spacing: search.settings.sample_spacing.min(terrain.spacing * 0.5),
+        ..terrain_support::SupportOptions::default()
+    };
+    if let Some((network, lot)) = street.filter(|(_, lot)| lot.road_steps.is_some()) {
+        let door = roads::entrance(building)?;
+        let target = roads::stair_target(network, door, lot)?;
+        let finished = |x, y| {
+            terrain
+                .sample(x, y)
+                .map(|natural| network.graded_height(motu::Vec2::new(x, y), natural))
+        };
+        return terrain_support::fit_with_stair_target(
+            building,
+            pose,
+            &finished,
+            options,
+            Some(target),
+        )
+        .ok();
+    }
+    terrain_support::fit_with_options(building, pose, &|x, y| terrain.sample(x, y), options).ok()
 }
 
 fn blocked(rect: &ClearanceRect, search: &Search<'_>) -> bool {
@@ -397,6 +603,8 @@ fn blocked(rect: &ClearanceRect, search: &Search<'_>) -> bool {
         .occupied
         .iter()
         .any(|other| overlaps(rect, other, settings.building_gap))
+        || search.access.iter().any(|other| overlaps(rect, other, 0.))
+        || search.plaza.is_some_and(|plaza| overlaps(rect, &plaza, 0.))
         || (settings.roads.is_some() && protected(rect, search.input))
         || touches_river(rect, search.input, settings.river_margin)
 }
@@ -419,24 +627,40 @@ fn connect_street(
         0.05,
     );
     if let (Some(lot), Some(network)) = (lot, roads) {
-        if !roads::obstructs(network, &support_rect, true) {
-            placed.access = roads::entrance(building).and_then(|door| {
-                roads::approach(
-                    network,
-                    building,
-                    door,
-                    supports,
-                    pose,
-                    lot.street_edge,
-                    input,
-                    settings,
-                    &search.occupied,
-                )
-            });
-        }
+        placed.access = roads::entrance(building).and_then(|door| {
+            if lot.road_steps.is_some() {
+                if !stairs_clear_pavement(supports, door, network, lot) {
+                    return None;
+                }
+                return roads::stair_access(network, door, lot, input, settings, &search.occupied);
+            }
+            if roads::obstructs(network, &support_rect, true) {
+                return None;
+            }
+            roads::approach(
+                network,
+                building,
+                door,
+                supports,
+                pose,
+                lot.street_edge,
+                input,
+                settings,
+                &search.occupied,
+                settings.roads.expect("road lot").max_frontage_distance,
+            )
+        });
     } else {
         let core = enclose(shell_footprint(building), supports.clearance_bounds);
-        let Some(streets) = roads::layout(core, pose, settings, input, search.cancelled)? else {
+        let Some(streets) = roads::layout(
+            core,
+            pose,
+            settings,
+            input,
+            search.layout.rings,
+            search.cancelled,
+        )?
+        else {
             return Ok(false);
         };
         if !roads::obstructs(&streets.roads, &support_rect, true)
@@ -455,6 +679,31 @@ fn connect_street(
         }
     }
     Ok(placed.access.is_some())
+}
+
+fn stairs_clear_pavement(
+    supports: &terrain_support::FittedSupports,
+    door: &crate::OpeningRecipe,
+    network: &RoadNetwork,
+    lot: Lot,
+) -> bool {
+    let normal = door.facade.normal();
+    supports.stairs.iter().all(|stair| {
+        let mut bounds = stair.bounds;
+        if stair.door_id == door.id {
+            // Exclude only the nose of the selected tread from the overlap check.
+            let reach = roads::PAVED_TREAD_OVERLAP + 0.001;
+            for (axis, direction) in normal.into_iter().enumerate().take(2) {
+                bounds.max[axis] -= direction.max(0.) * reach;
+                bounds.min[axis] -= direction.min(0.) * reach;
+            }
+        }
+        !roads::obstructs(
+            network,
+            &posed_rect(bounds, lot.position, lot.yaw, 0.),
+            false,
+        )
+    })
 }
 
 fn centre_orientations(position: [f32; 2], yaw: f32) -> impl Iterator<Item = ([f32; 2], f32)> {
@@ -517,7 +766,11 @@ fn door_approaches(
         })
 }
 
-fn publish_placement(output: &mut TownOutput, placed: Placed) -> Result<(), TownError> {
+fn publish_placement(
+    output: &mut TownOutput,
+    placed: Placed,
+    index: usize,
+) -> Result<(), TownError> {
     output.clearance.push(placed.clearance);
     append_mesh(
         &mut output.supports,
@@ -540,7 +793,7 @@ fn publish_placement(output: &mut TownOutput, placed: Placed) -> Result<(), Town
             .map(|bounds| world_bounds(*bounds, placed.pose)),
     );
     output.instances.push(TownInstance {
-        prototype_index: output.prototypes.len(),
+        prototype_index: index,
         position: placed.pose.origin,
         yaw: placed.pose.yaw,
         frontage: placed.access.map(|access| {
@@ -963,8 +1216,13 @@ mod occupied_footprint_tests {
                 },
                 cancelled: &|| false,
                 occupied: vec![],
+                access: Vec::new(),
+                rows: Vec::new(),
+                plaza: None,
                 total_attempts: 0,
                 remaining_samples: 100_000,
+                layout: LayoutTrial::default(),
+                reached_rings: 0,
             };
             assert!(
                 sample_regions(regions[..5].iter().copied(), [0.; 2], 0., &mut search).is_some(),
@@ -1014,8 +1272,13 @@ mod occupied_footprint_tests {
             mouth,
             cancelled: &|| false,
             occupied: vec![],
+            access: Vec::new(),
+            rows: Vec::new(),
+            plaza: None,
             total_attempts: 0,
             remaining_samples: 100_000,
+            layout: LayoutTrial::default(),
+            reached_rings: 0,
         };
         let floor = sample_regions(
             terrain_support::foundation_footprints(&building).into_iter(),

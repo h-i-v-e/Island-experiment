@@ -2,8 +2,8 @@
 use super::{
     FOREST_NOISE_DOMAIN, ForestMeshTile, ForestMeshes, ForestOptions, ForestSurface,
     ForestTrunkCollider, HashMap, ISLAND_WORLD_METRES, LOOSE_DEPTH_EPSILON, MINIMUM_NORMAL_Z, Mesh,
-    MeshRange, TAU, Terrain, Vec2, Vec3, append_identity, append_range, encode_bark_axis, noise,
-    shader_beach_candidate, stable_key, stable_unit,
+    MeshRange, TAU, Terrain, TreePlacement, Vec2, Vec3, append_identity, append_range,
+    encode_bark_axis, noise, shader_beach_candidate, stable_key, stable_unit,
 };
 
 const LOG_DOMAIN: u64 = 0x6661_6c6c_656e_6c67;
@@ -29,6 +29,10 @@ pub(crate) struct FallenLog {
 }
 
 impl FallenLog {
+    pub(crate) fn site_key(&self) -> [u32; 5] {
+        log_site_key(self.bottom.truncate(), self.top.truncate(), self.radius)
+    }
+
     pub(crate) fn anchor(&self) -> Vec3 {
         (self.bottom + self.top) * 0.5
     }
@@ -42,6 +46,33 @@ impl FallenLog {
             radius: self.radius * 1.12,
         }
     }
+}
+
+fn log_site_key(start: Vec2, end: Vec2, radius: f32) -> [u32; 5] {
+    [start.x, start.y, end.x, end.y, radius].map(f32::to_bits)
+}
+
+fn log_sites(key: u64, anchor: Vec2) -> impl Iterator<Item = (Vec2, Vec2, f32)> {
+    (0..4).map(move |attempt| {
+        let key = stable_key(key, attempt, LOG_DOMAIN);
+        let random = |index| stable_unit(stable_key(key, index, LOG_DOMAIN));
+        let yaw = random(0) * TAU;
+        let offset_yaw = random(1) * TAU;
+        let centre =
+            anchor + Vec2::from_angle(offset_yaw) * ((3.0 + random(2) * 7.0) / ISLAND_WORLD_METRES);
+        let half_axis =
+            Vec2::from_angle(yaw) * ((3.0 + random(3) * 5.0) * 0.5 / ISLAND_WORLD_METRES);
+        let radius = (0.18 + random(4) * 0.27) / ISLAND_WORLD_METRES;
+        (centre - half_axis, centre + half_axis, radius)
+    })
+}
+
+/// Fitting changes only Z. Recover the source of a stored log from the site
+/// proposals, including logs in snapshots that predate town clearance.
+pub(crate) fn log_site_keys(seed: u64, tree: TreePlacement) -> impl Iterator<Item = [u32; 5]> {
+    let key = stable_key(seed, u64::from(tree.seed_ordinal), LOG_DOMAIN);
+    log_sites(key, tree.anchor.truncate())
+        .map(|(start, end, radius)| log_site_key(start, end, radius))
 }
 
 // Put each obstacle in every cell touched by its footprint. Queries remain local
@@ -141,18 +172,7 @@ pub(super) fn append_logs(
         if stable_unit(key) >= options.fallen_log_density {
             continue;
         }
-        for attempt in 0..4 {
-            let key = stable_key(key, attempt, LOG_DOMAIN);
-            let random = |index| stable_unit(stable_key(key, index, LOG_DOMAIN));
-            let yaw = random(0) * TAU;
-            let offset_yaw = random(1) * TAU;
-            let centre = tree.anchor.truncate()
-                + Vec2::from_angle(offset_yaw) * ((3.0 + random(2) * 7.0) / ISLAND_WORLD_METRES);
-            let half_axis =
-                Vec2::from_angle(yaw) * ((3.0 + random(3) * 5.0) * 0.5 / ISLAND_WORLD_METRES);
-            let radius = (0.18 + random(4) * 0.27) / ISLAND_WORLD_METRES;
-            let a = centre - half_axis;
-            let b = centre + half_axis;
+        for (a, b, radius) in log_sites(key, tree.anchor.truncate()) {
             if obstacles.intersects(a, b, radius * 1.12 + 0.2 / ISLAND_WORLD_METRES) {
                 continue;
             }

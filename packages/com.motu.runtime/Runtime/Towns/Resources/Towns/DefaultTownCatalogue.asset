@@ -20,18 +20,23 @@ MonoBehaviour:
     placement: 0
   - id: cottage
     buildingRecipe: {fileID: 4900000, guid: 5413aa313d844db682959a86a5732de1, type: 3}
-    minimumCount: 5
-    maximumCount: 12
+    minimumCount: 25
+    maximumCount: 36
     placement: 1
   - id: workshop
     buildingRecipe: {fileID: 4900000, guid: 3def9cd516684ce99262eff5d3210aaa, type: 3}
-    minimumCount: 2
-    maximumCount: 4
+    minimumCount: 5
+    maximumCount: 8
+    placement: 1
+  - id: small-house
+    buildingRecipe: {fileID: 4900000, guid: 1570414d26884bdd940ce9113b88cba7, type: 3}
+    minimumCount: 14
+    maximumCount: 24
     placement: 1
   settings:
     site_search_radius: 100
     town_radius: 85
-    building_gap: 3
+    building_gap: 1.5
     river_margin: 3
     clearance_margin: 2
     approach_length: 3

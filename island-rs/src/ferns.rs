@@ -12,6 +12,7 @@ use crate::terrain::{Terrain, TerrainSupportSample};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, Vec4, noise, rng::Rng};
 
 pub(crate) const FERN_TILE_RESOLUTION: usize = 64;
+pub(crate) const MAX_FERN_OUTER_RADIUS_METRES: f32 = 8.0;
 const FERN_PLACEMENT_DOMAIN: u64 = 0x6665_726e_706c_6163;
 const FERN_NOISE_DOMAIN: u64 = 0x6665_726e_6e6f_6973;
 const GOLDEN_ANGLE: f32 = 2.399_963_1;
@@ -53,7 +54,9 @@ impl FernOptions {
         {
             return Err("fern bark_clearance_metres must be finite and between 0 and 2".into());
         }
-        if !positive(self.outer_radius_metres) || self.outer_radius_metres > 8.0 {
+        if !positive(self.outer_radius_metres)
+            || self.outer_radius_metres > MAX_FERN_OUTER_RADIUS_METRES
+        {
             return Err("fern outer_radius_metres must be finite and between 0 and 8".into());
         }
         if !positive(self.spacing_metres) || self.spacing_metres > 4.0 {
@@ -116,13 +119,19 @@ impl Default for FernMeshes {
 }
 
 impl FernMeshes {
-    pub(crate) fn clear_settlement(&mut self, clearance: &[crate::DecorationClearance]) {
+    pub(crate) fn clear_settlement(
+        &mut self,
+        clearance: &[crate::DecorationClearance],
+        cleared_owner: impl Fn(Vec2) -> bool,
+        terrain: &Terrain,
+    ) -> bool {
         let mut removed = 0;
         for tile in &mut self.tiles {
             if let Some(used) = crate::terrain::town::retain_mesh_instances(
                 &mut tile.mesh,
                 &tile.environment,
                 clearance,
+                &cleared_owner,
             ) {
                 let mut roots = std::collections::HashSet::new();
                 for (root, keep) in tile.environment.iter().zip(&used) {
@@ -136,6 +145,22 @@ impl FernMeshes {
             }
         }
         self.clump_count = self.clump_count.saturating_sub(removed);
+        if removed > 0 {
+            self.support_vertices.clear();
+            for tile in &self.tiles {
+                for instance in tile.environment.chunk_by(|a, b| a == b) {
+                    self.support_vertices.extend(
+                        terrain
+                            .sample_support(instance[0])
+                            .triangle
+                            .map(|index| index as u32),
+                    );
+                }
+            }
+            self.support_vertices.sort_unstable();
+            self.support_vertices.dedup();
+        }
+        removed > 0
     }
 
     pub(crate) fn tiles(&self) -> &[FernMeshTile] {

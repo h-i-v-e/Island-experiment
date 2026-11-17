@@ -1,6 +1,7 @@
 //! Engine-independent settlement clearance, applied before decoration export.
 use super::Island;
-use crate::forest::{ForestMeshes, MeshRange};
+use crate::ferns::MAX_FERN_OUTER_RADIUS_METRES;
+use crate::forest::{ForestMeshes, MeshRange, TreePlacement, forest_floor_mask, log_site_keys};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -98,7 +99,10 @@ impl Island {
         }
         let before = self.forest.placements.len();
         let logs_before = self.forest.logs.len();
-        clear_forest(&mut self.forest, clearance);
+        let removed = cleared_trees(&self.forest, clearance);
+        let ground_owners = (!removed.is_empty())
+            .then(|| TreeGroundOwners::new(self.forest.placements(), &removed));
+        clear_forest(&mut self.forest, clearance, self.seed, &removed);
         let trees_removed = before - self.forest.placements.len();
         self.forest_stats.accepted_trees = self
             .forest_stats
@@ -119,7 +123,16 @@ impl Island {
         }
         retain_mesh_components(&mut self.river_rock_mesh, clearance);
         self.reeds.clear_settlement(clearance);
-        self.ferns.clear_settlement(clearance);
+        let ferns_removed = self.ferns.clear_settlement(
+            clearance,
+            |root| {
+                ground_owners
+                    .as_ref()
+                    .is_some_and(|owners| owners.is_cleared(root))
+            },
+            &self.terrain,
+        );
+        self.clear_forest_floor(clearance, &removed, ferns_removed);
         #[cfg(feature = "surface-atlas")]
         {
             self.surface_atlases = super::surface_atlas::SurfaceAtlasCache::default();
@@ -130,9 +143,121 @@ impl Island {
             boulders_removed,
         })
     }
+
+    fn clear_forest_floor(
+        &mut self,
+        clearance: &[DecorationClearance],
+        removed_trees: &HashSet<u32>,
+        ferns_removed: bool,
+    ) {
+        let surviving_floor = (!removed_trees.is_empty() || ferns_removed).then(|| {
+            let mut floor =
+                forest_floor_mask(self.seed, self.terrain.mesh(), self.forest.placements());
+            for &vertex in self.ferns.support_vertices() {
+                if let Some(value) = floor.get_mut(vertex as usize) {
+                    *value = true;
+                }
+            }
+            floor
+        });
+        let (min, max) = clearance.iter().fold(
+            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+            |(min, max), area| {
+                let centre = Vec2::from_array(area.centre);
+                let reach = Vec2::splat(Vec2::from_array(area.half_extents).length());
+                (min.min(centre - reach), max.max(centre + reach))
+            },
+        );
+        for (index, (value, vertex)) in self
+            .environment
+            .values
+            .iter_mut()
+            .zip(self.terrain.vertices())
+            .enumerate()
+        {
+            if value.x <= 0. {
+                continue;
+            }
+            let point = vertex.truncate() * ISLAND_WORLD_METRES;
+            let cleared = point.cmpge(min).all()
+                && point.cmple(max).all()
+                && clearance
+                    .iter()
+                    .any(|area| area.intersects_circle(point, 0.));
+            // A coarse face may share a retired planting vertex with its neighbour.
+            let removed_tree =
+                u32::try_from(index).is_ok_and(|index| removed_trees.contains(&index));
+            if cleared
+                || removed_tree
+                || surviving_floor.as_ref().is_some_and(|floor| !floor[index])
+            {
+                // Keep the stone and road cover channel, including graded paving.
+                value.x = 0.;
+            }
+        }
+    }
 }
 
-fn clear_forest(forest: &mut ForestMeshes, clearance: &[DecorationClearance]) {
+struct TreeGroundOwner {
+    anchor: Vec2,
+    fern_radius: f32,
+    cleared: bool,
+}
+
+struct TreeGroundOwners {
+    cells: HashMap<[i32; 2], Vec<TreeGroundOwner>>,
+    cell_size: f32,
+}
+
+impl TreeGroundOwners {
+    fn new(trees: &[TreePlacement], cleared: &HashSet<u32>) -> Self {
+        let radius = MAX_FERN_OUTER_RADIUS_METRES / ISLAND_WORLD_METRES;
+        let cell_size = radius
+            * trees
+                .iter()
+                .map(|tree| tree.scale.sqrt())
+                .fold(1., f32::max);
+        let mut owners = Self {
+            cells: HashMap::new(),
+            cell_size,
+        };
+        for tree in trees {
+            let anchor = tree.anchor.truncate();
+            owners
+                .cells
+                .entry(owners.cell(anchor))
+                .or_default()
+                .push(TreeGroundOwner {
+                    anchor,
+                    fern_radius: radius * tree.scale.sqrt(),
+                    cleared: cleared.contains(&tree.terrain_vertex),
+                });
+        }
+        owners
+    }
+
+    fn cell(&self, point: Vec2) -> [i32; 2] {
+        (point / self.cell_size).floor().as_ivec2().to_array()
+    }
+
+    // Older and current snapshots store fern roots without tree indices.
+    // The nearest trunk within the fern generation envelope owns the ground cover.
+    fn is_cleared(&self, root: Vec2) -> bool {
+        let [x, y] = self.cell(root);
+        (y - 1..=y + 1)
+            .flat_map(|row| (x - 1..=x + 1).map(move |column| [column, row]))
+            .filter_map(|cell| self.cells.get(&cell))
+            .flatten()
+            .filter_map(|tree| {
+                let distance = root.distance_squared(tree.anchor);
+                (distance <= tree.fern_radius.powi(2)).then_some((distance, tree.cleared))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .is_some_and(|(_, cleared)| cleared)
+    }
+}
+
+fn cleared_trees(forest: &ForestMeshes, clearance: &[DecorationClearance]) -> HashSet<u32> {
     let radii: Vec<_> = forest
         .hybrid
         .as_ref()
@@ -191,6 +316,22 @@ fn clear_forest(forest: &mut ForestMeshes, clearance: &[DecorationClearance]) {
             );
         }
     }
+    removed
+}
+
+fn clear_forest(
+    forest: &mut ForestMeshes,
+    clearance: &[DecorationClearance],
+    seed: u64,
+    removed: &HashSet<u32>,
+) {
+    let cleared_log_sites: HashSet<_> = forest
+        .placements
+        .iter()
+        .copied()
+        .filter(|tree| removed.contains(&tree.terrain_vertex))
+        .flat_map(|tree| log_site_keys(seed, tree))
+        .collect();
     let mut remap = Vec::with_capacity(forest.trees.len());
     let mut next = 0;
     for tree in &forest.trees {
@@ -200,7 +341,7 @@ fn clear_forest(forest: &mut ForestMeshes, clearance: &[DecorationClearance]) {
         }
     }
     if forest.hybrid.is_some() {
-        compact_hybrid_occlusion(forest, &removed);
+        compact_hybrid_occlusion(forest, removed);
     }
     forest
         .placements
@@ -222,11 +363,12 @@ fn clear_forest(forest: &mut ForestMeshes, clearance: &[DecorationClearance]) {
         .trees
         .retain(|tree| !removed.contains(&tree.terrain_vertex));
     forest.logs.retain(|log| {
-        !intersects(
-            clearance,
-            log.anchor().truncate(),
-            log.bottom.truncate().distance(log.top.truncate()) * 0.5 + log.radius,
-        )
+        !cleared_log_sites.contains(&log.site_key())
+            && !intersects(
+                clearance,
+                log.anchor().truncate(),
+                log.bottom.truncate().distance(log.top.truncate()) * 0.5 + log.radius,
+            )
     });
     compact_forest_streams(forest);
 }
@@ -404,6 +546,7 @@ pub(crate) fn retain_mesh_instances(
     mesh: &mut Mesh,
     roots: &[Vec2],
     clearance: &[DecorationClearance],
+    cleared_owner: &impl Fn(Vec2) -> bool,
 ) -> Option<Vec<bool>> {
     let key = |point: Vec2| {
         point
@@ -424,10 +567,11 @@ pub(crate) fn retain_mesh_instances(
     let blocked: HashSet<_> = bounds
         .into_iter()
         .filter_map(|(root, (min, max))| {
-            clearance
-                .iter()
-                .any(|area| area.intersects_bounds(min, max))
-                .then_some(root)
+            (cleared_owner(Vec2::from_array(root.map(f32::from_bits)))
+                || clearance
+                    .iter()
+                    .any(|area| area.intersects_bounds(min, max)))
+            .then_some(root)
         })
         .collect();
     if blocked.is_empty() {
@@ -723,7 +867,8 @@ mod tests {
             half_extents: [0.1, 0.1],
             yaw: 0.,
         };
-        ferns.clear_settlement(&[clearance]);
+        let fixture = hybrid_fixture();
+        ferns.clear_settlement(&[clearance], |_| false, &fixture.terrain);
         let tile = &ferns.tiles()[0];
         assert_eq!(tile.mesh.vertices.len(), 3);
         assert_eq!(tile.material.len(), 3);
@@ -736,8 +881,112 @@ mod tests {
         );
         assert_eq!(tile.mesh.triangles, [0, 1, 2]);
         assert_eq!(serde_json::to_value(&ferns).unwrap()["clump_count"], 1);
-        ferns.clear_settlement(&[clearance]);
+        ferns.clear_settlement(&[clearance], |_| false, &fixture.terrain);
         assert_eq!(ferns.tiles()[0].mesh.vertices.len(), 3);
+    }
+
+    #[test]
+    fn removing_trees_clears_their_ground_cover_and_nearby_forest_decorations() {
+        use crate::ferns::{FernMeshTile, FernMeshes};
+
+        let mut island = hybrid_fixture();
+        let tree = island.forest.placements[0];
+        let clearance = area(tree.anchor);
+        let removed = cleared_trees(&island.forest, &[clearance]);
+        let retained = *island
+            .forest
+            .placements
+            .iter()
+            .find(|tree| !removed.contains(&tree.terrain_vertex))
+            .unwrap();
+        let original = forest_floor_mask(
+            island.seed,
+            island.terrain.mesh(),
+            island.forest.placements(),
+        );
+        for (&floor, env) in original.iter().zip(&mut island.environment.values) {
+            *env = Vec2::new(f32::from(floor), 0.375);
+        }
+
+        let log_site = log_site_keys(island.seed, tree)
+            .find(|site| {
+                let [x, y, end_x, end_y, radius] = site.map(f32::from_bits);
+                let start = Vec2::new(x, y);
+                let end = Vec2::new(end_x, end_y);
+                !intersects(
+                    &[clearance],
+                    (start + end) * 0.5,
+                    start.distance(end) * 0.5 + radius,
+                )
+            })
+            .expect("a fallen log beyond the clearance footprint");
+        let [x, y, end_x, end_y, radius] = log_site.map(f32::from_bits);
+        let ranges = [MeshRange::default(); 3];
+        island.forest.logs.push(
+            serde_json::from_value(serde_json::json!({
+                "bottom": [x, y, tree.anchor.z], "top": [end_x, end_y, tree.anchor.z],
+                "radius": radius, "ranges": ranges
+            }))
+            .unwrap(),
+        );
+
+        let roots = [
+            tree.anchor + Vec3::X * (2.5 / ISLAND_WORLD_METRES),
+            retained.anchor,
+        ];
+        let tile = FernMeshTile {
+            mesh: Mesh {
+                vertices: roots
+                    .into_iter()
+                    .flat_map(|root| [root, root + Vec3::X * 0.0001, root + Vec3::Y * 0.0001])
+                    .collect(),
+                triangles: (0..6).collect(),
+                ..Mesh::default()
+            },
+            material: vec![crate::Vec4::ZERO; 6],
+            environment: roots
+                .into_iter()
+                .flat_map(|root| [root.truncate(); 3])
+                .collect(),
+        };
+        assert!(!intersects(&[clearance], roots[0].truncate(), 0.0001));
+        island.ferns = serde_json::from_value::<FernMeshes>(serde_json::json!({
+            "tiles":[tile],"support_vertices":[],"clump_count":2
+        }))
+        .unwrap();
+
+        let stats = island.clear_decorations(&[clearance]).unwrap();
+        assert!(stats.trees_removed > 0);
+        assert!(stats.logs_removed > 0);
+        assert!(
+            island
+                .forest
+                .logs
+                .iter()
+                .all(|log| log.site_key() != log_site)
+        );
+        assert_eq!(
+            island.ferns.tiles()[0].environment,
+            [retained.anchor.truncate(); 3]
+        );
+        assert!(original[tree.terrain_vertex as usize]);
+        assert!(
+            island.environment.values[tree.terrain_vertex as usize]
+                .x
+                .abs()
+                < f32::EPSILON
+        );
+        assert!(
+            (island.environment.values[retained.terrain_vertex as usize].x - 1.).abs()
+                < f32::EPSILON
+        );
+        assert!(
+            island
+                .environment
+                .values
+                .iter()
+                .all(|value| value.y.to_bits() == 0.375_f32.to_bits())
+        );
     }
 
     #[test]
@@ -822,7 +1071,7 @@ mod tests {
             );
         }
         let clearance = area(Vec3::new(0.01, 0.01, 0.));
-        clear_forest(&mut forest, &[clearance]);
+        clear_forest(&mut forest, &[clearance], 0, &HashSet::new());
         assert_eq!(forest.logs.len(), 1);
         assert_eq!(forest.logs[0].anchor(), Vec3::new(0.1, 0.1, 0.));
         assert!(
@@ -838,7 +1087,7 @@ mod tests {
             assert!(mesh.vertices.iter().all(|point| point.x >= 0.1));
         }
         let before = signatures(&forest);
-        clear_forest(&mut forest, &[clearance]);
+        clear_forest(&mut forest, &[clearance], 0, &HashSet::new());
         assert_eq!(before, signatures(&forest));
     }
 

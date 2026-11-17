@@ -57,6 +57,14 @@ pub struct FittedStair {
     pub bounds: BoxCollider,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct StairTarget<'a> {
+    pub door_id: &'a str,
+    pub steps: u16,
+    /// Minimum and maximum finished ground height across the toe, in world metres.
+    pub grade: [f32; 2],
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FittedSupports {
     /// One shared foundation-stone material, including nosings and landing caps.
@@ -137,6 +145,16 @@ pub fn fit_with_options(
     sample: &impl Fn(f32, f32) -> Option<f32>,
     options: SupportOptions,
 ) -> Result<FittedSupports, SupportError> {
+    fit_with_stair_target(recipe, pose, sample, options, None)
+}
+
+pub(crate) fn fit_with_stair_target(
+    recipe: &BuildingRecipe,
+    pose: PlacementPose,
+    sample: &impl Fn(f32, f32) -> Option<f32>,
+    options: SupportOptions,
+    target: Option<StairTarget<'_>>,
+) -> Result<FittedSupports, SupportError> {
     validate_sampling(pose, options.sample_spacing)?;
     if options.max_stair_steps == 0 {
         return Err(SupportError::InvalidSampling);
@@ -156,7 +174,8 @@ pub fn fit_with_options(
     let footprint_bounds = enclosing(&foundation_colliders).expect("main foundation");
     let mut builder = Builder::default();
     surface::foundation(&mut builder, recipe, &foundation_colliders);
-    let (stair_colliders, stairs) = stairs::generate(&mut builder, recipe, pose, sample, options)?;
+    let (stair_colliders, stairs) =
+        stairs::generate(&mut builder, recipe, pose, sample, options, target)?;
     let clearance_bounds = stair_colliders
         .iter()
         .copied()

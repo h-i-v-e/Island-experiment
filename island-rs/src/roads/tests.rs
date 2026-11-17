@@ -50,7 +50,7 @@ fn strips_are_flat_across_and_respect_bounded_cut_and_grade() {
 }
 
 #[test]
-fn junction_is_flat_and_mesh_sections_meet_at_the_chords() {
+fn junction_is_flat_and_mesh_sections_meet_at_the_seams() {
     let nodes = [Vec2::ZERO, Vec2::new(16., 0.), Vec2::new(0., 16.)];
     let edges = [
         RoadEdge {
@@ -91,6 +91,49 @@ fn junction_is_flat_and_mesh_sections_meet_at_the_chords() {
             .sum::<f32>()
             / 3.;
         assert!((mesh_height - network.surface_height(centre).unwrap()).abs() < 0.0001);
+    }
+}
+
+#[test]
+fn rotated_rectangular_junction_shares_its_paved_boundary_with_terrain_and_strips() {
+    let centre = Vec2::new(1264.5, 1419.75);
+    let axis = Vec2::from_angle(0.61);
+    let point = |x, y| centre + x * axis + y * axis.perp();
+    let nodes = [centre, point(16., 0.), point(0., 16.), point(0., -16.)];
+    let edges = [1, 2, 3].map(|end| RoadEdge {
+        start: 0,
+        end,
+        half_width: if end == 1 { 3. } else { 2. },
+    });
+    let network = grade_roads(&nodes, &edges, options(), |p| {
+        Some(20. + (p - centre).dot(axis) * 0.07)
+    });
+    network.validate().unwrap();
+    let [junction] = network.junctions.as_slice() else {
+        panic!("one crossing with three straight ends");
+    };
+    assert_eq!(junction.rectangle().unwrap().1, Vec2::new(2., 3.));
+    assert_eq!(network.strips.len(), 3);
+    assert!(network.surface_height(point(-2.05, 0.)).is_none());
+    assert!(network.surface_height(point(0., 16.05)).is_none());
+    assert!(
+        (junction.ray_entry(point(-6., 1.), axis, 0.02).unwrap() - point(-1.98, 1.)).length()
+            < 0.001
+    );
+    let mesh = network.mesh();
+    for x in [-2., 2.] {
+        for y in [-3., 3.] {
+            assert!(
+                mesh.positions
+                    .iter()
+                    .any(|p| Vec2::new(p[0], p[1]).distance(point(x, y)) < 0.001)
+            );
+            let near_corner = point(x * 0.999, y * 0.999);
+            assert!(
+                (network.surface_height(near_corner).unwrap() - junction.height).abs() < 0.0001
+            );
+            assert!((network.graded_height(near_corner, 21.) - junction.height).abs() < 0.0001);
+        }
     }
 }
 

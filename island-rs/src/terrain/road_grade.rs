@@ -396,10 +396,15 @@ impl CorridorIndex {
                     .iter()
                     .filter(|junction| junction.radius > 0.)
                     .map(|junction| {
+                        let (offset, width) = junction
+                            .rectangle()
+                            .map_or((Vec2::ZERO, junction.radius), |(axis, half)| {
+                                (axis * half.x, half.y)
+                            });
                         Corridor::new(
-                            junction.point,
-                            junction.point,
-                            junction.radius,
+                            junction.point - offset,
+                            junction.point + offset,
+                            width,
                             network.shoulder,
                         )
                     }),

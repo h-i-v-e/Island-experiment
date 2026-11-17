@@ -10,6 +10,8 @@ use crate::Vec2;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+pub const MAX_ROAD_EDGES: usize = 4096;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RoadEdge {
     pub start: usize,
@@ -51,7 +53,108 @@ pub struct RoadJunction {
     pub node: usize,
     pub point: Vec2,
     pub height: f32,
+    /// Radius of a circular junction or the largest rectangular half-extent.
     pub radius: f32,
+    /// Unit vector along one edge. The serialized name accepts older square profiles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub square_axis: Option<Vec2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rectangle_half_extents: Option<Vec2>,
+}
+
+impl RoadJunction {
+    #[must_use]
+    pub fn rectangle(&self) -> Option<(Vec2, Vec2)> {
+        self.square_axis.map(|axis| {
+            (
+                axis,
+                self.rectangle_half_extents
+                    .unwrap_or(Vec2::splat(self.radius)),
+            )
+        })
+    }
+
+    #[must_use]
+    pub fn distance_to_core(&self, point: Vec2) -> f32 {
+        let offset = point - self.point;
+        if let Some((axis, half)) = self.rectangle() {
+            let local = junction_axes(axis, offset);
+            return (local.abs() - half).max(Vec2::ZERO).length();
+        }
+        (offset.length() - self.radius).max(0.)
+    }
+
+    /// Nearest forward intersection with the paved boundary, a little inset if requested.
+    #[must_use]
+    pub fn ray_entry(&self, from: Vec2, direction: Vec2, inset: f32) -> Option<Vec2> {
+        let radius = self.radius - inset;
+        if radius <= 0. {
+            return None;
+        }
+        let offset = from - self.point;
+        let distance = if let Some((axis, half)) = self.rectangle() {
+            rectangle_ray_entry(
+                junction_axes(axis, offset),
+                junction_axes(axis, direction),
+                half - Vec2::splat(inset),
+            )?
+        } else {
+            let chord_squared = radius.powi(2) - offset.perp_dot(direction).powi(2);
+            -offset.dot(direction) - chord_squared.sqrt()
+        };
+        (distance > 0.).then(|| from + direction * distance)
+    }
+
+    fn seam_offset(&self, direction: Vec2, half_width: f32) -> f32 {
+        if let Some(size) = self.seam_half_extents(direction) {
+            size.x
+        } else {
+            (self.radius * self.radius - half_width * half_width)
+                .max(0.)
+                .sqrt()
+        }
+    }
+
+    // The first extent runs along the outgoing strip, the second spans its mouth.
+    fn seam_half_extents(&self, direction: Vec2) -> Option<Vec2> {
+        self.rectangle().map(|(axis, half)| {
+            if axis.dot(direction).abs() > 0.5 {
+                half
+            } else {
+                Vec2::new(half.y, half.x)
+            }
+        })
+    }
+}
+
+fn junction_axes(axis: Vec2, point: Vec2) -> Vec2 {
+    Vec2::new(axis.dot(point), axis.perp_dot(point))
+}
+
+fn rectangle_ray_entry(origin: Vec2, direction: Vec2, half: Vec2) -> Option<f32> {
+    if half.min_element() <= 0. {
+        return None;
+    }
+    let mut enter = 0_f32;
+    let mut leave = f32::INFINITY;
+    for ((from, delta), radius) in origin
+        .to_array()
+        .into_iter()
+        .zip(direction.to_array())
+        .zip(half.to_array())
+    {
+        if delta.abs() < 0.00001 {
+            if from.abs() > radius {
+                return None;
+            }
+        } else {
+            let a = (-radius - from) / delta;
+            let b = (radius - from) / delta;
+            enter = enter.max(a.min(b));
+            leave = leave.min(a.max(b));
+        }
+    }
+    (enter <= leave).then_some(enter)
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -135,9 +238,7 @@ impl RoadNetwork {
             .or_else(|| {
                 self.junctions
                     .iter()
-                    .filter(|junction| {
-                        junction.point.distance_squared(point) <= junction.radius * junction.radius
-                    })
+                    .filter(|junction| junction.distance_to_core(point) <= 0.0001)
                     .map(|junction| junction.height)
                     .reduce(f32::min)
             })
@@ -178,7 +279,7 @@ impl RoadNetwork {
             return maximum.min(core);
         }
         for junction in &self.junctions {
-            let distance = (junction.point.distance(point) - junction.radius).max(0.);
+            let distance = junction.distance_to_core(point);
             if distance <= 0.0001 {
                 core = core.min(junction.height);
             } else {
@@ -208,7 +309,12 @@ impl RoadNetwork {
                 Some((a.min(b) - margin, a.max(b) + margin))
             })
             .chain(self.junctions.iter().map(|junction| {
-                let margin = Vec2::splat(junction.radius + self.shoulder);
+                let extent = junction
+                    .rectangle()
+                    .map_or(Vec2::splat(junction.radius), |(axis, half)| {
+                        axis.abs() * half.x + axis.perp().abs() * half.y
+                    });
+                let margin = extent + Vec2::splat(self.shoulder);
                 (junction.point - margin, junction.point + margin)
             }))
             .reduce(|(min, max), (a, b)| (min.min(a), max.max(b)))
@@ -221,7 +327,7 @@ impl RoadNetwork {
     pub fn validate(&self) -> Result<(), String> {
         if !self.shoulder.is_finite()
             || !(0. ..=50.).contains(&self.shoulder)
-            || self.strips.len() > 4096
+            || self.strips.len() > MAX_ROAD_EDGES
             || self.junctions.len() > 8192
             || self
                 .strips
@@ -238,6 +344,15 @@ impl RoadNetwork {
                 || !junction.height.is_finite()
                 || !junction.radius.is_finite()
                 || !(0. ..=100.).contains(&junction.radius)
+                || junction.square_axis.is_some_and(|axis| {
+                    !axis.is_finite() || (axis.length_squared() - 1.).abs() > 0.0001
+                })
+                || junction.rectangle_half_extents.is_some_and(|half| {
+                    junction.square_axis.is_none()
+                        || !half.is_finite()
+                        || half.min_element() <= 0.
+                        || half.max_element() > junction.radius
+                })
                 || junctions.insert(junction.node, junction).is_some()
             {
                 return Err("invalid road junction".into());
@@ -257,12 +372,21 @@ impl RoadNetwork {
                 (strip.end, last, -direction),
             ] {
                 let expected = if let Some(junction) = junctions.get(&node) {
-                    if junction.radius < strip.half_width {
+                    let half_width = junction
+                        .seam_half_extents(outward)
+                        .map_or(junction.radius, |size| size.y);
+                    if half_width < strip.half_width {
                         return Err("road strip exceeds its junction width".into());
+                    }
+                    if junction
+                        .square_axis
+                        .is_some_and(|axis| !axis_aligned(axis, outward))
+                    {
+                        return Err("road strip is angled across a rectangular junction".into());
                     }
                     RoadStation {
                         point: junction.point
-                            + outward * grading::seam_offset(junction.radius, strip.half_width),
+                            + outward * junction.seam_offset(outward, strip.half_width),
                         height: junction.height,
                     }
                 } else {
@@ -277,6 +401,13 @@ impl RoadNetwork {
         }
         Ok(())
     }
+}
+
+fn axis_aligned(axis: Vec2, direction: Vec2) -> bool {
+    axis.dot(direction)
+        .abs()
+        .min(axis.perp_dot(direction).abs())
+        < 0.001
 }
 
 fn valid_strip(strip: &RoadStrip) -> bool {

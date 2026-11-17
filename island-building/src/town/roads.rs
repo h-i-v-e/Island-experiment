@@ -1,7 +1,10 @@
 mod frontage;
 mod network;
 
-pub(super) use frontage::{Access, Lot, approach, central_approach, entrance, lot};
+pub(super) use frontage::{
+    Access, Lot, PAVED_TREAD_OVERLAP, Row, approach, central_approach, entrance, lots, rows,
+    stair_access, stair_target,
+};
 pub(super) use network::{Streets, layout};
 
 use super::ClearanceRect;
@@ -45,11 +48,13 @@ fn corridors(
             )
         })
         .chain(roads.junctions.iter().filter_map(move |junction| {
-            let radius = junction.radius + shoulder + margin;
+            let (axis, half) = junction
+                .rectangle()
+                .unwrap_or((Vec2::X, Vec2::splat(junction.radius)));
             (junction.radius > 0.).then_some(ClearanceRect {
                 centre: junction.point.to_array(),
-                half_extents: [radius; 2],
-                yaw: 0.,
+                half_extents: (half + Vec2::splat(shoulder + margin)).to_array(),
+                yaw: axis.to_angle(),
             })
         }))
 }
@@ -61,6 +66,14 @@ pub(super) fn obstructs(roads: &RoadNetwork, rect: &ClearanceRect, shoulder: boo
         let road = corridor(a, b, strip.half_width + shoulder, shoulder);
         super::placement::overlaps(rect, &road, 0.)
     }) || roads.junctions.iter().any(|junction| {
+        if let Some((axis, half)) = junction.rectangle() {
+            let pavement = ClearanceRect {
+                centre: junction.point.to_array(),
+                half_extents: (half + Vec2::splat(shoulder)).to_array(),
+                yaw: axis.to_angle(),
+            };
+            return super::placement::overlaps(rect, &pavement, 0.);
+        }
         let local = Vec2::from_array(rect.local(junction.point.to_array()));
         let distance = (local.abs() - Vec2::from_array(rect.half_extents)).max(Vec2::ZERO);
         distance.length_squared() < (junction.radius + shoulder).powi(2)

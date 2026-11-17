@@ -1,5 +1,6 @@
 use super::{
-    RoadEdge, RoadGradeOptions, RoadJunction, RoadNetwork, RoadStation, RoadStrip, shoulder_weight,
+    MAX_ROAD_EDGES, RoadEdge, RoadGradeOptions, RoadJunction, RoadNetwork, RoadStation, RoadStrip,
+    axis_aligned, shoulder_weight,
 };
 use crate::Vec2;
 use std::cmp::Ordering;
@@ -81,20 +82,20 @@ pub fn grade_roads(
     options: RoadGradeOptions,
     terrain: impl Fn(Vec2) -> Option<f32>,
 ) -> RoadNetwork {
-    if !valid_options(options) || nodes.len() > 8192 || edges.len() > 4096 {
+    if !valid_options(options) || nodes.len() > 8192 || edges.len() > MAX_ROAD_EDGES {
         return RoadNetwork::default();
     }
 
     let mut active: Vec<_> = edges.iter().map(|edge| valid_edge(nodes, *edge)).collect();
     while active.iter().any(|&a| a) {
-        let Some((radii, junctions, profiles)) =
+        let Some((junctions, bounds, profiles)) =
             build_profiles(nodes, edges, &mut active, options, &terrain)
         else {
             continue;
         };
-        match solve(&junctions, &profiles, options) {
+        match solve(&bounds, &profiles, options) {
             Ok((heights, stations)) => {
-                return build_network(nodes, &radii, &heights, profiles, stations, options);
+                return build_network(junctions, &heights, profiles, stations, options);
             }
             Err(source) => active[source] = false,
         }
@@ -124,7 +125,7 @@ fn valid_edge(nodes: &[Vec2], edge: RoadEdge) -> bool {
         && (0.05..=50.).contains(&edge.half_width)
 }
 
-type Profiles = (Vec<f32>, Vec<HeightBounds>, Vec<Profile>);
+type Profiles = (Vec<RoadJunction>, Vec<HeightBounds>, Vec<Profile>);
 
 fn build_profiles(
     nodes: &[Vec2],
@@ -134,14 +135,19 @@ fn build_profiles(
     terrain: &impl Fn(Vec2) -> Option<f32>,
 ) -> Option<Profiles> {
     let incident = incident_rays(nodes, edges, active);
-    let radii: Vec<_> = incident.iter().map(|rays| junction_radius(rays)).collect();
+    let junctions: Vec<_> = incident
+        .iter()
+        .zip(nodes)
+        .enumerate()
+        .map(|(node, (rays, &point))| junction_shape(node, point, rays))
+        .collect();
     let mut changed = false;
     let mut bounds = vec![HeightBounds::open(options.min_height); nodes.len()];
     for (node, rays) in incident.iter().enumerate() {
         let Some(last) = rays.last() else {
             continue;
         };
-        if let Some(interval) = junction_bounds(nodes[node], radii[node], options, terrain) {
+        if let Some(interval) = junction_bounds(junctions[node], options, terrain) {
             bounds[node] = interval;
         } else {
             active[last.source] = false;
@@ -154,7 +160,7 @@ fn build_profiles(
     let mut profiles = Vec::new();
     let mut stations = 0;
     for (source, &edge) in edges.iter().enumerate().filter(|(i, _)| active[*i]) {
-        if let Some(profile) = profile(nodes, edge, source, &radii, options, terrain) {
+        if let Some(profile) = profile(nodes, edge, source, &junctions, options, terrain) {
             stations += profile.bounds.len();
             profiles.push(profile);
         } else {
@@ -172,7 +178,7 @@ fn build_profiles(
         active.fill(false);
         return None;
     }
-    Some((radii, bounds, profiles))
+    Some((junctions, bounds, profiles))
 }
 
 fn incident_rays(nodes: &[Vec2], edges: &[RoadEdge], active: &[bool]) -> Vec<Vec<Ray>> {
@@ -193,13 +199,58 @@ fn incident_rays(nodes: &[Vec2], edges: &[RoadEdge], active: &[bool]) -> Vec<Vec
     incident
 }
 
-fn junction_radius(rays: &[Ray]) -> f32 {
+fn junction_shape(node: usize, point: Vec2, rays: &[Ray]) -> RoadJunction {
+    let mut junction = RoadJunction {
+        node,
+        point,
+        height: 0.,
+        radius: 0.,
+        square_axis: None,
+        rectangle_half_extents: None,
+    };
+    let [first, rest @ ..] = rays else {
+        return junction;
+    };
+    if rest.is_empty() {
+        return junction; // Single strips have a straight end across their full width.
+    }
     if let [a, b] = rays
         && a.direction.dot(b.direction) < -0.999_999
         && (a.half_width - b.half_width).abs() < 0.0001
     {
-        return 0.;
+        return junction;
     }
+    let axis = first.direction;
+    if rays.len() <= 4
+        && rest.iter().enumerate().all(|(i, ray)| {
+            axis_aligned(axis, ray.direction)
+                && rays[..=i]
+                    .iter()
+                    .all(|other| other.direction.dot(ray.direction) < 0.999_999)
+        })
+    {
+        junction.square_axis = Some(axis);
+        let mut half = Vec2::ZERO;
+        for ray in rays {
+            if axis.dot(ray.direction).abs() > 0.5 {
+                half.y = half.y.max(ray.half_width);
+            } else {
+                half.x = half.x.max(ray.half_width);
+            }
+        }
+        junction.radius = half.max_element();
+        // A straight change of width still needs a short transition along the road.
+        if half.x == 0. {
+            half.x = half.y;
+        }
+        junction.rectangle_half_extents = Some(half);
+    } else {
+        junction.radius = circular_radius(rays);
+    }
+    junction
+}
+
+fn circular_radius(rays: &[Ray]) -> f32 {
     rays.iter().enumerate().fold(0., |radius, (index, a)| {
         rays[..index]
             .iter()
@@ -210,21 +261,34 @@ fn junction_radius(rays: &[Ray]) -> f32 {
     })
 }
 
-pub(super) fn seam_offset(radius: f32, half_width: f32) -> f32 {
-    (radius * radius - half_width * half_width).max(0.).sqrt()
-}
-
 fn junction_bounds(
-    centre: Vec2,
-    radius: f32,
+    junction: RoadJunction,
     options: RoadGradeOptions,
     terrain: &impl Fn(Vec2) -> Option<f32>,
 ) -> Option<HeightBounds> {
+    let RoadJunction {
+        point: centre,
+        radius,
+        ..
+    } = junction;
     if radius > 100. {
         return None;
     }
     let mut bounds = HeightBounds::open(options.min_height);
     bounds.probe(options, terrain, centre, 0.)?;
+    if let Some((axis, half)) = junction.rectangle() {
+        let across = rectangle_samples(half.y, options);
+        for x in rectangle_samples(half.x, options) {
+            for y in across.clone() {
+                let outside = (Vec2::new(x, y).abs() - half).max(Vec2::ZERO).length();
+                if outside <= options.shoulder + 0.0001 {
+                    let point = centre + axis * x + axis.perp() * y;
+                    bounds.probe(options, terrain, point, outside)?;
+                }
+            }
+        }
+        return Some(bounds);
+    }
     for (start, span) in [(0., radius), (radius, options.shoulder)] {
         if span == 0. {
             continue;
@@ -244,19 +308,30 @@ fn junction_bounds(
     Some(bounds)
 }
 
+fn rectangle_samples(radius: f32, options: RoadGradeOptions) -> impl Iterator<Item = f32> + Clone {
+    let core = steps(2. * radius, options.sample_spacing);
+    let shoulder = steps(options.shoulder, options.sample_spacing);
+    (0..=core)
+        .map(move |i| -radius + 2. * radius * fraction(i, core))
+        .chain((1..=shoulder).flat_map(move |i| {
+            let outer = radius + options.shoulder * fraction(i, shoulder);
+            [-outer, outer]
+        }))
+}
+
 fn profile(
     nodes: &[Vec2],
     edge: RoadEdge,
     source: usize,
-    radii: &[f32],
+    junctions: &[RoadJunction],
     options: RoadGradeOptions,
     terrain: &impl Fn(Vec2) -> Option<f32>,
 ) -> Option<Profile> {
     let a = nodes[edge.start];
     let b = nodes[edge.end];
     let direction = (b - a).normalize();
-    let start_trim = seam_offset(radii[edge.start], edge.half_width);
-    let end_trim = seam_offset(radii[edge.end], edge.half_width);
+    let start_trim = junctions[edge.start].seam_offset(direction, edge.half_width);
+    let end_trim = junctions[edge.end].seam_offset(-direction, edge.half_width);
     let length = b.distance(a) - start_trim - end_trim;
     if length < 0.05 {
         return None;
@@ -460,25 +535,18 @@ fn upper_envelope(bounds: &[HeightBounds], links: &[Vec<(usize, f32)>]) -> Vec<f
 }
 
 fn build_network(
-    nodes: &[Vec2],
-    radii: &[f32],
+    junctions: Vec<RoadJunction>,
     heights: &[f32],
     profiles: Vec<Profile>,
     stations: Vec<Vec<usize>>,
     options: RoadGradeOptions,
 ) -> RoadNetwork {
-    let junctions = nodes
-        .iter()
-        .zip(radii)
+    let junctions = junctions
+        .into_iter()
         .zip(heights)
-        .enumerate()
-        .filter_map(|(node, ((&point, &radius), &height))| {
-            (radius > 0. && height.is_finite()).then_some(RoadJunction {
-                node,
-                point,
-                height,
-                radius,
-            })
+        .filter_map(|(mut junction, &height)| {
+            junction.height = height;
+            (junction.radius > 0. && height.is_finite()).then_some(junction)
         })
         .collect();
     let strips = profiles

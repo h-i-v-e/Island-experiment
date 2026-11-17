@@ -13,7 +13,7 @@ namespace Motu.Islands
         internal const string Extension = ".motuhorizon";
         private const int Magic = 0x4D484F52;
         private const int Version = 1;
-        private const int TownRoadRevision = 1;
+        private const int TownRoadRevision = 6;
         private const int MaximumBytes = 32 * 1024 * 1024;
 
         internal static string PathFor(string snapshotPath) => string.IsNullOrEmpty(snapshotPath)

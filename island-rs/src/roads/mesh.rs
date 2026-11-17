@@ -47,6 +47,10 @@ impl RoadMesh {
         if junction.radius <= 0. || seams.is_empty() {
             return;
         }
+        if let Some((axis, half)) = junction.rectangle() {
+            self.rectangular_junction(junction, axis, half, &seams);
+            return;
+        }
         seams.sort_unstable_by(|a, b| a.heading.total_cmp(&b.heading));
         let centre = self.vertex(junction.point, junction.height, Vec3::Z);
         for index in 0..seams.len() {
@@ -59,6 +63,52 @@ impl RoadMesh {
             }
             self.junction_arc(junction, centre, b, seam.left, next.right);
         }
+    }
+
+    fn rectangular_junction(
+        &mut self,
+        junction: RoadJunction,
+        axis: Vec2,
+        half: Vec2,
+        seams: &[Seam],
+    ) {
+        let along = axis * half.x;
+        let across = axis.perp() * half.y;
+        let corners = [
+            along + across,
+            -along + across,
+            -along - across,
+            along - across,
+        ];
+        let mut boundary = Vec::with_capacity(4 + 2 * seams.len());
+        // Include the strip seam vertices on the boundary, including where a
+        // narrower strip meets the middle of an edge.
+        for point in seams
+            .iter()
+            .flat_map(|seam| [seam.right, seam.left])
+            .chain(corners.map(|corner| junction.point + corner))
+        {
+            if boundary
+                .iter()
+                .all(|&other| point.distance_squared(other) > 0.000_001)
+            {
+                boundary.push(point);
+            }
+        }
+        boundary.sort_unstable_by(|a, b| {
+            (a - junction.point)
+                .to_angle()
+                .total_cmp(&(b - junction.point).to_angle())
+        });
+        let centre = self.vertex(junction.point, junction.height, Vec3::Z);
+        let first = self.vertex(boundary[0], junction.height, Vec3::Z);
+        let mut last = first;
+        for point in boundary.into_iter().skip(1) {
+            let index = self.vertex(point, junction.height, Vec3::Z);
+            self.indices.extend_from_slice(&[centre, last, index]);
+            last = index;
+        }
+        self.indices.extend_from_slice(&[centre, last, first]);
     }
 
     // An arc is bounded by one turn, split into at most 128 spans.

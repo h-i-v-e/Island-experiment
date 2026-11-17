@@ -115,7 +115,7 @@ pub struct TownRecipe {
 pub struct TownSettings {
     /// Furthest town site search from the selected mouth.
     pub site_search_radius: f32,
-    /// Maximum radius for buildings around the first safe town site.
+    /// Maximum placement radius when roads are disabled.
     pub town_radius: f32,
     pub building_gap: f32,
     pub river_margin: f32,
@@ -155,6 +155,8 @@ impl Default for TownSettings {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TownRoadSettings {
+    /// Legacy recipe field. The planner sizes road networks to the catalogue.
+    #[serde(skip_serializing)]
     pub ring_count: u8,
     pub ring_spacing: f32,
     pub half_width: f32,
@@ -185,18 +187,17 @@ impl Default for TownRoadSettings {
 
 impl TownRoadSettings {
     fn valid(self) -> bool {
-        (1..=2).contains(&self.ring_count)
-            && [
-                (self.ring_spacing, 12., 60.),
-                (self.half_width, 1., 6.),
-                (self.access_half_width, 1., 6.),
-                (self.shoulder, 0.5, 5.),
-                (self.max_grade, 0.03, 0.25),
-                (self.max_cut, 0.1, 3.),
-                (self.max_frontage_distance, 4., 12.),
-            ]
-            .into_iter()
-            .all(|(value, lower, upper)| (lower..=upper).contains(&value))
+        [
+            (self.ring_spacing, 12., 60.),
+            (self.half_width, 1., 6.),
+            (self.access_half_width, 1., 6.),
+            (self.shoulder, 0.5, 5.),
+            (self.max_grade, 0.03, 0.25),
+            (self.max_cut, 0.1, 3.),
+            (self.max_frontage_distance, 4., 12.),
+        ]
+        .into_iter()
+        .all(|(value, lower, upper)| (lower..=upper).contains(&value))
     }
 }
 

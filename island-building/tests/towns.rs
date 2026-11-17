@@ -127,7 +127,8 @@ fn working_streets_face_the_resolved_ground_floor_doors() {
     assert!(!roads.strips.is_empty());
     for instance in &output.instances {
         let frontage = instance.frontage.as_ref().unwrap();
-        let recipe = &output.prototypes[instance.prototype_index].building.recipe;
+        let prototype = &output.prototypes[instance.prototype_index];
+        let recipe = &prototype.building.recipe;
         let door = recipe
             .openings
             .iter()
@@ -144,12 +145,181 @@ fn working_streets_face_the_resolved_ground_floor_doors() {
         let facing = Vec2::from_angle(pose.yaw).rotate(Vec2::new(dx, dy));
         assert!((edge - Vec2::new(x, y)).normalize().dot(facing) > 0.95);
         assert!((roads.surface_height(edge).unwrap() - edge_height).abs() < 0.001);
+        for bounds in island_building::terrain_support::foundation_footprints(recipe) {
+            for x in [bounds.min[0], bounds.max[0]] {
+                for y in [bounds.min[1], bounds.max[1]] {
+                    let [x, y, _] = pose.world_point([x, y, 0.]);
+                    assert!(roads.surface_height(Vec2::new(x, y)).is_none());
+                }
+            }
+        }
+        if prototype.entry_id == "house" {
+            assert!(
+                output.supports.positions.iter().any(|&[x, y, z]| {
+                    let point = Vec2::new(x, y);
+                    let delta = point - edge;
+                    (delta.dot(facing) - 0.13).abs() < 0.002
+                        && delta.perp_dot(facing).abs() < door.width * 0.5 + 0.17
+                        && roads
+                            .surface_height(point)
+                            .is_some_and(|height| (0.035..=0.22).contains(&(z - height)))
+                }),
+                "the bottom tread enters the paved surface at the door"
+            );
+        }
     }
-    assert!(output.supports.positions.iter().all(|point| {
-        roads
-            .surface_height(Vec2::new(point[0], point[1]))
-            .is_none()
-    }));
+}
+
+#[test]
+fn road_rings_grow_only_to_meet_building_demand() {
+    use motu::Vec2;
+
+    fn corner_radii(town: &TownOutput) -> Vec<f32> {
+        let centre = &town.instances[0];
+        let origin = Vec2::from_slice(&centre.position[..2]);
+        let rotation = Vec2::from_angle(-centre.yaw);
+        let mut radii: Vec<_> = town
+            .roads
+            .as_ref()
+            .unwrap()
+            .junctions
+            .iter()
+            .filter_map(|junction| {
+                let local = rotation.rotate(junction.point - origin).abs();
+                ((local.x - local.y).abs() < 0.002).then_some(local.x)
+            })
+            .collect();
+        radii.sort_unstable_by(f32::total_cmp);
+        radii.dedup_by(|a, b| (*a - *b).abs() < 0.002);
+        radii
+    }
+
+    let mut input = input();
+    input.terrain = terrain(|x, y| if x.abs() < 2. && y < 0. { -1. } else { 6. });
+    input.rivers[0].points[0] = [0., 10.];
+    let mut recipe = TownRecipe {
+        schema_version: 1,
+        catalogue: vec![entry("centre", 1, TownPlacement::Centre)],
+        settings: TownSettings {
+            town_radius: 5.,
+            building_gap: 1.5,
+            roads: Some(TownRoadSettings::default()),
+            ..TownSettings::default()
+        },
+    };
+    let small = generate_town(&recipe, &input).unwrap();
+    assert_eq!(small.instances.len(), 1);
+    assert_eq!(corner_radii(&small).len(), 1);
+    recipe
+        .catalogue
+        .push(entry("house", 108, TownPlacement::Other));
+    let large = generate_town(&recipe, &input).unwrap();
+    assert_eq!(large.centre, small.centre);
+    assert_eq!(large.instances.len(), 109);
+    assert_eq!(large.skipped_count, 0);
+    assert!(corner_radii(&large).len() > 2);
+    large.roads.unwrap().validate().unwrap();
+}
+
+#[test]
+fn town_packs_wide_and_narrow_footprints_inside_the_spacing_target() {
+    use island_building::terrain_support::{PlacementPose, foundation_footprints};
+    use motu::Vec2;
+
+    let mut input = input();
+    input.terrain = terrain(|x, y| if x.abs() < 2. && y < 0. { -1. } else { 6. });
+    let mut wide = entry("workshop", 6, TownPlacement::Other);
+    wide.building.width = 10.;
+    wide.building.depth = 7.;
+    let recipe = TownRecipe {
+        schema_version: 1,
+        catalogue: vec![
+            entry("centre", 1, TownPlacement::Centre),
+            entry("small-house", 26, TownPlacement::Other),
+            wide,
+        ],
+        settings: TownSettings {
+            building_gap: 1.5,
+            clearance_margin: 2.,
+            roads: Some(TownRoadSettings::default()),
+            ..TownSettings::default()
+        },
+    };
+    let town = generate_town(&recipe, &input).unwrap();
+    let street_yaw = town.instances[0].yaw;
+    let bounds: Vec<_> = town
+        .instances
+        .iter()
+        .skip(1)
+        .map(|instance| {
+            let building = &town.prototypes[instance.prototype_index].building.recipe;
+            let foundation = foundation_footprints(building)[0];
+            let edge = building.roof.overhang + 0.15;
+            let min = [foundation.min[0] - edge, foundation.min[1] - edge];
+            let max = [foundation.max[0] + edge, foundation.max[1] + edge];
+            let pose = PlacementPose {
+                origin: instance.position,
+                yaw: instance.yaw,
+            };
+            let points = [
+                [min[0], min[1]],
+                [min[0], max[1]],
+                [max[0], min[1]],
+                [max[0], max[1]],
+            ]
+            .map(|[x, y]| {
+                let [x, y, _] = pose.world_point([x, y, 0.]);
+                Vec2::from_angle(-street_yaw).rotate(Vec2::new(x, y))
+            });
+            points.into_iter().fold(
+                (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+                |(lower, upper), point| (lower.min(point), upper.max(point)),
+            )
+        })
+        .collect();
+    assert!(
+        town.instances
+            .iter()
+            .all(|instance| instance.frontage.is_some())
+    );
+    assert!(
+        town.prototypes
+            .iter()
+            .any(|prototype| prototype.entry_id == "small-house")
+    );
+    assert!(
+        town.prototypes
+            .iter()
+            .any(|prototype| prototype.entry_id == "workshop")
+    );
+    assert!(
+        bounds.len() >= 15,
+        "only {} frontage buildings",
+        bounds.len()
+    );
+    let mut tight_neighbours = 0;
+    for (index, &(min, max)) in bounds.iter().enumerate() {
+        let nearest = bounds
+            .iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .map(|(_, &(other_min, other_max))| {
+                (min - other_max)
+                    .max(other_min - max)
+                    .max(Vec2::ZERO)
+                    .length()
+            })
+            .fold(f32::INFINITY, f32::min);
+        assert!(nearest >= 1.49, "footprints too close at {nearest} metres");
+        if nearest <= 2.0 {
+            tight_neighbours += 1;
+        }
+    }
+    assert!(
+        tight_neighbours >= bounds.len() / 2,
+        "only {tight_neighbours} of {} plots have a tight neighbour",
+        bounds.len()
+    );
 }
 
 #[test]

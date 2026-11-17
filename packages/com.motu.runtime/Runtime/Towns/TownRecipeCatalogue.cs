@@ -123,8 +123,9 @@ namespace Motu.Towns
     public sealed class TownPlanningSettings
     {
         [Range(1f, 1000f), InspectorName("Site Search Radius (m)")] public float site_search_radius = 100f;
+        [Tooltip("Placement radius with roads disabled. Street networks grow to fit the catalogue.")]
         [Range(1f, 1000f), InspectorName("Town Radius (m)")] public float town_radius = 85f;
-        [Range(0f, 100f), InspectorName("Building Gap (m)")] public float building_gap = 3f;
+        [Range(0f, 100f), InspectorName("Building Gap (m)")] public float building_gap = 1.5f;
         [Range(0f, 100f), InspectorName("River Margin (m)")] public float river_margin = 3f;
         [Range(0f, 100f), InspectorName("Decoration Clearance Margin (m)")] public float clearance_margin = 2f;
         [Range(0f, 30f), InspectorName("Entrance Approach Length (m)")] public float approach_length = 3f;
@@ -162,7 +163,6 @@ namespace Motu.Towns
     [Serializable]
     public sealed class TownRoadSettings
     {
-        [Range(1, 2), InspectorName("Ring Count")] public int ring_count = 2;
         [Range(12f, 60f), InspectorName("Ring Spacing (m)")] public float ring_spacing = 24f;
         [Range(1f, 6f), InspectorName("Street Half Width (m)")] public float half_width = 2f;
         [Range(1f, 6f), InspectorName("Access Road Half Width (m)")] public float access_half_width = 3f;
@@ -173,7 +173,6 @@ namespace Motu.Towns
 
         internal void Validate()
         {
-            TownPlanningSettings.Require("Ring count", ring_count, 1, 2);
             TownPlanningSettings.Require("Ring spacing", ring_spacing, 12, 60);
             TownPlanningSettings.Require("Street half width", half_width, 1, 6);
             TownPlanningSettings.Require("Access road half width", access_half_width, 1, 6);

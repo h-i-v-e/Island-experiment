@@ -2,8 +2,8 @@
 
 Coastal request factories expose **Coastal Towns**. Towns are enabled by default;
 radial islands are unaffected. Leave the catalogue empty to use the packaged
-cathedral (one Centre), cottages (five to twelve Other), and workshops (two to
-four Other).
+cathedral, cottages, workshops, and smaller houses. Copy counts supply
+candidate buildings, and the usable street frontages determine how many fit.
 
 Create a catalogue with **Assets → Create → Motu → Town Recipe Catalogue**.
 Assign Building Studio recipe JSON TextAssets and a stable unique ID to each
@@ -30,18 +30,29 @@ targets. Native generation skips copies when no safe dry placement exists.
 A coastal section without a river reaching the sea produces no town.
 Regenerate or reload after catalogue edits.
 
-Coastal Towns enables roads by default. Rust starts with up to two concentric
-square roads around the central building and four access roads through their
-side midpoints. Water, steep terrain, or excessive excavation can interrupt an
-individual street. The parts that reach the town centre stay in use. Where a
-river interrupts an approach and the opposite bank can support a landing,
-the plan records a candidate for a future bridge.
+Coastal Towns enables roads by default. Rust starts with one square ring around
+the central building. When the catalogue needs more frontage, the planner tries
+additional concentric rings and keeps the smallest layout that fits the most
+requested copies. Terrain and the road geometry budget bound growth. The town
+radius setting applies to placement with roads disabled.
+
+Cross roads connect the rings at their side midpoints. Each junction matches the
+width of the street entering from each axis, keeping the central square clear
+for the building and its walking approach. Water, steep terrain, or excessive excavation
+can interrupt a ring street. The sections that reach the town centre stay in use.
+A cross road between rings requires a complete span and a junction at each end.
+An outward access road must reach its planned exit. Where a river interrupts a
+street and both banks can support landings, the plan records a candidate for a
+future bridge.
 
 Roads have a level cross-section and a constrained grade along their length.
 The same native grade drives the road surface and terrain collision, with
 shoulders that blend into the natural slope. Buildings use the frontage of a
-finished street. Rust rotates their resolved entrance toward that street and
-checks that the entrance approach and fitted stairs can reach it.
+finished street. Rust fills each frontage with larger footprints first and
+fits smaller houses into the remaining spaces. The default minimum gap is
+1.5 m between occupied footprints. Decoration clearance can overlap without
+spacing the buildings further apart. The resolved entrance points toward the
+street and the stairs and approach are checked for walkability.
 Road controls cover ring spacing, road widths, shoulder width, grade, and cut
 depth. Disable roads to use the earlier placement style.
 
