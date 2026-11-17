@@ -178,16 +178,16 @@ impl CameraControls {
         let Some(authored) = recipe.extensions.iter().find(|e| e.id == extension.id) else {
             return;
         };
+        let doorway = extension.doorway.unwrap_or(extension.connection);
+        let centre = std::array::from_fn::<_, 3, _>(|i| (doorway.min[i] + doorway.max[i]) * 0.5);
+        let normal = authored.facade.normal();
         self.walkthrough = true;
-        self.feet = native_to_bevy(authored.facade.point(
-            recipe,
-            authored.offset,
+        self.feet = native_to_bevy([
+            centre[0] - normal[0] * (recipe.wall_thickness + 0.8),
+            centre[1] - normal[1] * (recipe.wall_thickness + 0.8),
             0.025,
-            recipe.wall_thickness + 0.8,
-        ));
-        let target = native_to_bevy(std::array::from_fn::<_, 3, _>(|i| {
-            (extension.room_bounds.min[i] + extension.room_bounds.max[i]) * 0.5
-        }));
+        ]);
+        let target = native_to_bevy(centre);
         let look = target - (self.feet + Vec3::Y * 1.65);
         self.yaw = (-look.x).atan2(-look.z);
         self.pitch = (-look.y / look.length()).asin();

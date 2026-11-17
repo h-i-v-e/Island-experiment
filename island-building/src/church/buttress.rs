@@ -1,8 +1,38 @@
 //! Concentric circular stone bands, with the same two-centred profile as the windows.
-use super::{atlas, plan::Wall, windows};
+use super::{
+    atlas,
+    plan::{Plan, Wall},
+    windows,
+};
 use crate::{MaterialSlot, collision::BoxCollider, geometry::Builder};
 
 const THICKNESS: f32 = 0.48;
+
+/// One structural buttress, shared by its pier geometry and foundation layout.
+pub(super) struct Layout {
+    pub arch: Arch,
+    pub pier: BoxCollider,
+    pub wall: Wall,
+}
+
+impl Layout {
+    pub fn new(plan: &Plan<'_>, side: f32, y: f32) -> Self {
+        let arch = Arch::new(plan.c.buttress_reach, plan.r.wall_height);
+        let x = side * (plan.n + arch.span);
+        let pier = BoxCollider {
+            min: [x - 0.42, y - 0.45, -0.2],
+            max: [x + 0.42, y + 0.45, arch.pier_height],
+        };
+        Self {
+            arch,
+            pier,
+            wall: Wall {
+                a: [side * plan.n, y],
+                b: [x, y],
+            },
+        }
+    }
+}
 
 pub(super) struct Arch {
     pub span: f32,

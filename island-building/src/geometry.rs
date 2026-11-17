@@ -9,6 +9,7 @@ pub mod chimney;
 pub(crate) mod door_panels;
 pub mod foundation;
 pub(crate) mod hardware;
+pub(crate) mod interior_wall;
 pub(crate) mod internal_stairs;
 pub(crate) mod roof_covering;
 pub(crate) mod slabs;
@@ -721,34 +722,27 @@ fn partition(
         PartitionAxis::X => r.width * 0.5 - r.wall_thickness,
         PartitionAxis::Y => r.depth * 0.5 - r.wall_thickness,
     };
-    for (a, c, z0, z1) in [
-        (
-            -half,
-            p.door_offset - p.door_width * 0.5,
-            0.,
-            ceiling_top(r),
-        ),
-        (p.door_offset + p.door_width * 0.5, half, 0., ceiling_top(r)),
-        (
-            p.door_offset - p.door_width * 0.5,
-            p.door_offset + p.door_width * 0.5,
-            p.door_height,
-            ceiling_top(r),
-        ),
-    ] {
-        let (min, max) = match p.axis {
-            PartitionAxis::X => (
-                [a, p.offset - r.wall_thickness * 0.5, z0],
-                [c, p.offset + r.wall_thickness * 0.5, z1],
-            ),
-            PartitionAxis::Y => (
-                [p.offset - r.wall_thickness * 0.5, a, z0],
-                [p.offset + r.wall_thickness * 0.5, c, z1],
-            ),
-        };
-        b.cube(MaterialSlot::Interior, min, max);
-        colliders.push(BoxCollider { min, max });
-    }
+    let bounds = match p.axis {
+        PartitionAxis::X => BoxCollider {
+            min: [-half, p.offset - r.wall_thickness * 0.5, 0.],
+            max: [half, p.offset + r.wall_thickness * 0.5, ceiling_top(r)],
+        },
+        PartitionAxis::Y => BoxCollider {
+            min: [p.offset - r.wall_thickness * 0.5, -half, 0.],
+            max: [p.offset + r.wall_thickness * 0.5, half, ceiling_top(r)],
+        },
+    };
+    interior_wall::generate(
+        b,
+        r,
+        bounds,
+        Some(interior_wall::Doorway {
+            centre: p.door_offset,
+            width: p.door_width,
+            height: p.door_height,
+        }),
+        colliders,
+    );
 }
 fn gable(b: &mut Builder, r: &BuildingRecipe, f: Facade) {
     if r.roof.rise <= 0. {
@@ -997,8 +991,53 @@ fn roof_surfaces(b: &mut Builder, r: &BuildingRecipe, s: RoofSection, detailed: 
                 ],
                 [uv(x0, y1), uv(x1, y1), uv(x1, y0), uv(x0, y0)],
             );
+        } else {
+            for (min, max) in roof_soffit_cells(r, min, max) {
+                roof_soffit(b, s, min, max);
+            }
         }
     }
+}
+
+fn roof_soffit(builder: &mut Builder, section: RoofSection, min: [f32; 2], max: [f32; 2]) {
+    let [a, b] = min;
+    let [c, d] = max;
+    builder.quad(
+        MaterialSlot::Roof,
+        [
+            [a, d, section.height(a)],
+            [c, d, section.height(c)],
+            [c, b, section.height(c)],
+            [a, b, section.height(a)],
+        ],
+        [
+            section.uv(a, d),
+            section.uv(c, d),
+            section.uv(c, b),
+            section.uv(a, b),
+        ],
+    );
+}
+
+/// The exposed underside outside the wall footprint remains visible at coarse
+/// LODs even when the interior ceiling and attic faces are omitted.
+fn roof_soffit_cells(
+    recipe: &BuildingRecipe,
+    min: [f32; 2],
+    max: [f32; 2],
+) -> impl Iterator<Item = ([f32; 2], [f32; 2])> {
+    let width = recipe.width * 0.5;
+    let depth = recipe.depth * 0.5;
+    let left = min[0].max(-width);
+    let right = max[0].min(width);
+    [
+        (min, [max[0].min(-width), max[1]]),
+        ([min[0].max(width), min[1]], max),
+        ([left, min[1]], [right, max[1].min(-depth)]),
+        ([left, min[1].max(depth)], [right, max[1]]),
+    ]
+    .into_iter()
+    .filter(|(min, max)| min[0] < max[0] && min[1] < max[1])
 }
 // Validated roofs are <=43 metres wide, so this positive count is below 124.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

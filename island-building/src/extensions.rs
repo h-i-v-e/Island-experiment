@@ -5,6 +5,7 @@ mod clip;
 mod index;
 mod junction;
 mod node;
+mod rooms;
 mod validation;
 
 use crate::{
@@ -36,6 +37,7 @@ pub struct ExtensionRecipe {
     pub roof_rise: f32,
     pub windows: bool,
     pub window_panes: Option<WindowPanes>,
+    pub door_style: crate::DoorStyle,
 }
 
 impl Default for ExtensionRecipe {
@@ -51,6 +53,7 @@ impl Default for ExtensionRecipe {
             roof_rise: 0.4,
             windows: true,
             window_panes: None,
+            door_style: crate::DoorStyle::FrameAndPanel,
         }
     }
 }
@@ -63,6 +66,10 @@ pub struct ExtensionLayout {
     pub bounds: BoxCollider,
     pub room_bounds: BoxCollider,
     pub connection: BoxCollider,
+    #[serde(default)]
+    pub door_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doorway: Option<BoxCollider>,
     #[serde(default)]
     pub window_centres: Vec<[f32; 3]>,
 }

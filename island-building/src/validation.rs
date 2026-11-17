@@ -79,6 +79,10 @@ pub fn validate_with_base(
     if resolved.church.is_some() {
         return crate::church::validate(resolved.as_ref());
     }
+    if !resolved.extensions.is_empty() {
+        // Door placement needs the composed walls, windows and stair collisions.
+        return crate::extensions::generate(resolved.as_ref(), base).map(|_| ());
+    }
     let staircase = crate::stairs::resolve_placement(resolved.as_ref(), base)?;
     if let Some(placement) = &staircase {
         crate::openings::apply_entrance_offsets(&mut resolved, &placement.entrance_offsets);

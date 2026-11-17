@@ -6,7 +6,7 @@ namespace Motu.Interop
     internal static class CoastalStripNative
     {
         internal const uint ApiVersion = 1;
-        internal const uint AlgorithmRevision = 10;
+        internal const uint AlgorithmRevision = 11;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct Options

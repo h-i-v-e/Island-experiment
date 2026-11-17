@@ -13,6 +13,16 @@ pub(crate) fn diagnostics(recipe: &BuildingRecipe) -> Vec<Diagnostic> {
             "Use up to eight extensions on a rectangular building.",
         ));
     }
+    if recipe
+        .openings
+        .iter()
+        .any(|o| o.id.starts_with("extension-door-"))
+    {
+        errors.push(error(
+            "extensions",
+            "extension-door- IDs are reserved for generated internal doors.",
+        ));
+    }
     let mut ids = BTreeSet::new();
     for (index, extension) in recipe.extensions.iter().enumerate() {
         if extension.id.trim().is_empty() || extension.id.len() > 64 || !ids.insert(&extension.id) {

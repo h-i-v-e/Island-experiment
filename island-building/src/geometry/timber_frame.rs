@@ -511,6 +511,45 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detailed:
     }
 }
 
+/// A flat, two-sided partition reuses the exterior bays, braces and aperture cuts.
+pub(crate) fn interior_panel(builder: &mut Builder, recipe: &BuildingRecipe) {
+    let facade = Facade::South;
+    let front = -recipe.walls.frame_projection;
+    let back = recipe.wall_thickness + recipe.walls.frame_projection;
+    for member in layout(recipe, facade) {
+        let polygon = &member.polygon;
+        for i in 1..polygon.len() - 1 {
+            for (points, depth) in [
+                ([polygon[0], polygon[i], polygon[i + 1]], front),
+                ([polygon[0], polygon[i + 1], polygon[i]], back),
+            ] {
+                builder.triangle(
+                    MaterialSlot::Timber,
+                    points.map(|[u, z]| facade.point(recipe, u, z, depth)),
+                    points.map(|p| member.uv(p).map(|v| v * 0.5)),
+                );
+            }
+        }
+        for (a, b) in edges(polygon) {
+            // The floor and ceiling hide these horizontal perimeter caps.
+            if (a[1] - b[1]).abs() < 0.00001
+                && (a[1].abs() < 0.00001 || (a[1] - recipe.wall_height).abs() < 0.00001)
+            {
+                continue;
+            }
+            builder.face(
+                MaterialSlot::Timber,
+                [
+                    facade.point(recipe, b[0], b[1], front),
+                    facade.point(recipe, a[0], a[1], front),
+                    facade.point(recipe, a[0], a[1], back),
+                    facade.point(recipe, b[0], b[1], back),
+                ],
+            );
+        }
+    }
+}
+
 pub(super) fn corner_colliders(
     recipe: &BuildingRecipe,
 ) -> impl Iterator<Item = crate::collision::BoxCollider> {

@@ -147,6 +147,7 @@ pub(crate) fn generate(
         builder.cube(MaterialSlot::Interior, wall.min, wall.max);
         colliders.push(wall);
     }
+    framing(builder, recipe, stairs);
     let plan = plan(stairs).expect("enclosed doorway");
     let left = plan.door_offset - room.door_width * 0.5;
     let right = left + room.door_width;
@@ -169,4 +170,41 @@ pub(crate) fn generate(
         }
     }
     leaves.extend(doors(recipe, stairs));
+}
+
+fn framing(builder: &mut Builder, recipe: &BuildingRecipe, stairs: &StaircaseLayout) {
+    if recipe.walls.style != crate::WallStyle::WattleAndDaub {
+        return;
+    }
+    let room = stairs.stairwell.as_ref().expect("enclosed wall");
+    let plan = plan(stairs).expect("enclosed wall");
+    let t = room.wall_thickness;
+    for storey in 0..recipe.storeys {
+        let local = crate::storeys::recipe_for_storey(recipe, storey);
+        let floor = recipe.floor_height(storey);
+        let top = floor + super::ceiling_height(&local);
+        for side in StairwellSide::ALL {
+            if plan.shared_sides[side.index()] {
+                continue;
+            }
+            let range = if side.across() {
+                [
+                    plan.min[0] - if plan.shared_sides[3] { 0. } else { t },
+                    plan.max[0] + if plan.shared_sides[1] { 0. } else { t },
+                ]
+            } else {
+                [plan.min[1], plan.max[1]]
+            };
+            let bounds = wall_box(stairs, side, range, [floor, top], 0.);
+            let door = (side == plan.door_side).then(|| {
+                let axis = super::interior_wall::axis(bounds);
+                super::interior_wall::Doorway {
+                    centre: room.doorways[usize::from(storey)].centre[axis],
+                    width: room.door_width,
+                    height: room.door_height,
+                }
+            });
+            super::interior_wall::decorate(builder, &local, bounds, door);
+        }
+    }
 }

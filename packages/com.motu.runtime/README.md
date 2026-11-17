@@ -469,6 +469,12 @@ water worlds, URP, HDRP, XR and arbitrary origin shifting require additional wor
 Sample ship controls, minimap, preview UI and scene construction remain in the
 development project, outside this runtime assembly.
 
+River and waterfall water remains double sided. Refractive sheets write depth so
+overlapping triangles keep the nearest surface from either viewing direction.
+**Waterfall Rear Foam** on the river material adds a moving foam veil behind
+steep falls (default `0.6`, `0` disables it), fading out toward grazing angles
+and calm river surfaces. The existing foot mist remains mesh based.
+
 World discovery batches its candidates before starting generation, prioritising
 nearby detailed islands over distant silhouette cache misses. An approaching cold
 island goes directly through full preparation: the same result publishes its
@@ -589,6 +595,11 @@ calling SetActiveScene**: Unity keeps RenderSettings per active scene. An unexpe
 active-scene switch disables Motu to protect incoming lighting, but cannot restore
 the departed scene without changing the host's active scene again. Camera/light
 properties controlled by Motu should have no competing writers while it owns them.
+
+## Coastal towns
+
+Coastal factories generate native-planned river-mouth towns from editable Building
+Studio recipe catalogues. See [coastal town configuration](Documentation~/coastal-towns.md).
 
 ## Cache and native compatibility
 

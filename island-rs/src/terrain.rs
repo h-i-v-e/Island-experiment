@@ -49,6 +49,7 @@ mod gpu_generation;
 mod lod;
 mod material;
 mod sampling;
+pub(crate) mod town;
 mod snapshot;
 #[cfg(feature = "surface-atlas")]
 mod surface_atlas;

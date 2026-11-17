@@ -4,7 +4,7 @@ use bevy_egui::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, serial: u64, units: Dimensions) {
     ui.heading("Lean-tos & wings");
-    ui.label(egui::RichText::new("Attached ground-floor rooms share materials with the house. Their interiors connect across the shared wall; covered windows are omitted.").small().color(DIM));
+    ui.label(egui::RichText::new("Each attachment is a separate room with an internal door. Materials and door dimensions are shared with the house; covered windows are omitted.").small().color(DIM));
     let lengths = Facade::ALL.map(|f| f.length(draft));
     let default_panes = draft.opening_defaults.window_panes;
     let mut remove = None;
@@ -45,6 +45,7 @@ pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, serial: u64, u
                     );
                     units.length(ui, "Eaves height", &mut extension.wall_height, 1);
                     units.length(ui, "Roof rise", &mut extension.roof_rise, 1);
+                    door_style(ui, &mut extension.door_style);
                     ui.checkbox(&mut extension.windows, "Generate exterior windows");
                     ui.label("Windows use the building-wide dimensions and pane layout.");
                     let mut custom_panes = extension.window_panes.is_some();
@@ -102,4 +103,12 @@ pub(super) fn show(ui: &mut egui::Ui, draft: &mut BuildingRecipe, serial: u64, u
         });
     });
     ui.label(egui::RichText::new("Move entrances and chimneys clear of connections. Wings have gabled roofs; lean-to roofs fall away from the house. Both use level floors and foundations sized for the complete footprint on 30° terrain.").small().color(DIM));
+}
+
+fn door_style(ui: &mut egui::Ui, style: &mut crate::DoorStyle) {
+    ui.label("Internal door · building-wide door dimensions");
+    ui.horizontal(|ui| {
+        ui.selectable_value(style, crate::DoorStyle::Plank, "Plank");
+        ui.selectable_value(style, crate::DoorStyle::FrameAndPanel, "Frame & panel");
+    });
 }

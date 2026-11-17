@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 using Motu.Streaming;
 using Motu.World;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -103,6 +104,7 @@ namespace Motu.Islands
                 if (generator.Navigation.Enabled)
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.InstallBirdPerches(prepared.landBirdPerches, generator.Forest.ShowForests, prepared.colliderHeightMap.maximumHeight);
+                TownRenderer.Install(generator.runtimeRoot.transform, prepared.town, worldSize);
                 generator.islandRuntime.Activate();
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime.SetViewPosition(viewer.position);

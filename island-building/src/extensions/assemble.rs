@@ -43,7 +43,7 @@ pub(super) fn generate(
         colliders,
         support_colliders,
         stair_colliders,
-        doors,
+        mut doors,
         materials,
         mut layout,
         ..
@@ -69,15 +69,17 @@ pub(super) fn generate(
     for (node, component) in nodes.iter_mut().zip(&components) {
         node.set_surfaces(&component.lods, bottom);
     }
-    let lods = merge(&components, &nodes, resolved.atlas_size);
+    let mut lods = merge(&components, &nodes, resolved.atlas_size);
     let mut colliders = Vec::new();
     let mut supports = Vec::new();
     for (index, component) in components.iter().enumerate() {
         colliders.extend(collision(&component.colliders, &nodes, index));
         supports.extend_from_slice(&component.supports);
     }
+    let connections =
+        super::rooms::generate(&resolved, &nodes, &mut lods[0], &mut colliders, &mut doors)?;
     crate::validation::validate_door_swings(&doors, &colliders)?;
-    extend_layout(&mut layout, &resolved, &nodes, &components);
+    extend_layout(&mut layout, &resolved, &nodes, &components, &connections);
     let atlases: Vec<_> = components.into_iter().map(|c| c.atlas).collect();
     let atlas = atlas::pack(&atlases, resolved.atlas_size);
     let hash = crate::materials::prototype_hash(&resolved, &materials)?;
@@ -100,6 +102,7 @@ fn extend_layout(
     recipe: &BuildingRecipe,
     nodes: &[Node],
     components: &[Component],
+    connections: &[super::rooms::Connection],
 ) {
     layout.occupied_bounds.push(BoxCollider {
         min: layout.bounds_min,
@@ -120,6 +123,8 @@ fn extend_layout(
             bounds,
             room_bounds: node.room_bounds[0],
             connection: connection(recipe, e, node.room_bounds[0].max[2]),
+            door_id: connections[index - 1].id.clone(),
+            doorway: Some(connections[index - 1].bounds),
             window_centres: node
                 .recipe
                 .openings
@@ -247,11 +252,8 @@ fn mesh(
                 }
             })
             .collect();
-        let underside = slot == MaterialSlot::Interior
-            && vertices[0].normal[2] < -0.01
-            && vertices
-                .iter()
-                .any(|v| v.point[2] >= nodes[owner].recipe.eaves_height() - 0.01);
+        let roof = super::junction::roof_surface(slot, &vertices, &nodes[owner].recipe);
+        let underside = roof && vertices[0].normal[2] < -0.01;
         if slot == MaterialSlot::Interior
             && !underside
             && !nodes[owner].inner_wall(vertices[0].point, vertices[0].normal)
@@ -283,13 +285,12 @@ fn mesh(
             }
         }
         for (index, node) in nodes.iter().enumerate() {
-            if index == owner {
+            // Outside every occupied wall footprint, a roof's underside is
+            // exposed. A neighbour's ground-to-roof envelope also contains air
+            // below its eaves, so it cannot be used to remove these soffits.
+            if index == owner || underside {
                 continue;
             }
-            let roof = underside
-                || matches!(slot, MaterialSlot::Roof | MaterialSlot::ThatchEnd)
-                || slot.thatch_shell_layer().is_some()
-                || (slot == MaterialSlot::Atlas && source.normals[tri[0] as usize][2].abs() > 0.1);
             let volumes = volumes(node, slot, owner, level, bounds, roof);
             for volume in volumes {
                 pieces = pieces

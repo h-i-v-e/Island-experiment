@@ -11,10 +11,13 @@ mod buttress;
 mod details;
 mod doors;
 mod eaves;
+mod foundations;
 mod plan;
 mod shell;
 mod tracery;
 mod windows;
+
+pub(crate) use foundations::footprints as foundation_footprints;
 
 use crate::{
     BuildingError, BuildingLod, BuildingPrototype, BuildingRecipe, Facade, OpeningDimensions,

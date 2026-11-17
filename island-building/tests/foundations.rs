@@ -150,7 +150,7 @@ fn stair_direction_is_backward_compatible_and_round_trips_with_the_recipe() {
 }
 
 #[test]
-fn foundation_floor_and_hideable_stairs_have_distinct_geometry_and_materials() {
+fn foundation_and_hideable_stairs_keep_distinct_geometry_with_shared_stone() {
     let mut recipe = BuildingRecipe::hut();
     recipe.atlas_size = 128;
     let visible = generate(&recipe).unwrap();
@@ -218,9 +218,9 @@ fn foundation_floor_and_hideable_stairs_have_distinct_geometry_and_materials() {
         texture(&visible, MaterialSlot::Floor),
         texture(&hidden, MaterialSlot::Floor)
     );
-    assert_ne!(
-        texture(&visible, MaterialSlot::Foundation),
-        texture(&hidden, MaterialSlot::Foundation)
+    assert!(
+        texture(&visible, MaterialSlot::Foundation) == texture(&hidden, MaterialSlot::Foundation),
+        "the shared default ignores the legacy per-building foundation tint"
     );
 }
 

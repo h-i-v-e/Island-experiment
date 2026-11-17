@@ -12,6 +12,7 @@ using Debug = UnityEngine.Debug;
 using Motu.Interop;
 using Motu.Rendering;
 using Motu.Streaming;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -40,7 +41,7 @@ namespace Motu.Islands
                 request.SnapshotCacheBudgetBytes,
                 request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
                 prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable,
-                request.CoastalStripOptions);
+                request.CoastalStripOptions, request.TownRecipeJson, request.TownSeed, request.TownDependencies);
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -59,7 +60,8 @@ namespace Motu.Islands
             CaveNative.Options? caveOptions = null,
             CaveNative.NetworkOptions? networkOptions = null,
             CaveNative.WalkOptions? walkOptions = null, bool prepareNavigation = true,
-            CoastalStripNative.Options? coastalStripOptions = null)
+            CoastalStripNative.Options? coastalStripOptions = null,
+            string townRecipeJson = null, ulong townSeed = 0UL, TownDependencyData[] townDependencies = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = LoadOrGenerateNative(islandSeed, options, forestOptions, reedOptions,
@@ -67,6 +69,9 @@ namespace Motu.Islands
                 walkOptions, out var generated, hybridForestOptions, coastalStripOptions);
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                // Snapshot remains pre-clearance; apply native town exclusions before decoration exports.
+                var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies);
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -127,7 +132,7 @@ namespace Motu.Islands
                     materialTextures,
                     cavesPrepared,
                     boulderColliders, navigationMesh, landBirdPerches,
-                    lodSurfaceMaps: lodSurfaceMaps);
+                    lodSurfaceMaps: lodSurfaceMaps, town: town);
                 handle = IntPtr.Zero;
                 return result;
             }

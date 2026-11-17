@@ -484,8 +484,13 @@ fn tread_overhangs_have_support_and_collision_and_share_maps_without_hiding_the_
         let tread = group(level, crate::MaterialSlot::StairTreads);
         assert!(tread.stairs);
         assert_eq!(
+            group(level, crate::MaterialSlot::Foundation).material,
+            tread.material,
+            "entrance supports share one stone material, with independent visibility"
+        );
+        assert_ne!(
             hearth.material, tread.material,
-            "one set of stone maps, independent mesh visibility"
+            "the interior hearth stays separate and clean"
         );
     }
     instance.stairs_visible = false;

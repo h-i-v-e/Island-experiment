@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0bdeea4aff7d4959962c674283cb7b9e, type: 3}
+  m_Name: DefaultTownCatalogue
+  m_EditorClassIdentifier:
+  entries:
+  - id: cathedral
+    buildingRecipe: {fileID: 4900000, guid: 9bdf01ae36dc4a0db4dce98d5a7050f3, type: 3}
+    minimumCount: 1
+    maximumCount: 1
+    placement: 0
+  - id: cottage
+    buildingRecipe: {fileID: 4900000, guid: 5413aa313d844db682959a86a5732de1, type: 3}
+    minimumCount: 5
+    maximumCount: 12
+    placement: 1
+  - id: workshop
+    buildingRecipe: {fileID: 4900000, guid: 3def9cd516684ce99262eff5d3210aaa, type: 3}
+    minimumCount: 2
+    maximumCount: 4
+    placement: 1
+  settings:
+    site_search_radius: 100
+    town_radius: 85
+    building_gap: 3
+    river_margin: 3
+    clearance_margin: 2
+    approach_length: 3
+    max_slope_degrees: 14
+    max_support_height: 4
+    min_dry_height: 0.35
+    sample_spacing: 0.75
+    attempts_per_copy: 96
+    max_total_attempts: 4096

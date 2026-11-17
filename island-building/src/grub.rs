@@ -3,6 +3,24 @@ use serde::{Deserialize, Serialize};
 
 pub const SHADER_SOURCE: &str = include_str!("render/shaders/grub.wgsl");
 
+/// Foundation surfaces share a fixed enabled profile; other exteriors retain
+/// their authored building-specific weathering settings.
+#[must_use]
+pub fn material_filter(
+    recipe: &crate::BuildingRecipe,
+    slot: crate::MaterialSlot,
+) -> Option<(GrubFilter, u64)> {
+    if slot.is_foundation() {
+        Some((
+            crate::foundation_stone::grub_filter(),
+            crate::foundation_stone::SEED,
+        ))
+    } else {
+        (recipe.grub_filter.enabled && exterior_material(recipe, slot))
+            .then_some((recipe.grub_filter, recipe.seed))
+    }
+}
+
 /// Only dedicated outdoor groups are weathered. Mixed geometry and the distant
 /// facade atlas stay clean so weathering cannot leak into timber or interiors.
 #[must_use]
@@ -99,6 +117,29 @@ impl GrubFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn foundation_profile_is_enabled_and_shared_without_weathering_the_hearth() {
+        let mut a = crate::BuildingRecipe::hut();
+        let mut b = crate::BuildingRecipe::gothic_church();
+        a.grub_filter.enabled = false;
+        b.seed = 987_654;
+        b.grub_filter.height_falloff = 9.;
+        for slot in [
+            crate::MaterialSlot::Foundation,
+            crate::MaterialSlot::Stairs,
+            crate::MaterialSlot::StairTreads,
+        ] {
+            let first = material_filter(&a, slot).unwrap();
+            assert!(first.0.enabled);
+            assert_eq!(first, material_filter(&b, slot).unwrap());
+        }
+        assert!(material_filter(&a, crate::MaterialSlot::StoneSlab).is_none());
+        assert_eq!(
+            material_filter(&b, crate::MaterialSlot::Wall),
+            Some((b.grub_filter, b.seed))
+        );
+    }
 
     #[test]
     fn weathering_is_limited_to_the_requested_dedicated_outdoor_groups() {

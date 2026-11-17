@@ -138,6 +138,38 @@ impl Default for ReedMeshes {
 }
 
 impl ReedMeshes {
+    pub(crate) fn clear_settlement(&mut self, clearance: &[crate::DecorationClearance]) {
+        let before = self.instances.len();
+        let mut counts = vec![0_u32; self.tile_offsets.len() - 1];
+        let mut tile = 0;
+        let mut index = 0;
+        self.instances.retain(|clump| {
+            while tile + 1 < counts.len() && self.tile_offsets[tile + 1] as usize <= index {
+                tile += 1;
+            }
+            index += 1;
+            let keep = !crate::terrain::town::intersects(
+                clearance,
+                clump.root.truncate(),
+                clump.width_metres / ISLAND_WORLD_METRES,
+            );
+            if keep {
+                counts[tile] += 1;
+            }
+            keep
+        });
+        if self.instances.len() == before {
+            return;
+        }
+        self.tile_offsets.clear();
+        self.tile_offsets.push(0);
+        for count in counts {
+            self.tile_offsets
+                .push(self.tile_offsets.last().copied().unwrap_or(0) + count);
+        }
+        self.tiles.take();
+    }
+
     pub(crate) fn tiles(&self) -> &[ReedMeshTile] {
         self.tiles.get_or_init(|| {
             let mut tiles =

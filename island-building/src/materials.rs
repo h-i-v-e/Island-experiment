@@ -71,13 +71,13 @@ pub(crate) fn generate(
     ]
     .into_iter()
     .filter(|(slot, _, path)| match slot {
-        MaterialSlot::Interior | MaterialSlot::Trim => r.church.is_some(),
+        MaterialSlot::Interior => r.church.is_some() || r.walls.style == WallStyle::WattleAndDaub,
+        MaterialSlot::Trim => r.church.is_some(),
         MaterialSlot::Door => path.is_some(),
         MaterialSlot::Timber => {
             r.walls.style == WallStyle::WattleAndDaub || r.storeys > 1 || path.is_some()
         }
-        MaterialSlot::Chimney => r.chimney.is_some() || path.is_some(),
-        MaterialSlot::StoneSlab => r.foundation.stairs || r.chimney.is_some() || path.is_some(),
+        MaterialSlot::Chimney | MaterialSlot::StoneSlab => r.chimney.is_some() || path.is_some(),
         _ => true,
     })
     .map(|(slot, colour, path)| material(r, base, slot, colour, path))
@@ -102,6 +102,7 @@ fn material(
     // Fine straw retains its 1024px source even with a small editing atlas.
     // The other surfaces retain their existing preview/final source budget.
     let size = match (slot, r.roof.covering) {
+        (MaterialSlot::Foundation, _) if path.is_none() => crate::foundation_stone::TEXTURE_SIZE,
         (MaterialSlot::Roof, RoofCovering::Thatch) => 1024,
         (MaterialSlot::Roof, RoofCovering::Slate)
         | (MaterialSlot::Floor | MaterialSlot::Ceiling, _) => r.atlas_size.clamp(256, 512),
@@ -118,7 +119,11 @@ fn material(
         {
             Some("stone_colour")
         }
-        MaterialSlot::Wall if r.walls.style == WallStyle::WattleAndDaub => Some("plaster_colour"),
+        MaterialSlot::Wall | MaterialSlot::Interior
+            if r.walls.style == WallStyle::WattleAndDaub =>
+        {
+            Some("plaster_colour")
+        }
         MaterialSlot::Timber | MaterialSlot::Floor | MaterialSlot::Ceiling => Some("wood_colour"),
         MaterialSlot::Chimney | MaterialSlot::Foundation | MaterialSlot::StoneSlab => {
             Some("stone_colour")
@@ -126,7 +131,9 @@ fn material(
         MaterialSlot::Roof if r.roof.covering != RoofCovering::StandingSeam => Some("roof_colour"),
         _ => None,
     };
-    if let Some(parameter) = colour_parameter.filter(|_| path.is_none()) {
+    if let Some(parameter) =
+        colour_parameter.filter(|_| path.is_none() && slot != MaterialSlot::Foundation)
+    {
         parameters.insert_colour(parameter, LinearRgb::from(colour));
     }
     let (mut recipe, source_hash) = load_material(r, base, slot, colour, path, &parameters)?;
@@ -274,7 +281,9 @@ fn default_material(
         MaterialSlot::Floor if recipe.church.is_some() => {
             include_bytes!("../../island-rs/texture-recipes/stone-slab.json")
         }
-        MaterialSlot::Wall if recipe.walls.style == WallStyle::WattleAndDaub => {
+        MaterialSlot::Wall | MaterialSlot::Interior
+            if recipe.walls.style == WallStyle::WattleAndDaub =>
+        {
             include_bytes!("../../island-rs/texture-recipes/wattle-daub.json")
         }
         MaterialSlot::Timber => {
@@ -302,7 +311,9 @@ fn default_material(
     };
     let mut material: TextureRecipe = serde_json::from_slice(bytes)
         .map_err(|error| BuildingError::new("default material", error.to_string()))?;
-    material.seed ^= recipe.seed;
+    if slot != MaterialSlot::Foundation {
+        material.seed ^= recipe.seed;
+    }
     if slot == MaterialSlot::Timber {
         material.name = "Frame timber".into();
         material.physical_tile_width_m = 0.18;
@@ -378,7 +389,7 @@ pub(crate) fn prototype_hash(
     portable.materials.stone_slab_recipe = None;
     portable.materials.ceiling_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry54:material20:bake23");
+    hash.update(b"island-building:geometry57:material22:bake25");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );
@@ -405,8 +416,14 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
         | MaterialSlot::ThatchShell3
         | MaterialSlot::ThatchShell4 => m.roof,
         MaterialSlot::Floor => m.floor,
-        MaterialSlot::Foundation | MaterialSlot::Stairs => m.foundation,
-        MaterialSlot::StoneSlab | MaterialSlot::StairTreads => m.stone_slab,
+        MaterialSlot::Foundation | MaterialSlot::Stairs | MaterialSlot::StairTreads => {
+            if crate::foundation_stone::uses_shared_default(recipe) {
+                crate::foundation_stone::COLOUR
+            } else {
+                m.foundation
+            }
+        }
+        MaterialSlot::StoneSlab => m.stone_slab,
         MaterialSlot::Ceiling => m.ceiling,
         MaterialSlot::Interior => m.interior,
         MaterialSlot::Trim => m.trim,
@@ -430,6 +447,82 @@ mod tests {
     };
 
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn shared_foundation_pixels_ignore_building_seed_palette_and_preview_size() {
+        let mut first = BuildingRecipe::hut();
+        first.atlas_size = 16;
+        let mut second = BuildingRecipe::gothic_church();
+        second.seed = 987_654;
+        second.atlas_size = 1024;
+        second.materials.foundation = [0.8, 0.05, 0.1];
+        let a = material(
+            &first,
+            Path::new("."),
+            MaterialSlot::Foundation,
+            first.materials.foundation,
+            None,
+        )
+        .unwrap();
+        let b = material(
+            &second,
+            Path::new("."),
+            MaterialSlot::Foundation,
+            second.materials.foundation,
+            None,
+        )
+        .unwrap();
+        assert!(
+            a == b,
+            "default foundation pixels and identity must be shared"
+        );
+        assert_eq!(a.size, crate::foundation_stone::TEXTURE_SIZE);
+        for slot in [
+            MaterialSlot::Foundation,
+            MaterialSlot::Stairs,
+            MaterialSlot::StairTreads,
+        ] {
+            assert_eq!(slot.texture_slot(), MaterialSlot::Foundation);
+            assert_eq!(
+                colour(&first, slot).map(f32::to_bits),
+                colour(&second, slot).map(f32::to_bits)
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_foundation_recipe_retains_its_authored_surface() {
+        let directory = std::env::temp_dir().join(format!(
+            "building-foundation-material-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let mut authored: TextureRecipe = serde_json::from_slice(include_bytes!(
+            "../../island-rs/texture-recipes/rough-stone.json"
+        ))
+        .unwrap();
+        authored.seed += 1234;
+        authored.physical_tile_width_m = 7.2;
+        let bytes = serde_json::to_vec(&authored).unwrap();
+        fs::write(directory.join("custom.json"), &bytes).unwrap();
+        let mut recipe = BuildingRecipe::hut();
+        recipe.atlas_size = 16;
+        recipe.materials.foundation_recipe = Some("custom.json".into());
+        let custom = material(
+            &recipe,
+            &directory,
+            MaterialSlot::Foundation,
+            recipe.materials.foundation,
+            recipe.materials.foundation_recipe.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(custom.size, 16);
+        assert_eq!(custom.physical_size[0].to_bits(), 7.2_f32.to_bits());
+        assert_eq!(custom.source_hash, hash_bytes(&bytes));
+        assert!(!crate::foundation_stone::uses_shared_default(&recipe));
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn floor_and_ceiling_boards_have_physical_relief_and_independent_tints() {

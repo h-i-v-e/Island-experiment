@@ -11,7 +11,7 @@ const SURFACES: [(MaterialSlot, &str); 9] = [
     (MaterialSlot::Roof, "Roof"),
     (MaterialSlot::Foundation, "Foundation / stairs"),
     (MaterialSlot::Chimney, "Chimney"),
-    (MaterialSlot::StoneSlab, "Stone slabs"),
+    (MaterialSlot::StoneSlab, "Hearth slab"),
     (MaterialSlot::Door, "Door material"),
 ];
 

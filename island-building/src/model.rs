@@ -31,6 +31,11 @@ pub enum MaterialSlot {
 }
 impl MaterialSlot {
     #[must_use]
+    pub const fn is_foundation(self) -> bool {
+        matches!(self, Self::Foundation | Self::Stairs | Self::StairTreads)
+    }
+
+    #[must_use]
     pub const fn is_stairs(self) -> bool {
         matches!(self, Self::Stairs | Self::StairTreads)
     }
@@ -39,8 +44,7 @@ impl MaterialSlot {
     #[must_use]
     pub const fn texture_slot(self) -> Self {
         match self {
-            Self::Stairs => Self::Foundation,
-            Self::StairTreads => Self::StoneSlab,
+            Self::Stairs | Self::StairTreads => Self::Foundation,
             _ => self,
         }
     }

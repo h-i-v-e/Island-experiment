@@ -7,6 +7,9 @@ edition = "2024"
 description = "Deterministic procedural buildings and a standalone recipe studio"
 license = "UNLICENSED"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 default = []
 bevy = ["dep:bevy"]
@@ -27,6 +30,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 sha2 = "0.10.9"
 png = "0.18"
+base64 = "0.22"
 bevy = { version = "0.19.1", optional = true, default-features = false, features = ["3d", "ui", "png", "default_font", "multi_threaded"] }
 bevy_egui = { version = "0.42", optional = true }
 rfd = { version = "0.17.2", optional = true }

@@ -189,17 +189,17 @@ fn write_package(
         })
         .collect();
     let mut manifest=ExportManifest {
-        package_version:1,geometry_version:54,material_version:20,bake_version:23,
+        package_version:1,geometry_version:57,material_version:22,bake_version:25,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
-        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. Hide the stairs and stair_treads material groups together at every LOD; disable stairs-collision.json with them. collision.json always includes the foundation; stairs.json describes each entrance, flight direction and landing bounds; foundation.json gives the buried bounds. Baked foundation maps are shared by stair bodies at all LODs; stair_treads use stone_slab maps, also used by the LOD0 fireplace hearth. Preserve tread overhang collision from stairs-collision.json with stair visibility.".into(),
+        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. Hide stairs and stair_treads geometry groups together at every LOD; disable stairs-collision.json with them. collision.json always includes the foundation; stairs.json describes each entrance, flight direction and landing bounds; foundation.json gives the buried bounds. Foundation, stairs and stair_treads bind one foundation material and the shared_foundation grub profile in grub-filter.json. They retain separate geometry groups for visibility and collision. stone_slab is the clean fireplace hearth material. Preserve tread overhang collision from stairs-collision.json with stair visibility.".into(),
         floor_policy:"Ground floor is Z=0; storey N is N*(wall_height+floor_thickness). Opening sills and partition dimensions are floor-relative. layout.json contains every floor height and the resolved internal staircase, including floor and turn landings. support-collision.json contains occupied floors and internal treads/landings. These supports and collision.json remain active at every LOD, independently of hideable exterior entrance stairs. Enclosed stairwells use interior wall surfaces at LOD0, with one outward-opening stairwell-door-N on each floor and exterior=false in doors.json. Internal doors use the shared door material and dimensions, retain independent angles and are shown at LOD0 only. Stairwell bounds, doorway approach points and enclosure metadata are in layout.json. enclosure.shared_sides is ordered near/right/far/left in stair-local coordinates; shared sides reuse external walls and remaining partitions extend to them. enclosure.merge_unit is the authored wall U module in metres. Staircase reversed rotates the across/along basis 180 degrees without changing its axis. Internal stair meshes use timber at LOD0 only. Landing perimeter guards are omitted within 0.6 m of an external wall including inward timber projection; flight rails remain. Floor openings have timber trimmers and headers beneath the boards, inset 0.015 m from adjacent wall planes, with a shallower landing-edge header for headroom. Each occupied floor has a fireplace and hearth aligned beneath one shared roof chimney and cap; stair placement reserves that wall and the hearth approach for the rooms. Automatic stairs rank both axes by proximity to usable exterior walls with a 0.04 m timber-face clearance; entrance offsets are preferences and move along their facade to clear the selected stairs, including their leaf swing and player approach. Generated ground-floor windows and external entrance steps follow the resolved door positions; authored manual windows remain fixed. Upper floors and joists have real staircase cutouts; only the top storey carries the roof.".into(),
         masked_materials,lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
     };
     manifest.door_policy.push_str(" Optional collision_sections contains hinge-local solid boxes for shaped leaves. Rotate every section with the leaf; missing/empty sections use the rectangular width/height/thickness bounds. Each Gothic church entrance exports separate -left and -right leaf IDs, hinges, meshes, hardware and saved angles. Its timber leaves fill the complete pointed arch; the recipe door height is the spring line, where the arch begins.");
     if prototype.recipe.church.is_some() {
-        manifest.floor_policy="One connected cruciform church at Z=0, without occupied upper storeys or furnishings. layout.church describes the nave, transept, towers and counter-clockwise floor outline. Floors/support and buried foundations follow that outline; foundation.json is their enclosing bounds. LOD0 has openable entrance joinery, pointed see-through windows, tracery and interior stone ribs. LOD1 has opaque glazing and no interior surfaces. LOD2 uses padded, baked stone, roof, portal and pointed-window bay charts. Twin towers and open flying-buttress arches retain their silhouette at every LOD. Preserve instance door angles, floor support and collisions at every LOD.".into();
+        manifest.floor_policy="One connected cruciform church at Z=0, without occupied upper storeys or furnishings. layout.church describes the nave, transept, towers and counter-clockwise floor outline. Floors follow that outline. Buried foundations also support every outer buttress pier at its underside; foundation.json encloses the complete support footprint. LOD0 has openable entrance joinery, pointed see-through windows, tracery and interior stone ribs. LOD1 has opaque glazing and no interior surfaces. LOD2 uses padded, baked stone, roof, portal and pointed-window bay charts. Twin towers and open flying-buttress arches retain their silhouette at every LOD. Preserve instance door angles, floor support and collisions at every LOD.".into();
     }
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     fs::write(root.join("manifest.json"), bytes)?;
@@ -226,15 +226,26 @@ fn write_grub_filter(
         MaterialSlot::ThatchShell4,
     ]
     .into_iter()
-    .filter(|slot| crate::grub::exterior_material(recipe, *slot))
+    .filter(|slot| !slot.is_foundation() && crate::grub::exterior_material(recipe, *slot))
     .map(material_name)
     .collect();
     let descriptor = serde_json::json!({
+        "version": 2,
         "settings": recipe.grub_filter,
         "uniform_vectors": recipe.grub_filter.uniform_vectors(recipe.seed),
+        "shared_foundation": {
+            "id": crate::foundation_stone::MATERIAL_ID,
+            "shared_default": crate::foundation_stone::uses_shared_default(recipe),
+            "material_groups": ["foundation", "stairs", "stair_treads"],
+            "texture_material": "foundation",
+            "settings": crate::foundation_stone::grub_filter(),
+            "uniform_vectors": crate::foundation_stone::grub_filter()
+                .uniform_vectors(crate::foundation_stone::SEED),
+        },
+        "material_aliases": {"stairs": "foundation", "stair_treads": "foundation"},
         "exterior_only": true,
         "allowed_materials": allowed_materials,
-        "surface_rule": "Apply only to allowed_materials. All unlisted or shared groups stay clean. Wall is included for wattle_and_daub and dedicated church exterior faces, roof/thatch groups only for thatch. The mixed LOD2 facade atlas stays unfiltered to protect its baked timber and joinery.",
+        "surface_rule": "Use shared_foundation for foundation, stairs and stair_treads at every LOD; it is enabled independently of the building exterior settings. Other settings apply only to allowed_materials. All unlisted groups stay clean. Wall is included for wattle_and_daub and dedicated church exterior faces, roof/thatch groups only for thatch. The mixed LOD2 facade atlas stays unfiltered to protect its baked timber and joinery.",
         "coordinate_system": "Building-local Y-up metres: native (x,y,z) becomes (x,z,-y). Floor height is zero. Moving leaves carry absolute building height separately from their leaf-local noise coordinates.",
         "height_profile": "Building-floor-relative: influence = 1 / (1 + exp2(height / height_falloff)); strength = clamp(2 * influence * combined_noise, 0, 1). Neutral noise (0.5) gives 50% at the building floor; terrain height is never used.",
         "noise_layers": "Contrast broad and fine 3D noise separately, then mix using fine_mix. patch_size and fine_patch_size are building-local metres.",
@@ -401,8 +412,9 @@ fn write_meshes(
         for (part_index, part) in lod.parts.iter().enumerate() {
             writeln!(
                 obj,
-                "o lod{index}_part{part_index}\nusemtl {}",
-                material_name(part.material)
+                "o lod{index}_part{part_index}\ng {}\nusemtl {}",
+                material_name(part.material),
+                material_name(part.material.texture_slot())
             )
             .unwrap();
             append_mesh(
@@ -510,9 +522,7 @@ fn material_library(prototype: &BuildingPrototype) -> String {
         (MaterialSlot::Roof, p.roof),
         (MaterialSlot::Floor, p.floor),
         (MaterialSlot::Foundation, p.foundation),
-        (MaterialSlot::Stairs, p.foundation),
         (MaterialSlot::StoneSlab, p.stone_slab),
-        (MaterialSlot::StairTreads, p.stone_slab),
         (MaterialSlot::Ceiling, p.ceiling),
         (MaterialSlot::Interior, p.interior),
         (MaterialSlot::Trim, p.trim),
@@ -806,7 +816,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (54, 20, 23)
+            (57, 22, 25)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),
@@ -845,6 +855,9 @@ mod tests {
         let descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(target.join("grub-filter.json")).unwrap()).unwrap();
         assert_eq!(descriptor["settings"]["enabled"], true);
+        assert_eq!(descriptor["shared_foundation"]["settings"]["enabled"], true);
+        assert_eq!(descriptor["material_aliases"]["stairs"], "foundation");
+        assert_eq!(descriptor["material_aliases"]["stair_treads"], "foundation");
         assert_eq!(descriptor["exterior_only"], true);
         assert_eq!(descriptor["uniform_vectors"].as_array().unwrap().len(), 5);
         assert!(
@@ -866,6 +879,38 @@ mod tests {
             loaded.materials.stone_slab_recipe.as_deref(),
             Some("dependencies/stone-slab.json")
         );
+    }
+
+    #[test]
+    fn portable_foundations_and_stairs_bind_one_weathered_material() {
+        let target = directory("shared-foundation");
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.chimney = None;
+        recipe.grub_filter.enabled = false;
+        let prototype = crate::generate(&recipe).unwrap();
+        assert!(
+            prototype
+                .materials
+                .iter()
+                .all(|m| m.slot != MaterialSlot::StoneSlab)
+        );
+        export_package(&prototype, &target, Path::new(".")).unwrap();
+        let mtl = fs::read_to_string(target.join("building.mtl")).unwrap();
+        assert!(!mtl.contains("newmtl stairs\n"));
+        assert!(!mtl.contains("newmtl stair_treads\n"));
+        for level in 0..3 {
+            let obj = fs::read_to_string(target.join(format!("lod{level}.obj"))).unwrap();
+            assert!(obj.contains("g foundation\nusemtl foundation\n"));
+            assert!(obj.contains("g stairs\nusemtl foundation\n"));
+            assert!(obj.contains("g stair_treads\nusemtl foundation\n"));
+        }
+        let profile: serde_json::Value =
+            serde_json::from_slice(&fs::read(target.join("grub-filter.json")).unwrap()).unwrap();
+        assert_eq!(profile["settings"]["enabled"], false);
+        assert_eq!(profile["shared_foundation"]["shared_default"], true);
+        assert_eq!(profile["shared_foundation"]["settings"]["enabled"], true);
+        fs::remove_dir_all(target).unwrap();
     }
 
     #[test]

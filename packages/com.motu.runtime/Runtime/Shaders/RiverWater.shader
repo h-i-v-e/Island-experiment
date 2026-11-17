@@ -36,13 +36,16 @@ Shader "Motu/River Water"
         _WhitewaterStrength ("Whitewater Strength", Range(0, 1)) = 0.9
         _WhitewaterSlopeStart ("Whitewater Slope Start", Range(0, 1)) = 0.05
         _WhitewaterSlopeFull ("Whitewater Slope Full", Range(0, 1)) = 0.55
+        _WaterfallBackFoam ("Waterfall Rear Foam", Range(0, 1)) = 0.6
     }
 
     SubShader
     {
         Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Transparent+10" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
-        ZWrite Off
+        // Refraction already composites opaque scene colour and returns alpha 1.
+        // Keep the nearest water sheet instead of overwriting it in mesh order.
+        ZWrite On
         Cull Off
 
 
@@ -94,6 +97,7 @@ Shader "Motu/River Water"
             half _WhitewaterStrength;
             half _WhitewaterSlopeStart;
             half _WhitewaterSlopeFull;
+            half _WaterfallBackFoam;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -153,6 +157,14 @@ Shader "Motu/River Water"
 
                 half whitewater = saturate(MotuRiverFoam(riverMetres, _Time.y,
                     fineSlopeWhitewater) * _WhitewaterStrength);
+                // A foamy rear curtain disguises the thin sheet from behind.
+                // Keep its moving pattern and fade the veil out at grazing
+                // angles and along the flat river above/below the fall.
+                half rearFacing = smoothstep(0.05h, 0.3h,
+                    -dot(normalize(input.worldNormal), viewDirection));
+                half rearFoam = saturate(_WaterfallBackFoam)
+                    * fineSlopeWhitewater * rearFacing;
+                whitewater = lerp(whitewater, 1.0h, rearFoam);
 
                 half horizontalSurface = smoothstep(.65h, .96h, verticalAlignment);
 

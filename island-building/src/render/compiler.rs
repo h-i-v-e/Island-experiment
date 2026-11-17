@@ -16,6 +16,13 @@ use super::{
 };
 use crate::{BuildingMesh, BuildingPrototype, MaterialSlot};
 
+// UUID assets are local to each Assets collection. They keep the common stone
+// and its images shared across independently compiled building prototypes.
+const FOUNDATION_MATERIAL: Handle<StandardMaterial> =
+    bevy::asset::uuid_handle!("a0c86c48-4ab0-47d6-9bcb-e397baab4f42");
+const FOUNDATION_GRUB: Handle<GrubMaterial> =
+    bevy::asset::uuid_handle!("9b07be4e-7484-462b-8a2b-8ea5aa678b0a");
+
 /// One material-homogeneous immutable draw, shared by every placement.
 #[derive(Clone, Debug)]
 pub struct CompiledBuildingPart {
@@ -133,30 +140,42 @@ pub fn compile_building_with_grub(
     images: &mut Assets<Image>,
 ) -> Arc<CompiledBuildingPrototype> {
     let mut compiled = compile_prototype(source, meshes, materials, images);
-    let filter = &compiled.source.recipe.grub_filter;
-    if filter.enabled {
-        let settings = GrubUniform::new(filter, compiled.source.recipe.seed);
-        let mut shared = BTreeMap::new();
-        for (parts, source) in compiled.lods.iter_mut().zip(&compiled.source.lods) {
-            for (part, source) in parts.iter_mut().zip(&source.parts) {
-                if !crate::grub::exterior_material(&compiled.source.recipe, source.material) {
-                    continue;
+    let mut shared = BTreeMap::new();
+    for (parts, source) in compiled.lods.iter_mut().zip(&compiled.source.lods) {
+        for (part, source) in parts.iter_mut().zip(&source.parts) {
+            let Some((filter, seed)) =
+                crate::grub::material_filter(&compiled.source.recipe, source.material)
+            else {
+                continue;
+            };
+            let settings = GrubUniform::new(&filter, seed);
+            let make_material = || {
+                // ExtendedMaterial needs a base snapshot; only image handles
+                // are copied, not texture pixels or geometry.
+                let mut base = materials
+                    .get(&part.material)
+                    .expect("compiled material")
+                    .clone();
+                base.opaque_render_method = bevy::material::OpaqueRendererMethod::Forward;
+                GrubMaterial {
+                    base,
+                    extension: GrubExtension { settings },
                 }
-                let handle = shared.entry(part.material.id()).or_insert_with(|| {
-                    // ExtendedMaterial owns a base snapshot. Only image handles are
-                    // cloned here: pixels and generated geometry remain shared.
-                    let mut base = materials
-                        .get(&part.material)
-                        .expect("fresh material")
-                        .clone();
-                    base.opaque_render_method = bevy::material::OpaqueRendererMethod::Forward;
-                    grub_materials.add(GrubMaterial {
-                        base,
-                        extension: GrubExtension { settings },
-                    })
-                });
-                part.grub_material = Some(handle.clone());
-            }
+            };
+            let handle = if part.material == FOUNDATION_MATERIAL {
+                if !grub_materials.contains(FOUNDATION_GRUB.id()) {
+                    grub_materials
+                        .insert(FOUNDATION_GRUB.id(), make_material())
+                        .expect("UUID assets have no generation mismatch");
+                }
+                FOUNDATION_GRUB.clone()
+            } else {
+                shared
+                    .entry(part.material.id())
+                    .or_insert_with(|| grub_materials.add(make_material()))
+                    .clone()
+            };
+            part.grub_material = Some(handle);
         }
     }
     Arc::new(compiled)
@@ -236,6 +255,52 @@ pub(super) fn convert_mesh(source: &BuildingMesh, height_offset: f32) -> Mesh {
     mesh
 }
 
+fn compile_texture_material(
+    texture: &crate::MaterialTexture,
+    recipe: &crate::BuildingRecipe,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) -> Handle<StandardMaterial> {
+    let shared_foundation = texture.slot == MaterialSlot::Foundation
+        && crate::foundation_stone::uses_shared_default(recipe);
+    if shared_foundation && materials.contains(FOUNDATION_MATERIAL.id()) {
+        return FOUNDATION_MATERIAL.clone();
+    }
+    let mut material = textured_material(
+        texture.size,
+        &texture.albedo,
+        &texture.normal,
+        &texture.masks,
+        true,
+        images,
+    );
+    // Structural UVs use a two-metre chart; recipe dependencies retain their
+    // authored physical tile dimensions rather than inheriting that default.
+    material.uv_transform = Affine2::from_scale(Vec2::new(
+        2.0 / texture.physical_size[0].max(0.001),
+        2.0 / texture.physical_size[1].max(0.001),
+    ));
+    if texture.slot == MaterialSlot::ThatchEnd {
+        material.reflectance = 0.1;
+    }
+    if texture.slot.thatch_shell_layer().is_some() {
+        // The standard masked PBR path clips the same strand holes in
+        // colour, depth and shadow passes. Shell geometry supplies depth.
+        material.alpha_mode = AlphaMode::Mask(0.5);
+        material.double_sided = true;
+        material.cull_mode = None;
+        material.reflectance = 0.1;
+    }
+    if shared_foundation {
+        materials
+            .insert(FOUNDATION_MATERIAL.id(), material)
+            .expect("UUID assets have no generation mismatch");
+        FOUNDATION_MATERIAL.clone()
+    } else {
+        materials.add(material)
+    }
+}
+
 fn compile_materials(
     source: &BuildingPrototype,
     materials: &mut Assets<StandardMaterial>,
@@ -243,32 +308,8 @@ fn compile_materials(
 ) -> BTreeMap<MaterialSlot, Handle<StandardMaterial>> {
     let mut handles = BTreeMap::new();
     for texture in &source.materials {
-        let mut material = textured_material(
-            texture.size,
-            &texture.albedo,
-            &texture.normal,
-            &texture.masks,
-            true,
-            images,
-        );
-        // Structural UVs use a two-metre chart; recipe dependencies retain their
-        // authored physical tile dimensions rather than inheriting that default.
-        material.uv_transform = Affine2::from_scale(Vec2::new(
-            2.0 / texture.physical_size[0].max(0.001),
-            2.0 / texture.physical_size[1].max(0.001),
-        ));
-        if texture.slot == MaterialSlot::ThatchEnd {
-            material.reflectance = 0.1;
-        }
-        if texture.slot.thatch_shell_layer().is_some() {
-            // The standard masked PBR path clips the same strand holes in
-            // colour, depth and shadow passes. Shell geometry supplies depth.
-            material.alpha_mode = AlphaMode::Mask(0.5);
-            material.double_sided = true;
-            material.cull_mode = None;
-            material.reflectance = 0.1;
-        }
-        handles.insert(texture.slot, materials.add(material));
+        let handle = compile_texture_material(texture, &source.recipe, materials, images);
+        handles.insert(texture.slot, handle);
     }
     handles.insert(
         MaterialSlot::Atlas,
@@ -588,6 +629,65 @@ mod grub_tests {
     use bevy::mesh::VertexAttributeValues;
 
     #[test]
+    fn distinct_buildings_share_one_foundation_material_and_grub_handle() {
+        let mut meshes = Assets::default();
+        let mut materials = Assets::default();
+        let mut grub_materials = Assets::default();
+        let mut images = Assets::default();
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        let first = compile_building_with_grub(
+            Arc::new(crate::generate(&recipe).unwrap()),
+            &mut meshes,
+            &mut materials,
+            &mut grub_materials,
+            &mut images,
+        );
+        recipe.seed += 1234;
+        recipe.width += 2.;
+        recipe.materials.foundation = [0.8, 0.1, 0.05];
+        recipe.grub_filter.enabled = true;
+        recipe.grub_filter.height_falloff = 9.;
+        let second = compile_building_with_grub(
+            Arc::new(crate::generate(&recipe).unwrap()),
+            &mut meshes,
+            &mut materials,
+            &mut grub_materials,
+            &mut images,
+        );
+        let mut identity = None;
+        for compiled in [&first, &second] {
+            for (parts, source) in compiled.lods.iter().zip(&compiled.source.lods) {
+                for (part, original) in parts.iter().zip(&source.parts) {
+                    if !original.material.is_foundation() {
+                        continue;
+                    }
+                    let current = (
+                        part.material.id(),
+                        part.grub_material.as_ref().unwrap().id(),
+                    );
+                    if let Some(expected) = identity {
+                        assert_eq!(current, expected);
+                    } else {
+                        identity = Some(current);
+                    }
+                    assert!(
+                        grub_materials
+                            .get(current.1)
+                            .unwrap()
+                            .extension
+                            .settings
+                            .strengths
+                            .x
+                            > 0.
+                    );
+                }
+            }
+        }
+        assert!(identity.is_some());
+    }
+
+    #[test]
     fn church_stone_weathers_outside_while_its_interior_and_joinery_remain_clean() {
         let mut recipe = crate::BuildingRecipe::gothic_church();
         recipe.atlas_size = 128;
@@ -693,80 +793,7 @@ mod grub_tests {
         );
     }
 
-    #[test]
-    fn filter_shares_images_keeps_alpha_and_carries_floor_height_on_all_lods_and_doors() {
-        let mut recipe = crate::BuildingRecipe::hut();
-        recipe.atlas_size = 128;
-        recipe.roof.covering = crate::RoofCovering::Thatch;
-        let mut meshes = Assets::default();
-        let mut materials = Assets::default();
-        let mut grub_materials = Assets::default();
-        let mut images = Assets::default();
-        let clean = compile_building_with_grub(
-            Arc::new(crate::generate(&recipe).unwrap()),
-            &mut meshes,
-            &mut materials,
-            &mut grub_materials,
-            &mut images,
-        );
-        assert!(grub_materials.is_empty());
-        assert!(
-            clean
-                .lods
-                .iter()
-                .flatten()
-                .all(|p| p.grub_material.is_none())
-        );
-        let image_count = images.len();
-        recipe.grub_filter.enabled = true;
-        let compiled = compile_building_with_grub(
-            Arc::new(crate::generate(&recipe).unwrap()),
-            &mut meshes,
-            &mut materials,
-            &mut grub_materials,
-            &mut images,
-        );
-        assert_eq!(
-            images.len(),
-            image_count * 2,
-            "the extension allocates no images"
-        );
-        assert_building_floor(&compiled.source);
-        let mut shared = BTreeMap::new();
-        for (level, parts) in compiled.lods.iter().enumerate() {
-            for (source, part) in compiled.source.lods[level].parts.iter().zip(parts) {
-                if !crate::grub::exterior_material(&recipe, source.material) {
-                    assert!(part.grub_material.is_none());
-                    continue;
-                }
-                let handle = part.grub_material.as_ref().unwrap();
-                assert_eq!(
-                    shared.entry(part.material.id()).or_insert(handle.id()),
-                    &handle.id()
-                );
-                let extended = grub_materials.get(handle).unwrap();
-                assert_fine_uniform(extended, &recipe.grub_filter);
-                let base = materials.get(&part.material).unwrap();
-                assert_eq!(extended.base.alpha_mode, base.alpha_mode);
-                assert_eq!(extended.base.base_color_texture, base.base_color_texture);
-                assert_eq!(extended.base.normal_map_texture, base.normal_map_texture);
-                assert_eq!(extended.base.uv_transform, base.uv_transform);
-                let VertexAttributeValues::Float32x2(heights) = meshes
-                    .get(&part.mesh)
-                    .unwrap()
-                    .attribute(Mesh::ATTRIBUTE_UV_1)
-                    .unwrap()
-                else {
-                    panic!("UV1 heights")
-                };
-                assert!(
-                    heights
-                        .iter()
-                        .zip(&source.mesh.positions)
-                        .all(|(h, p)| (h[0] - p[2]).abs() < 0.00001)
-                );
-            }
-        }
+    fn assert_clean_door_heights(compiled: &CompiledBuildingPrototype, meshes: &Assets<Mesh>) {
         assert!(
             compiled
                 .door_hardware
@@ -790,5 +817,92 @@ mod grub_tests {
                     .all(|(h, p)| (h[0] - p[2] - source.hinge[2]).abs() < 0.00001)
             );
         }
+    }
+
+    #[test]
+    fn filter_shares_images_keeps_alpha_and_carries_floor_height_on_all_lods_and_doors() {
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.roof.covering = crate::RoofCovering::Thatch;
+        let mut meshes = Assets::default();
+        let mut materials = Assets::default();
+        let mut grub_materials = Assets::default();
+        let mut images = Assets::default();
+        let clean = compile_building_with_grub(
+            Arc::new(crate::generate(&recipe).unwrap()),
+            &mut meshes,
+            &mut materials,
+            &mut grub_materials,
+            &mut images,
+        );
+        assert_eq!(
+            grub_materials.len(),
+            1,
+            "the common foundation keeps its grub"
+        );
+        for (parts, original) in clean.lods.iter().zip(&clean.source.lods) {
+            for (part, source) in parts.iter().zip(&original.parts) {
+                assert_eq!(
+                    part.grub_material.is_some(),
+                    source.material.is_foundation()
+                );
+            }
+        }
+        let image_count = images.len();
+        recipe.grub_filter.enabled = true;
+        let compiled = compile_building_with_grub(
+            Arc::new(crate::generate(&recipe).unwrap()),
+            &mut meshes,
+            &mut materials,
+            &mut grub_materials,
+            &mut images,
+        );
+        assert_eq!(
+            images.len(),
+            image_count * 2 - 3,
+            "the extension allocates no images and prototypes reuse the three foundation maps"
+        );
+        assert_building_floor(&compiled.source);
+        let mut shared = BTreeMap::new();
+        for (level, parts) in compiled.lods.iter().enumerate() {
+            for (source, part) in compiled.source.lods[level].parts.iter().zip(parts) {
+                if !crate::grub::exterior_material(&recipe, source.material) {
+                    assert!(part.grub_material.is_none());
+                    continue;
+                }
+                let handle = part.grub_material.as_ref().unwrap();
+                assert_eq!(
+                    shared.entry(part.material.id()).or_insert(handle.id()),
+                    &handle.id()
+                );
+                let extended = grub_materials.get(handle).unwrap();
+                let filter = if source.material.is_foundation() {
+                    crate::foundation_stone::grub_filter()
+                } else {
+                    recipe.grub_filter
+                };
+                assert_fine_uniform(extended, &filter);
+                let base = materials.get(&part.material).unwrap();
+                assert_eq!(extended.base.alpha_mode, base.alpha_mode);
+                assert_eq!(extended.base.base_color_texture, base.base_color_texture);
+                assert_eq!(extended.base.normal_map_texture, base.normal_map_texture);
+                assert_eq!(extended.base.uv_transform, base.uv_transform);
+                let VertexAttributeValues::Float32x2(heights) = meshes
+                    .get(&part.mesh)
+                    .unwrap()
+                    .attribute(Mesh::ATTRIBUTE_UV_1)
+                    .unwrap()
+                else {
+                    panic!("UV1 heights")
+                };
+                assert!(
+                    heights
+                        .iter()
+                        .zip(&source.mesh.positions)
+                        .all(|(h, p)| (h[0] - p[2]).abs() < 0.00001)
+                );
+            }
+        }
+        assert_clean_door_heights(&compiled, &meshes);
     }
 }

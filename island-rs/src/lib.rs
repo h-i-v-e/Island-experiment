@@ -59,6 +59,7 @@ pub use terrain::{
     CoastalStripOptions, Decoration, Decorations, GenerationMethod, Island, IslandOptions,
     LandBirdPerch, SurfaceMaps, Terrain, TerrainSurfaceHit,
 };
+pub use terrain::town::{DecorationClearance, DecorationClearanceStats};
 pub use trees::{
     BranchTip, TreeMeshes, TreeShells, broadleaf_crown, generate_conifer, generate_palm,
     generate_tree, tree_shells, twig_cards,

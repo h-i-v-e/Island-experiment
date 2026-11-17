@@ -1,5 +1,10 @@
 //! Physical channel contact changes receiver edges, never rainfall. Accumulate
 //! once on the resulting forest after all confluence redirects are complete.
+mod spatial;
+#[cfg(test)]
+mod tests;
+use spatial::SegmentIndex;
+
 use super::drainage::Drainage;
 use super::tracing::{
     calculate_flow_and_catchment, drainage_order, find_sources, preferred_upstream,
@@ -16,9 +21,9 @@ struct Owner {
     level: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Contact {
-    path: [usize; 4],
+    path: Vec<usize>,
     nodes: usize,
     owner: Owner,
     distance: f32,
@@ -165,6 +170,7 @@ fn join_with_plan(
     let mut prefix = vec![0_usize; levels.len()];
     let perimeter = environment.mesh.perimeter_mask();
     let mut contacts = 0;
+    let mut segments = SegmentIndex::new(environment.channel.maximum_width);
     for (priority, &source) in sources.iter().enumerate() {
         if !drainage.reaches_ocean[source] || environment.ocean[source] || owners[source].is_some()
         {
@@ -183,7 +189,8 @@ fn join_with_plan(
         );
         let stamp = priority + 1;
         let mut accepted = Vec::new();
-        for (node, &half_width) in river.nodes.iter().zip(&widths) {
+        let mut changed_owners = Vec::new();
+        for (index, (node, &half_width)) in river.nodes.iter().zip(&widths).enumerate() {
             let current = node.vertex;
             if environment.ocean[current] || owners[current].is_some() {
                 break;
@@ -192,7 +199,7 @@ fn join_with_plan(
             accepted.push((current, half_width));
             let search = Search {
                 current,
-                half_width,
+                half_width: half_width.max(widths.get(index + 1).copied().unwrap_or(half_width)),
                 level: levels[current],
                 owners: &owners,
                 prefix: &prefix,
@@ -201,12 +208,12 @@ fn join_with_plan(
                 downstream: &drainage.downstream,
                 committed,
             };
-            let Some(contact) = environment.find_contact(&search) else {
+            let Some(contact) = segments.find_contact(environment, &search) else {
                 continue;
             };
             if contact.owner.level <= levels[current] + 1.0e-6 {
                 contacts += forward_contact(
-                    contact,
+                    &contact,
                     drainage,
                     &mut levels,
                     &mut accepted,
@@ -214,8 +221,8 @@ fn join_with_plan(
                     committed,
                 );
             } else {
-                contacts += capture_lower_channel(
-                    contact,
+                let (changed, newly_owned) = capture_lower_channel(
+                    &contact,
                     drainage,
                     &mut levels,
                     &mut owners,
@@ -223,22 +230,28 @@ fn join_with_plan(
                     stamp,
                     committed,
                 );
+                contacts += changed;
+                changed_owners.extend(newly_owned);
             }
             break;
         }
         for (vertex, half_width) in accepted {
+            changed_owners.push(vertex);
             owners[vertex].get_or_insert(Owner {
                 river: priority,
                 half_width,
                 level: levels[vertex],
             });
         }
+        for vertex in changed_owners {
+            segments.insert(environment, &owners, &drainage.downstream, vertex);
+        }
     }
     contacts
 }
 
 fn forward_contact(
-    contact: Contact,
+    contact: &Contact,
     drainage: &mut Drainage,
     levels: &mut [f32],
     accepted: &mut Vec<(usize, f32)>,
@@ -262,14 +275,15 @@ fn forward_contact(
 /// upstream grade is untouched. Release its abandoned segment only up to the
 /// first common suffix so residual catchments can be considered independently.
 fn capture_lower_channel(
-    contact: Contact,
+    contact: &Contact,
     drainage: &mut Drainage,
     levels: &mut [f32],
     owners: &mut [Option<Owner>],
     prefix: &mut [usize],
     stamp: usize,
     committed: &mut [bool],
-) -> usize {
+) -> (usize, Vec<usize>) {
+    let mut changed_owners = Vec::new();
     let receiver = contact.path[0];
     let donor = contact.path[contact.nodes - 1];
     let old_next = drainage.downstream[donor];
@@ -310,9 +324,10 @@ fn capture_lower_channel(
                 level: levels[vertex],
                 ..contact.owner
             });
+            changed_owners.push(vertex);
         }
     }
-    changed
+    (changed, changed_owners)
 }
 
 impl ContactEnvironment<'_> {
@@ -340,50 +355,6 @@ impl ContactEnvironment<'_> {
         River { nodes, join: None }
     }
 
-    fn find_contact(&self, search: &Search<'_>) -> Option<Contact> {
-        if self.blocked(search.current, search) {
-            return None;
-        }
-        let mut path = [search.current; 4];
-        let mut best = None;
-        self.visit(search, &mut path, 0, 0.0, &mut best);
-        best
-    }
-
-    fn visit(
-        &self,
-        search: &Search<'_>,
-        path: &mut [usize; 4],
-        depth: usize,
-        distance: f32,
-        best: &mut Option<Contact>,
-    ) {
-        for &next in &self.adjacency[path[depth]] {
-            if self.blocked(next, search)
-                || search.prefix[next] == search.stamp
-                || path[..=depth].contains(&next)
-            {
-                continue;
-            }
-            let distance = distance + self.distance(path[depth], next);
-            path[depth + 1] = next;
-            if let Some(owner) = search.owners[next] {
-                self.consider(
-                    search,
-                    Contact {
-                        path: *path,
-                        nodes: depth + 2,
-                        owner,
-                        distance,
-                    },
-                    best,
-                );
-            } else if depth < 2 {
-                self.visit(search, path, depth + 1, distance, best);
-            }
-        }
-    }
-
     fn blocked(&self, vertex: usize, search: &Search<'_>) -> bool {
         self.ocean[vertex]
             || search.perimeter[vertex]
@@ -393,11 +364,9 @@ impl ContactEnvironment<'_> {
     fn consider(&self, search: &Search<'_>, contact: Contact, best: &mut Option<Contact>) {
         let donor_head = search.level.max(contact.owner.level);
         let target = contact.path[contact.nodes - 1];
-        if self.distance(search.current, target) > search.half_width + contact.owner.half_width
-            || contact.distance > (search.half_width + contact.owner.half_width) * 1.25
-            || contact.path[1..contact.nodes - 1]
-                .iter()
-                .any(|&vertex| self.mesh.vertices[vertex].z > donor_head + 1.0e-6)
+        if contact.path[1..contact.nodes - 1]
+            .iter()
+            .any(|&vertex| self.mesh.vertices[vertex].z > donor_head + 1.0e-6)
         {
             return;
         }
@@ -418,7 +387,7 @@ impl ContactEnvironment<'_> {
         if blocked || would_cycle(search.downstream, receiver, forbidden) {
             return;
         }
-        let replace = best.is_none_or(|old| {
+        let replace = best.as_ref().is_none_or(|old| {
             (contact.owner.river, contact.nodes) < (old.owner.river, old.nodes)
                 || (contact.owner.river == old.owner.river
                     && contact.nodes == old.nodes

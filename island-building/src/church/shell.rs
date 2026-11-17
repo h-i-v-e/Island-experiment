@@ -44,8 +44,8 @@ pub(super) fn generate(
     roofs(b, p, level);
     super::eaves::generate(b, p, level);
     crate::geometry::foundation::generate_stairs(b, p.r, level == 2);
-    // Only entrance steps use the shared terrain-aware stair recipe. The church
-    // foundation itself follows the five non-overlapping cruciform floor regions.
+    // Only entrance steps use the shared terrain-aware stair recipe. Church
+    // foundations follow the cruciform floors and each structural buttress pier.
 }
 
 pub(super) fn bays(
@@ -103,31 +103,25 @@ fn slabs(
         * 30_f32.to_radians().tan()
         + r.foundation.burial_depth;
     let floors = p.floors().map(|rect| rect.bounds(-r.floor_thickness, 0.));
-    let foundations = floors.map(|floor| BoxCollider {
-        min: [
-            floor.min[0] - r.foundation.outset,
-            floor.min[1] - r.foundation.outset,
-            -buried,
-        ],
-        max: [
-            floor.max[0] + r.foundation.outset,
-            floor.max[1] + r.foundation.outset,
-            -r.floor_thickness - 0.002,
-        ],
-    });
+    let foundations: Vec<_> = super::foundation_footprints(r)
+        .into_iter()
+        .map(|mut bounds| {
+            bounds.min[2] = -buried;
+            bounds
+        })
+        .collect();
     if level < 2 {
         crate::geometry::slabs::joined_boxes(b, MaterialSlot::Foundation, &foundations);
     } else {
-        for foundation in foundations {
+        for foundation in &foundations {
             atlas::cube(b, 6, foundation.min, foundation.max);
         }
     }
     if level == 0 {
         crate::geometry::slabs::joined_boxes(b, MaterialSlot::Floor, &floors);
-        for (foundation, floor) in foundations.into_iter().zip(floors) {
-            colliders.extend([foundation, floor]);
-            supports.push(floor);
-        }
+        colliders.extend(foundations);
+        colliders.extend(floors);
+        supports.extend(floors);
     }
 }
 

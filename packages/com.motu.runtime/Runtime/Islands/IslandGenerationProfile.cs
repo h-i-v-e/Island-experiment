@@ -1,5 +1,6 @@
 using System;
 using Motu.Settings;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -12,6 +13,7 @@ namespace Motu.Islands
         public IslandFernSettings Ferns { get; }
         public IslandCaveSettings Caves { get; }
         public IslandNavigationSettings Navigation { get; }
+        public CoastalTownSettings Towns { get; }
         public IslandRenderingSettings Rendering { get; }
         public IslandDebugSettings DebugSettings { get; }
 
@@ -23,7 +25,8 @@ namespace Motu.Islands
             IslandFernSettings ferns,
             IslandRenderingSettings rendering,
             IslandDebugSettings debugSettings,
-            IslandCaveSettings caves = null, IslandNavigationSettings navigation = null)
+            IslandCaveSettings caves = null, IslandNavigationSettings navigation = null,
+            CoastalTownSettings towns = null)
         {
             Generation = Require(generation, nameof(generation)).Copy();
             Rivers = Require(rivers, nameof(rivers)).Copy();
@@ -32,6 +35,7 @@ namespace Motu.Islands
             Ferns = Require(ferns, nameof(ferns)).Copy();
             Caves = (caves ?? new IslandCaveSettings()).Copy();
             Navigation = (navigation ?? new IslandNavigationSettings()).Copy();
+            Towns = (towns ?? new CoastalTownSettings()).Copy();
             Rendering = Require(rendering, nameof(rendering)).Copy();
             DebugSettings = (debugSettings ?? new IslandDebugSettings()).Copy();
         }
@@ -43,7 +47,7 @@ namespace Motu.Islands
             Reeds,
             Ferns,
             Rendering,
-            DebugSettings, Caves, Navigation);
+            DebugSettings, Caves, Navigation, Towns);
 
         private static T Require<T>(T value, string parameterName) where T : class =>
             value ?? throw new ArgumentNullException(parameterName);

@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Terrain shape and the canonical periodic section identify baked coast snapshots.
-        private const int CacheKeySchemaVersion = 32;
+        // Physical river joins changed for both islands and coasts; regenerate baked terrain.
+        private const int CacheKeySchemaVersion = 33;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

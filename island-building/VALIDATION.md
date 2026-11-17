@@ -2222,3 +2222,50 @@ room with clear glazing. The live review ends in Overview with material units
 restored, leaving the example unchanged on disk. Numeric dimension editing was
 not established through the computer-use harness; the live acceptance here is
 roof-type switching, Undo and interior inspection.
+
+
+## Enclosed annex rooms and clean interior framing · 17 November 2026
+
+Every lean-to and gabled wing now has a full dividing wall and one retained
+internal door. The opening uses the building-wide door dimensions, with a
+per-extension plank/frame-and-panel style. Placement tries centred and offset
+positions and both hinge sides, checking the complete swing and a clear capsule
+approach on both sides. Leaves swing into the attachment. Invalid sizes or an
+obstructed approach produce a diagnostic; `extension-door-` IDs are reserved.
+The stable door ID and actual doorway bounds are included in extension layout
+metadata and portable exports. Existing extension recipes gain doors automatically.
+
+Ordinary partitions, annex dividers and stairwell walls reuse the exterior
+wattle-and-daub bay, brace and aperture-cut layout on both faces. Small local
+recipe copies drive this shared generator; image buffers remain shared. The
+annex divider reuses the main wall's surviving top plate rather than overlapping
+it with another timber layer. Joined plaster boxes omit hidden perimeter caps.
+Interior daub now has the wall recipe's relief and the interior palette colour;
+custom wall recipes retain their authored colour behavior. Interior, timber,
+trim and doors remain outside the grub shader's allowed groups in both compilers.
+Plain-wall buildings retain their untextured interior palette.
+
+All **223 Studio/all-target tests**, strict all-target Clippy, formatting and
+whitespace checks pass. New checks cover closed/open door collision, solid
+walls beside the aperture on all four facades for both extension types, offset
+placement clear of an intersecting partition, stable door regeneration/export,
+both partition axes, both faces of each stairwell floor and shared clean daub
+relief. Existing lower-LOD, door, fireplace, stairwell and material checks pass.
+The seven serial Metal captures enable exterior grub while reviewing closed/open
+annex doors, Standard/array interiors, an ordinary partition, the upper stairwell,
+the exterior and actual LOD2. LOD1/2 retain **6,050 / 662** static triangles for
+the example; LOD0 has **106,619**, excluding retained moving doors and hardware.
+
+Build 60 uses geometry/material/bake identities **55/21/24**. Evidence, portable
+export, focused source diff and packaged-app verification are under
+`artifacts/building-studio/2026-11-17/extension-rooms/`.
+
+The signed build-60 review app loads the unchanged example through LaunchServices.
+In the live walkthrough, the closed annex door blocks movement; E opens it into
+the annex and forward movement reaches the room's outer window. The review ends
+in Overview with all doors closed and material units unchanged. Both canonical
+and review bundles pass strict signature verification; their UUID and all 15
+file-backed Mach-O sections match the final executable. Build 59 is preserved.
+Portable export regenerates the same prototype and triangle counts, with all 67
+exported file lengths and SHA-256 hashes verified. Both generated extension door
+IDs resolve to retained doors and include actual doorway bounds.

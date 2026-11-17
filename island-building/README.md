@@ -79,7 +79,7 @@ Texture payload is equal between compilers. Keep Standard as the general default
 and select arrays for workloads where repeated measurements show a benefit.
 
 Runtime validation resumed successfully after other graphics applications were
-closed. All 219 Studio tests pass, and the eight-recipe/three-LOD audit removes
+closed. All 223 Studio tests pass, and the eight-recipe/three-LOD audit removes
 11,502 triangles and 90,146 vertices. Standard and array material captures cover
 interiors, thatch, open doors, visible/hidden stairs, shadows and SSAO. See
 `VALIDATION.md` for the benchmark decision and packaged build evidence.
@@ -134,9 +134,22 @@ facade, width along that wall, outward depth, centre offset, eaves height and
 roof rise. The main building can have multiple storeys; extensions have one.
 The Gothic church retains its separate cruciform formula.
 
-Shared walls and covered windows are removed to make walkable connections.
-Floors remain level, intersecting roofs are trimmed against their actual surfaces,
-and duplicate floor/foundation faces are removed at joins. The extensions share
+Every attachment is a separate room with a hinged internal door. Covered
+windows are omitted and the shared junction is rebuilt as a dividing wall.
+Doors use the building-wide door width/height and open into the annex. They
+start centred, moving along the divider and choosing a clear hinge side when
+necessary. Each extension can select a plank or frame-and-panel door. If the
+shared dimensions or a clear approach do not fit, Studio diagnoses the conflict.
+
+Wattle-and-daub buildings use the same timber bays, braces and door crosspieces
+on both sides of the divider, ordinary interior partitions and stairwell walls.
+The interior daub uses the wall recipe with the interior palette colour. Interior
+daub, timber and doors remain free of grub even when exterior weathering is on.
+
+Floors remain level. Wing ridges continue level into the main roof; lean-tos
+continue their existing pitch. Intersecting roofs are trimmed against their
+actual surfaces, with closed exposed eave undersides at every LOD. Duplicate
+floor/foundation faces are removed at joins. The extensions share
 the building's wall, timber, roof, floor and ceiling materials, including slate
 or thatch. Attached thatched lean-tos omit the high-side ridge cap.
 Generated exterior windows use the building-wide dimensions; each extension can
@@ -149,7 +162,8 @@ footprint, including off-centre wings. All three LODs include extensions. LOD0
 has connected interiors and transparent glazing; LOD1 has opaque windows and
 reduced detail; LOD2 packs the facade bakes into one atlas at the selected
 resolution. Increase that resolution if a large compound needs more distant
-facade detail. **Inspection → Extension** looks into the first attached room.
+facade detail. **Inspection → Extension** frames the first internal extension
+door from the main building. Use **E** to open it and walk into the room.
 
 `recipes/extensions-cottage.json` demonstrates both types. Code can append the
 same typed recipe data, without creating separate building instances:
@@ -173,7 +187,7 @@ recipe.extensions.push(ExtensionRecipe {
 Offsets follow the host facade's existing tangent convention. Dimensions are
 saved in metres, with the same material-unit controls and Undo/Redo as the main
 structure. Layout exports include extension bounds, interior bounds, connection
-bounds and window centres; foundation placement metadata encloses the whole
+bounds, stable internal door IDs, doorway bounds and window centres; foundation placement metadata encloses the whole
 compound. Empty corners of an L-shaped footprint are excluded from occupancy.
 
 ## Windows and doors
@@ -347,8 +361,10 @@ and stairs receive it. Inner wall faces, reveals, ceilings, floors, doors and sh
 trim remain clean; the mixed LOD2 atlas also stays clean. **Grub** adjusts or disables
 weathering without altering the base stone maps.
 `layout.church` exports the outline and nave/transept/tower bounds; floor support
-and foundations follow the cruciform footprint. Interior and Window inspection
-views target the nave and its lancets.
+follows the cruciform footprint. Foundations also include individual pads under
+every outer buttress pier, meeting its underside. Terrain fitting, placement
+checks and collision include these pads. Interior and Window inspection views
+target the nave and its lancets.
 
 Landing perimeter railings are omitted where the outside wall is within 60 cm
 of the landing edge, including its inward timber projection. Wider gaps retain
@@ -399,28 +415,39 @@ Material Studio controls this pattern and requires an even number of boards
 across the tile. Interior walls and fireplace surrounds retain their plaster finish.
 These interior materials appear at LOD0.
 
-Foundations use continuous rough stone, with their own colour and JSON material
-selector under **Materials → Foundation / stairs**. They project 8 cm beyond
+Foundations, entrance-stair bodies, treads and landings share one continuous
+procedural stone material with grub enabled. The default stone seed, neutral
+colour, 512 px maps and grub profile are independent of building seeds, palette
+tints, atlas resolution and the optional weathering on other exterior surfaces.
+The standard renderer reuses one stone/grub material and its image handles across
+independently generated prototypes. The experimental array renderer retains this
+shared support material outside its per-building texture banks.
+**Materials → Foundation / stairs / tread material** accepts an explicit custom
+JSON override for all these surfaces. The retained legacy foundation palette
+colour no longer recolours the shared default. Foundations project 8 cm beyond
 the walls and extend down by `tan(30°) × footprint diagonal + burial margin`
 (default 15 cm). Keep the building level and place its floor top at the highest
 terrain point anywhere within the foundation footprint. This covers terrain
 whose slope stays within 30° in any direction.
 
-Steps and landings have separate **solid stone slabs** on their upward faces:
+Steps and landings retain their **solid stone slab geometry** on upward faces:
 45 mm thick with a small 15 mm nosing and exposed-side overhang. The tread heights
-remain unchanged, and caps fit against the threshold/plinth. **Materials → Stone
-slabs · treads & hearth** assigns an independent colour or Material Studio JSON;
-clearing the reference restores the joint-free dressed-stone surface from
+remain unchanged, and caps fit against the threshold/plinth. **Materials → Hearth
+slab material** assigns a Material Studio JSON to the fireplace hearth;
+clearing that reference restores its joint-free dressed-stone surface from
 [`stone-slab.json`](../island-rs/texture-recipes/stone-slab.json). The fireplace's
 bottom hearth is one solid piece in the same material, continuous into the firebox.
-Foundation, stair bodies, chimneys and fireplace breasts use the shared continuous
-rough-stone finish, with layered noise and normal-map relief instead of mortar joints.
+Foundation and entrance-stair surfaces share the continuous rough-stone finish,
+including their upward faces. The fireplace hearth retains its separate dressed
+stone material and stays clean. Chimneys and fireplace breasts retain their
+existing material settings.
 
 Treads and landing caps are real slabs at LOD0/1 and a thin stone ramp/landing
 proxy at LOD2. Their overhang collision and support hide with the stairs. The hearth
 remains visible and collidable at LOD0 when entrance stairs are hidden. Exported
-`stair_treads` and `stone_slab` groups share one set of stone maps but retain separate
-visibility; hide `stairs` and `stair_treads` together with `stairs-collision.json`.
+`foundation`, `stairs` and `stair_treads` groups bind one foundation material while
+retaining separate visibility. Hide `stairs` and `stair_treads` together with
+`stairs-collision.json`; `stone_slab` remains the independent clean hearth.
 
 Each exterior door gets a landing and 20 cm rise / 24 cm tread entrance stairs.
 Their full length reaches the worst downhill terrain beyond the foundation;
@@ -661,5 +688,83 @@ Document tests cover coalesced/bounded history, external-change conflicts,
 protected destinations and failed-revert preservation. Export tests verify file
 hashes, recipe regeneration, retained doors and failed-write cleanup. Rendering
 captures and a live collision-enabled walkthrough are separate acceptance checks;
-compilation alone does not establish visual or interactive quality. The initial
-world adapter is Planet Bevy. Unity import is a separate milestone.
+compilation alone does not establish visual or interactive quality. The Bevy
+adapter supports standalone inspection; the coastal-town Unity adapter and
+prefab-baking workflow are documented below and in the shared runtime package.
+
+## Coastal towns without an engine
+
+`town::generate_town(&TownRecipe, &TownInput)` is a reusable Rust API; no Unity,
+Bevy, renderer, filesystem output or terrain mutation is required. The supplied
+height grid and river lines are borrowed during generation. Outputs own shared
+building shells, instance poses, one combined support mesh and clearance areas.
+
+```rust,no_run
+use island_building::town::{generate_town, TownInput, TownRecipe};
+
+let recipe: TownRecipe = serde_json::from_str(&std::fs::read_to_string(
+    "recipes/towns/coastal.json",
+)?)?;
+let input: TownInput = serde_json::from_str(&std::fs::read_to_string(
+    "coastal-tile-input.json",
+)?)?;
+let town = generate_town(&recipe, &input)?;
+for instance in &town.instances {
+    let shared_shell = &town.prototypes[instance.prototype_index].building;
+    // Place this shell at instance.position, rotated by instance.yaw.
+    println!("{} at {:?}", shared_shell.recipe.name, instance.position);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+All coordinates use native metres with XY horizontal and +Z up; yaw is radians
+about +Z. `TownInput` contains `tile_seed`, `sea_level`, `terrain` and `rivers`.
+`HeightGrid` has `origin: [x,y]`, one positive `spacing`, `width`, `height` and
+row-major `heights[y * width + x]`; sampling is bilinear without extrapolation.
+`RiverPolyline.points` run source to mouth. Its `widths` contains full channel
+widths per point, or can be empty for a 3m default. Tributaries may end on another
+polyline. Optional `join` contains an authoritative downstream river index for
+confluences meeting at a channel edge rather than its centreline. Without it,
+coincident endpoints are matched geometrically. Selection compares complete source-to-sea route lengths, counting a
+shared downstream tail once, rather than adding tributary lengths together.
+A river must reach the sampled sea level; inland endings and riverless tiles
+produce an empty town.
+
+`TownRecipe.catalogue` entries have a unique `id`, inline `building` recipe,
+`min_count`, `max_count` and `placement` (`"centre"` or `"other"`). Counts use an
+inclusive deterministic range derived from the tile seed and entry ID. Each
+entry has one stable building variant shared by all its copies; changing copy
+count never changes that entry's prototype. Centre entries are attempted first,
+followed by other entries around the first accepted site. The default catalogue
+contains one cathedral, 5–12 cottages and 2–4 workshops, using 128px building
+atlases and one shared 512px foundation-stone material.
+
+`TownSettings` controls mouth-site and town radii, separation, channel and
+vegetation margins, entrance approaches, maximum slope and actual foundation depth, minimum
+dry height, sampling spacing and bounded search attempts. Unsafe or crowded
+copies are skipped (`skipped_count`); counts describe requests rather than a
+promise to flatten terrain. Dense footprint and approach samples reject steep,
+submerged or unavailable terrain, channel crossings and overlapping placements.
+The default limits slope to 14 degrees and actual foundation masonry depth
+(including burial) to 4m. Floor height is fitted to occupied foundation regions,
+so empty church recesses and roof margins do not raise the building or consume
+its foundation depth budget. Entrance approaches retain dry-ground and slope
+checks. Support sampling uses the final resolved building recipe, including doorway
+sizes and staircase entrance offsets. `generate_town_with_base` additionally
+accepts a material-reference base directory and cancellation callback. A fixed
+8-million-site sampling budget also bounds pathological search workloads.
+
+`TownOutput.supports` is one world-space `BuildingMesh`; `support_material` owns
+its shared stone maps. `supports_grub_positions` retains each vertex's original
+building-local position for matching floor-relative stone weathering after
+combination. `support_colliders` and `stair_colliders` are conservative world
+axis-aligned bounds. Shell prototypes exclude baked foundations and entrance
+stairs, so consumers should instantiate the fitted supports separately.
+`clearance` contains rotated XY rectangles covering shells, entrances and fitted
+supports plus the configured margin. Consumers must remove decorations against
+these rectangles before exporting or instantiating their terrain; the pure API
+returns the areas without modifying the supplied terrain grid.
+
+```sh
+cargo test --manifest-path island-building/Cargo.toml --test towns --no-default-features
+```

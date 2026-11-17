@@ -1,15 +1,15 @@
-//! A buried rear roof transition avoids an exposed gable ending on the main roof.
+//! Continue an attachment's roof pitch into the host, then clip their intersection.
 use super::{
     clip::{self, Plane, Vertex},
     node::Node,
 };
-use crate::{BuildingLod, BuildingMesh, MaterialSlot};
+use crate::{BuildingLod, BuildingMesh, BuildingRecipe, MaterialSlot};
 
 struct Tail {
     axis: usize,
     interface: f32,
     back: f32,
-    drop: f32,
+    slope: f32,
 }
 
 pub(super) fn reshape(lods: &mut [BuildingLod; 3], node: &Node) {
@@ -24,18 +24,15 @@ pub(super) fn reshape(lods: &mut [BuildingLod; 3], node: &Node) {
             .flat_map(|p| &p.mesh.positions)
             .map(|p| p[axis])
             .fold(interface, f32::max);
-        let top = lod
-            .parts
-            .iter()
-            .filter(|p| roof_slot(p.material))
-            .flat_map(|p| &p.mesh.positions)
-            .map(|p| p[2])
-            .fold(node.recipe.wall_height, f32::max);
         let tail = Tail {
             axis,
             interface,
             back,
-            drop: top - node.recipe.wall_height,
+            slope: if node.placement.lean {
+                node.recipe.roof.rise / node.recipe.width
+            } else {
+                0.
+            },
         };
         for part in &mut lod.parts {
             part.mesh = reshape_mesh(&part.mesh, part.material, node, &tail);
@@ -54,6 +51,27 @@ fn roof_slot(slot: MaterialSlot) -> bool {
             | MaterialSlot::ThatchShell4
             | MaterialSlot::Atlas
     )
+}
+
+/// Distant roofs share an atlas with walls and foundations. Chart ownership
+/// also identifies their vertical eave/end faces, which have no upward normal.
+pub(super) fn roof_surface(
+    slot: MaterialSlot,
+    vertices: &[Vertex],
+    recipe: &BuildingRecipe,
+) -> bool {
+    if slot == MaterialSlot::Atlas {
+        let row = if recipe.chimney.is_some() { 0.25 } else { 0.5 };
+        return vertices
+            .iter()
+            .all(|v| (row..row * 2.).contains(&v.uv[1]) && (v.uv[0] < 0.5 || v.uv[0] >= 0.75));
+    }
+    roof_slot(slot)
+        || (slot == MaterialSlot::Interior
+            && vertices[0].normal[2] < -0.01
+            && vertices
+                .iter()
+                .any(|v| v.point[2] >= recipe.eaves_height() - 0.01))
 }
 
 fn reshape_mesh(
@@ -97,12 +115,7 @@ fn reshape_mesh(
         if back_face {
             continue;
         }
-        let roof = roof_slot(slot) && (slot != MaterialSlot::Atlas || n[2].abs() > 0.1)
-            || (slot == MaterialSlot::Interior
-                && n[2] < -0.01
-                && vertices
-                    .iter()
-                    .any(|v| v.point[2] >= node.recipe.wall_height - 0.01));
+        let roof = roof_surface(slot, &vertices, &node.recipe);
         if !roof {
             clip::append(&mut output, &vertices);
             continue;
@@ -126,10 +139,10 @@ fn reshape_mesh(
             let original = vertex.point[axis];
             let progress = ((original - interface) / (back - interface).max(0.0001)).clamp(0., 1.);
             vertex.point[axis] = interface + progress * node.placement.roof_reach;
-            // One affine shear preserves contacts between roof layers and the
-            // ridge cap. Scaling height by progress would warp their separately
-            // triangulated surfaces differently and open cracks between them.
-            vertex.point[2] -= tail.drop * progress;
+            // Gabled wings keep their ridge level. A lean-to continues its
+            // authored slope through the same horizontal extension. Applying
+            // one transform to every layer preserves the closed roof section.
+            vertex.point[2] += (vertex.point[axis] - original) * tail.slope;
             if slot == MaterialSlot::Roof {
                 vertex.uv[usize::from(axis == 1)] += (vertex.point[axis] - original) * 0.5;
             }

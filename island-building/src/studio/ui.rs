@@ -299,6 +299,8 @@ fn instance_status(
                 } else {
                     format!("{action} stair door (floor {storey})")
                 }
+            } else if let Some(name) = id.strip_prefix("extension-door-") {
+                format!("{action} {name} door")
             } else {
                 format!("{action} {id}")
             };

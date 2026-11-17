@@ -177,7 +177,10 @@ fn compile_banks(
     let mut grouped: BTreeMap<u32, Vec<&MaterialTexture>> = BTreeMap::new();
     for texture in &compiled.source.materials {
         if used.contains(&texture.slot)
-            && !matches!(texture.slot, MaterialSlot::Glass | MaterialSlot::Atlas)
+            && !matches!(
+                texture.slot,
+                MaterialSlot::Glass | MaterialSlot::Atlas | MaterialSlot::Foundation
+            )
             && texture.slot.thatch_shell_layer().is_none()
         {
             grouped.entry(texture.size).or_default().push(texture);
@@ -778,12 +781,12 @@ mod tests {
         assert!(
             compiled.lods[2]
                 .iter()
-                .any(|p| p.stairs && p.array_material.is_some())
+                .any(|p| p.stairs && p.array_material.is_none() && p.grub_material.is_some())
         );
         assert!(
             compiled.lods[2]
                 .iter()
-                .any(|p| !p.stairs && p.array_material.is_some())
+                .any(|p| !p.stairs && p.array_material.is_none() && p.grub_material.is_some())
         );
     }
 
@@ -811,7 +814,10 @@ mod tests {
             .materials
             .iter()
             .filter(|t| {
-                t.size == 2 && t.slot.thatch_shell_layer().is_none() && used.contains(&t.slot)
+                t.size == 2
+                    && t.slot != MaterialSlot::Foundation
+                    && t.slot.thatch_shell_layer().is_none()
+                    && used.contains(&t.slot)
             })
             .collect();
         let layers = images

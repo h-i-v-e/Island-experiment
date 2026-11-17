@@ -48,6 +48,7 @@ fn attachments_join_all_facades_with_clear_passages_and_ground_support() {
                 );
             }
             assert_connection_surfaces(&p, &recipe, facade, kind);
+            assert_room_door(&p, &recipe, facade);
             let middle = std::array::from_fn::<_, 3, _>(|i| {
                 (extension.room_bounds.min[i] + extension.room_bounds.max[i]) * 0.5
             });
@@ -56,7 +57,7 @@ fn attachments_join_all_facades_with_clear_passages_and_ground_support() {
                 && b.max[0] >= middle[0]
                 && b.min[1] <= middle[1]
                 && b.max[1] >= middle[1]));
-            assert_eq!(p.doors.len(), 1);
+            assert_eq!(p.doors.len(), 2);
             assert!(
                 p.lods[0]
                     .parts
@@ -76,6 +77,62 @@ fn attachments_join_all_facades_with_clear_passages_and_ground_support() {
                 }
             }
         }
+    }
+}
+
+fn assert_room_door(
+    p: &island_building::BuildingPrototype,
+    recipe: &BuildingRecipe,
+    facade: Facade,
+) {
+    let room = &p.layout.extensions[0];
+    let aperture = room.doorway.expect("every extension has a doorway");
+    let leaf = p.doors.iter().find(|d| d.id == room.door_id).unwrap();
+    assert!(!leaf.exterior);
+    let centre = [
+        (aperture.min[0] + aperture.max[0]) * 0.5,
+        (aperture.min[1] + aperture.max[1]) * 0.5,
+        0.025,
+    ];
+    assert!(
+        leaf.collider_at(0.).intersects_capsule(centre, 0.28, 1.8),
+        "closed leaf blocks passage"
+    );
+    assert!(
+        !leaf
+            .collider_at(leaf.swing_angle)
+            .intersects_capsule(centre, 0.28, 1.8),
+        "open leaf clears passage"
+    );
+    let axis = usize::from(facade.tangent()[0].abs() <= 0.5);
+    let mut beside = centre;
+    beside[axis] += recipe.opening_defaults.door.width * 0.5 + 0.22;
+    assert!(
+        p.colliders
+            .iter()
+            .any(|b| b.intersects_capsule(beside, 0.1, 1.8)),
+        "divider blocks walking around the door"
+    );
+    let direction = facade.normal().map(|v| -v);
+    let normal = facade.normal();
+    beside[2] = 1.2;
+    for i in 0..2 {
+        beside[i] += normal[i] * 0.7;
+    }
+    assert!(
+        p.lods[0]
+            .parts
+            .iter()
+            .filter(|p| p.material == MaterialSlot::Interior)
+            .any(|p| ray_hits(&p.mesh, beside, direction, 1.5)),
+        "divider has visible clean interior faces"
+    );
+    for lod in &p.lods[1..] {
+        assert!(
+            !lod.parts
+                .iter()
+                .any(|p| p.material == MaterialSlot::Interior)
+        );
     }
 }
 
@@ -202,6 +259,38 @@ fn materials_and_atlas_budget_are_shared_and_recipes_regenerate() {
     assert_eq!(p.hash, again.hash);
     assert_eq!(p.lods, again.lods);
     assert_eq!(p.atlas, again.atlas);
+    assert_eq!(p.doors, again.doors);
+}
+
+#[test]
+fn extension_door_moves_clear_of_a_partition_and_keeps_its_id() {
+    let mut recipe = house(Facade::East, ExtensionKind::Wing);
+    recipe
+        .openings
+        .retain(|o| o.kind == island_building::OpeningKind::Door);
+    recipe.openings[0].facade = Facade::South;
+    recipe.openings[0].offset = -2.;
+    recipe.partitions.push(island_building::PartitionRecipe {
+        id: "middle-divider".into(),
+        storey: 0,
+        axis: island_building::PartitionAxis::X,
+        offset: 0.,
+        door_offset: 0.,
+        door_width: 1.,
+        door_height: 2.1,
+        use_default_door_dimensions: false,
+    });
+    let p = generate(&recipe).unwrap();
+    let room = &p.layout.extensions[0];
+    let aperture = room.doorway.unwrap();
+    let centre = (aperture.min[1] + aperture.max[1]) * 0.5;
+    assert!(centre.abs() > 0.3, "door approach clears the partition end");
+    assert_eq!(room.door_id, "extension-door-extension");
+    let again = generate(&p.recipe).unwrap();
+    assert_eq!(p.doors, again.doors);
+    recipe.opening_defaults.door.height = 2.7;
+    assert!(generate(&recipe).is_err());
+    assert!(island_building::validate_recipe(&recipe).is_err());
 }
 
 #[test]
@@ -337,12 +426,13 @@ fn compound_export_preserves_layout_foundations_and_regenerates_identically() {
     assert_eq!(p.layout, again.layout);
     assert_eq!(p.lods, again.lods);
     assert_eq!(p.atlas, again.atlas);
+    assert_eq!(p.doors, again.doors);
     let foundation: island_building::collision::BoxCollider =
         serde_json::from_slice(&std::fs::read(directory.join("foundation.json")).unwrap()).unwrap();
     assert_eq!(
         foundation,
         island_building::geometry::foundation::enclosing_bounds(&p.recipe)
     );
-    assert_eq!(manifest.geometry_version, 54);
+    assert_eq!(manifest.geometry_version, 57);
     std::fs::remove_dir_all(directory).unwrap();
 }

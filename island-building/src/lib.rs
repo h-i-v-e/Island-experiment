@@ -7,6 +7,7 @@ pub use church::{ChurchLayout, ChurchRecipe};
 pub mod document;
 pub mod export;
 pub mod extensions;
+pub mod foundation_stone;
 pub use extensions::{ExtensionKind, ExtensionLayout, ExtensionRecipe};
 pub(crate) mod finalize;
 pub mod geometry;
@@ -18,10 +19,13 @@ pub mod layout;
 pub mod lod;
 pub mod materials;
 pub mod model;
+mod native;
 pub mod openings;
 pub use openings::{OpeningDefaults, OpeningDimensions, OpeningGeneration, OpeningOverride};
 pub mod recipe;
 pub mod stairs;
+pub mod terrain_support;
+pub mod town;
 pub use stairs::{
     StairAxis, StaircaseLayout, StaircaseRecipe, StairwellDoorway, StairwellEnclosure,
     StairwellLayout, StairwellSide,

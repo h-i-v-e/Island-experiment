@@ -116,6 +116,28 @@ impl Default for FernMeshes {
 }
 
 impl FernMeshes {
+    pub(crate) fn clear_settlement(&mut self, clearance: &[crate::DecorationClearance]) {
+        let mut removed = 0;
+        for tile in &mut self.tiles {
+            if let Some(used) = crate::terrain::town::retain_mesh_instances(
+                &mut tile.mesh,
+                &tile.environment,
+                clearance,
+            ) {
+                let mut roots = std::collections::HashSet::new();
+                for (root, keep) in tile.environment.iter().zip(&used) {
+                    if !keep {
+                        roots.insert(root.to_array().map(f32::to_bits));
+                    }
+                }
+                removed += roots.len();
+                crate::terrain::town::compact_sidecar(&mut tile.material, &used);
+                crate::terrain::town::compact_sidecar(&mut tile.environment, &used);
+            }
+        }
+        self.clump_count = self.clump_count.saturating_sub(removed);
+    }
+
     pub(crate) fn tiles(&self) -> &[FernMeshTile] {
         &self.tiles
     }

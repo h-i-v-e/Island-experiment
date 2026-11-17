@@ -9,10 +9,8 @@ pub(super) fn generate(b: &mut Builder, p: &Plan<'_>, level: u8, colliders: &mut
     for tower in p.towers() {
         tower_mesh(b, p, tower, level, colliders);
     }
-    for y in p.buttress_rows() {
-        for side in [-1., 1.] {
-            buttress(b, p, side, y, level, colliders);
-        }
+    for layout in p.buttresses() {
+        buttress(b, &layout, level, colliders);
     }
     if level == 0 {
         ribs(b, p, colliders);
@@ -129,19 +127,13 @@ fn band(b: &mut Builder, r: Rect, z: f32, level: u8) {
 }
 fn buttress(
     b: &mut Builder,
-    p: &Plan<'_>,
-    side: f32,
-    y: f32,
+    layout: &super::buttress::Layout,
     level: u8,
     colliders: &mut Vec<BoxCollider>,
 ) {
-    let arch = super::buttress::Arch::new(p.c.buttress_reach, p.r.wall_height);
-    let x = side * (p.n + arch.span);
-    let pier_height = arch.pier_height;
-    let pier = BoxCollider {
-        min: [x - 0.42, y - 0.45, -0.2],
-        max: [x + 0.42, y + 0.45, pier_height],
-    };
+    let [x, y] = layout.wall.b;
+    let pier = layout.pier;
+    let pier_height = pier.max[2];
     cube(b, level, 0, MaterialSlot::Wall, pier.min, pier.max);
     cube(
         b,
@@ -158,11 +150,7 @@ fn buttress(
         pier_height + 0.15,
         level,
     );
-    let wall = Wall {
-        a: [side * p.n, y],
-        b: [x, y],
-    };
-    arch.generate(b, wall, level, colliders);
+    layout.arch.generate(b, layout.wall, level, colliders);
     if level == 0 {
         colliders.push(pier);
     }

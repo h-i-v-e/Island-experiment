@@ -557,8 +557,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ("Exterior", &mut draft.materials.wall),
         ("Roof", &mut draft.materials.roof),
         ("Floor", &mut draft.materials.floor),
-        ("Foundation / stair bodies", &mut draft.materials.foundation),
-        ("Stone slabs", &mut draft.materials.stone_slab),
+        ("Hearth slab", &mut draft.materials.stone_slab),
         ("Ceiling", &mut draft.materials.ceiling),
         ("Interior", &mut draft.materials.interior),
         ("Trim", &mut draft.materials.trim),
@@ -577,25 +576,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
     });
     ui.separator();
     board_materials(ui, draft, state);
-    material_path(
-        ui,
-        "Stone slabs · treads & hearth",
-        &mut draft.materials.stone_slab_recipe,
-        state,
-        dialogs::MaterialTarget::StoneSlab,
-    );
-    ui.label(
-        egui::RichText::new("Solid stone for step tops, landings and the fireplace hearth.")
-            .small()
-            .color(DIM),
-    );
-    material_path(
-        ui,
-        "Foundation / stair body material",
-        &mut draft.materials.foundation_recipe,
-        state,
-        dialogs::MaterialTarget::Foundation,
-    );
+    foundation_materials(ui, draft, state);
     material_path(
         ui,
         "Wall material",
@@ -652,6 +633,33 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         dialogs::MaterialTarget::Timber,
     );
     ui.label(egui::RichText::new("Choose Material Studio JSON recipes. Physical tiling and parameters use the shared evaluator; exports snapshot dependencies.").small().color(DIM));
+}
+
+fn foundation_materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) {
+    material_path(
+        ui,
+        "Hearth slab material",
+        &mut draft.materials.stone_slab_recipe,
+        state,
+        dialogs::MaterialTarget::StoneSlab,
+    );
+    ui.label(
+        egui::RichText::new(
+            "Dressed stone for the fireplace hearth; entrance treads share the foundation stone.",
+        )
+        .small()
+        .color(DIM),
+    );
+    material_path(
+        ui,
+        "Foundation / stairs / tread material",
+        &mut draft.materials.foundation_recipe,
+        state,
+        dialogs::MaterialTarget::Foundation,
+    );
+    ui.label(egui::RichText::new(
+        "Default: shared procedural stone with grub, independent of the building seed and exterior grub toggle. Choose JSON for a custom stone override.",
+    ).small().color(DIM));
 }
 
 fn board_materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) {

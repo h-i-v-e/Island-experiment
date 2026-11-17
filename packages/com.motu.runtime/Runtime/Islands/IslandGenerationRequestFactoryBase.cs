@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using Motu.Settings;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -26,6 +27,9 @@ namespace Motu.Islands
 
         [Header("Navigation (reload islands to apply)")]
         [SerializeField] private IslandNavigationSettings navigation = new IslandNavigationSettings();
+
+        [Header("Coastal Towns (regenerate to apply)")]
+        [SerializeField] private CoastalTownSettings towns = new CoastalTownSettings();
 
         [Header("Caves (regenerate to apply)")]
         [SerializeField] private IslandCaveSettings caves = new IslandCaveSettings();
@@ -61,6 +65,7 @@ namespace Motu.Islands
         public IslandReedSettings ReedSettings => reeds;
         public IslandFernSettings FernSettings => ferns;
         public IslandCaveSettings CaveSettings => caves;
+        public CoastalTownSettings TownSettings => towns;
         public IslandNavigationSettings NavigationSettings => navigation;
         public IslandRenderingSettings RenderingSettings => rendering;
         public IslandDebugSettings DebugSettings => debugSettings;
@@ -98,7 +103,7 @@ namespace Motu.Islands
                 reeds,
                 ferns,
                 rendering,
-                debugSettings, caves, navigation);
+                debugSettings, caves, navigation, towns);
         }
 
         protected IslandGenerationRequest CreateRequest(

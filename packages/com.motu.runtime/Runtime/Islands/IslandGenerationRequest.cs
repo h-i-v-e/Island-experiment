@@ -3,6 +3,7 @@ using UnityEngine;
 using Motu.Interop;
 using Motu.Settings;
 using Motu.World;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -28,6 +29,9 @@ namespace Motu.Islands
         internal IslandDescriptor Descriptor { get; }
         internal MotuNative.Options Options { get; }
         internal CoastalStripNative.Options? CoastalStripOptions { get; }
+        internal string TownRecipeJson { get; }
+        internal TownDependencyData[] TownDependencies { get; }
+        internal ulong TownSeed { get; }
         internal MotuNative.ForestOptions ForestOptions { get; }
         internal HybridForestNative.Options HybridForestOptions => Profile.Forest.HybridOptions;
         internal MotuNative.ReedOptions ReedOptions { get; }
@@ -159,6 +163,15 @@ namespace Motu.Islands
                 : descriptor;
             Options = Profile.Generation.ToNativeOptions(Profile.Rivers);
             CoastalStripOptions = Profile.Generation.ToNativeCoastalStripOptions(descriptor.WorldCell, CoastalInlandSouth);
+            // Capture Unity assets on the requesting thread, before native worker execution.
+            TownDependencies = Array.Empty<TownDependencyData>();
+            if (CoastalStripOptions.HasValue)
+            {
+                TownRecipeJson = Profile.Towns.CaptureJson(out var dependencies);
+                TownDependencies = dependencies;
+            }
+            TownSeed = CoastalStripOptions.HasValue
+                ? ((ulong)(uint)descriptor.Seed << 32) | CoastalStripOptions.Value.sectionIndex : 0UL;
             ForestOptions = Profile.Generation.ToNativeForestOptions(Profile.Forest);
             ReedOptions = Profile.Generation.ToNativeReedOptions(Profile.Reeds);
             FernOptions = Profile.Generation.ToNativeFernOptions(Profile.Ferns);

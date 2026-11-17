@@ -1,0 +1,142 @@
+use super::{
+    FittedStair, PlacementPose, SupportError, SupportOptions, burial, enclosing, sample_rectangle,
+};
+use crate::{
+    BuildingRecipe, MaterialSlot, StairRun,
+    collision::BoxCollider,
+    geometry::{
+        Builder,
+        foundation::{self, StairLayout},
+        slabs,
+    },
+};
+
+pub(super) fn generate(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    pose: PlacementPose,
+    sample: &impl Fn(f32, f32) -> Option<f32>,
+    options: SupportOptions,
+) -> Result<(Vec<BoxCollider>, Vec<FittedStair>), SupportError> {
+    let mut colliders = Vec::new();
+    let mut layouts = Vec::new();
+    for stairs in foundation::stairs(recipe) {
+        let (shapes, steps) = fitted_shapes(recipe, stairs, pose, sample, options)?;
+        let bounds = enclosing(&shapes).expect("entrance landing");
+        // Caps and bodies share one inseparable material/component. Union their
+        // solids so there are no duplicate faces at their exact shared planes.
+        slabs::joined_boxes(builder, MaterialSlot::Foundation, &shapes);
+        colliders.extend(shapes);
+        layouts.push(FittedStair {
+            door_id: stairs.door_id.into(),
+            steps,
+            step_rise: foundation::STEP_RISE,
+            step_run: foundation::STEP_RUN,
+            bounds,
+        });
+    }
+    Ok((colliders, layouts))
+}
+
+fn fitted_shapes(
+    recipe: &BuildingRecipe,
+    stairs: StairLayout<'_>,
+    pose: PlacementPose,
+    sample: &impl Fn(f32, f32) -> Option<f32>,
+    options: SupportOptions,
+) -> Result<(Vec<BoxCollider>, u16), SupportError> {
+    let mut shapes = Vec::new();
+    let mut landing = stairs.landing_bounds;
+    landing.max[2] = stairs.landing_height;
+    add_step(
+        &mut shapes,
+        recipe,
+        stairs,
+        landing,
+        true,
+        pose,
+        sample,
+        options,
+    )?;
+    for step in 1..=options.max_stair_steps {
+        let body = flight_box(
+            stairs,
+            f32::from(step - 1) * foundation::STEP_RUN,
+            f32::from(step) * foundation::STEP_RUN,
+            stairs.landing_height - f32::from(step) * foundation::STEP_RISE,
+        );
+        let ground = add_step(
+            &mut shapes,
+            recipe,
+            stairs,
+            body,
+            false,
+            pose,
+            sample,
+            options,
+        )?;
+        // Stop as soon as the complete toe meets ground. The last tread is
+        // buried, leaving the preceding visible riser no taller than 20 cm.
+        if body.max[2] <= ground + 0.001 {
+            return Ok((shapes, step));
+        }
+    }
+    Err(SupportError::StairsCannotReachTerrain(
+        stairs.door_id.into(),
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_step(
+    shapes: &mut Vec<BoxCollider>,
+    recipe: &BuildingRecipe,
+    stairs: StairLayout<'_>,
+    mut body: BoxCollider,
+    landing: bool,
+    pose: PlacementPose,
+    sample: &impl Fn(f32, f32) -> Option<f32>,
+    options: SupportOptions,
+) -> Result<f32, SupportError> {
+    let cap = tread_bounds(stairs, body, landing);
+    let ground = sample_rectangle(cap, pose, sample, options.sample_spacing)?[0];
+    body.min[2] = (ground - burial(recipe)).min(cap.min[2] - 0.02);
+    body.max[2] = cap.min[2];
+    shapes.extend([body, cap]);
+    Ok(ground)
+}
+
+fn flight_box(stairs: StairLayout<'_>, start: f32, end: f32, top: f32) -> BoxCollider {
+    let [dx, dy] = stairs.direction;
+    let point = |side: f32, run: f32| {
+        [
+            stairs.flight_origin[0] + dx * run - dy * side * stairs.width,
+            stairs.flight_origin[1] + dy * run + dx * side * stairs.width,
+            top,
+        ]
+    };
+    let a = point(-0.5, start);
+    let b = point(0.5, end);
+    BoxCollider {
+        min: std::array::from_fn(|i| a[i].min(b[i])),
+        max: std::array::from_fn(|i| a[i].max(b[i])),
+    }
+}
+
+fn tread_bounds(stairs: StairLayout<'_>, body: BoxCollider, landing: bool) -> BoxCollider {
+    let mut cap = body;
+    cap.min[2] = cap.max[2] - foundation::TREAD_THICKNESS;
+    for axis in 0..2 {
+        cap.min[axis] -= foundation::TREAD_OVERHANG;
+        cap.max[axis] += foundation::TREAD_OVERHANG;
+        if landing || stairs.orientation == StairRun::AlongWall {
+            let normal = stairs.facade.normal()[axis];
+            if normal > 0.5 {
+                cap.min[axis] = body.min[axis];
+            }
+            if normal < -0.5 {
+                cap.max[axis] = body.max[axis];
+            }
+        }
+    }
+    cap
+}

@@ -9,6 +9,7 @@
 mod abi;
 mod caves;
 mod coastal_strip;
+mod coastal_town;
 mod hybrid_forest;
 mod reed_instances;
 mod surface_atlas;

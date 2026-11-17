@@ -3366,6 +3366,7 @@ dependencies = [
 name = "island-building"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bevy",
  "bevy_egui",
  "island-rs",

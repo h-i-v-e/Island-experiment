@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using Motu.Interop;
 using Motu.Streaming;
+using Motu.Towns;
 
 namespace Motu.Islands
 {
@@ -444,6 +445,7 @@ namespace Motu.Islands
 
     internal sealed class IslandPreparedData : IDisposable
     {
+        internal readonly TownPreparedData town;
         internal NativeIslandHandle handle;
         internal readonly bool loadedFromSnapshot;
         internal readonly IslandPreparedSurfaceMaps surfaceMaps;
@@ -482,11 +484,12 @@ namespace Motu.Islands
             IslandPreparedCaves caves = null,
             IslandPreparedBoulderCollider[][] boulderColliders = null, IslandPreparedMesh navigationMesh = null,
             LandBirdPerch[] landBirdPerches = null,
-            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null)
+            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null, TownPreparedData town = null)
         {
             if (lodSurfaceMaps == null || lodSurfaceMaps.Length != 2
                 || lodSurfaceMaps[0] == null || lodSurfaceMaps[1] == null)
                 throw new ArgumentException("Both coarse terrain atlases are required.", nameof(lodSurfaceMaps));
+            this.town = town;
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
             this.surfaceMaps = surfaceMaps;

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Serialization;
 using Motu.Settings;
+using Motu.Towns;
 using Motu.Interop;
 using Motu.World;
 
@@ -48,6 +49,10 @@ namespace Motu.Islands
 
         [Tooltip("Cells whose coherent sample falls below this value remain open sea.")]
         [Range(0f, 1f)] [SerializeField] private float islandThreshold = 0.25f;
+
+        [Header("Coastal Towns (reload islands to apply)")]
+        [SerializeField] private CoastalTownSettings coastalTowns = new CoastalTownSettings();
+        public CoastalTownSettings TownSettings => coastalTowns;
 
         [Header("Navigation (reload islands to apply)")]
         [SerializeField] private IslandNavigationSettings navigationSettings = new IslandNavigationSettings();
@@ -184,7 +189,7 @@ namespace Motu.Islands
                 CreateForestSettings(random, snowLine,
                     GetSunLatitudeDegrees(cell.y * IslandWorldManager.IslandSizeMetres)),
                 reedSettings, fernSettings, renderingSettings, new IslandDebugSettings(),
-                caveSettings, navigationSettings);
+                caveSettings, navigationSettings, coastalTowns);
             return IslandGenerationRequest.FromOwnedProfile(coastSeed, cell, profile,
                 CreateIslandMaterialColours(random), coastalInlandSouth: inlandSouth);
         }

@@ -229,6 +229,11 @@ impl<'a> Plan<'a> {
             })
         })
     }
+
+    pub fn buttresses(&self) -> impl Iterator<Item = super::buttress::Layout> + '_ {
+        self.buttress_rows()
+            .flat_map(|y| [-1., 1.].map(|side| super::buttress::Layout::new(self, side, y)))
+    }
 }
 
 fn corner_offset(outline: &[[f32; 2]], wall: Wall, u: f32) -> Option<f32> {

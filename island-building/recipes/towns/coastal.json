@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "catalogue": [
+    {
+      "id": "cathedral",
+      "building": {
+        "schema_version": 1,
+        "name": "Stone Gothic church",
+        "seed": 42,
+        "width": 26.0,
+        "depth": 38.0,
+        "wall_height": 10.0,
+        "wall_thickness": 0.55,
+        "floor_thickness": 0.3,
+        "roof": {
+          "kind": "gable",
+          "rise": 5.0,
+          "overhang": 0.45,
+          "thickness": 0.12,
+          "covering": "slate"
+        },
+        "openings": [
+          {
+            "id": "entrance",
+            "facade": "south",
+            "kind": "door",
+            "offset": 0.0,
+            "width": 1.15,
+            "height": 2.2,
+            "sill": 0.0,
+            "hinge": "left",
+            "swing_degrees": 105.0,
+            "use_default_dimensions": true
+          }
+        ],
+        "partitions": [],
+        "materials": {
+          "wall": [
+            0.58,
+            0.53,
+            0.43
+          ],
+          "roof": [
+            0.15,
+            0.19,
+            0.23
+          ],
+          "floor": [
+            0.48,
+            0.45,
+            0.39
+          ],
+          "interior": [
+            0.58,
+            0.53,
+            0.43
+          ],
+          "trim": [
+            0.7,
+            0.64,
+            0.52
+          ],
+          "door": [
+            0.3,
+            0.2,
+            0.12
+          ],
+          "glass": [
+            0.32,
+            0.57,
+            0.69,
+            0.23
+          ],
+          "wall_recipe": null,
+          "roof_recipe": null,
+          "chimney": [
+            0.255,
+            0.25,
+            0.23
+          ],
+          "chimney_recipe": null,
+          "ceiling": [
+            0.65,
+            0.61,
+            0.51
+          ]
+        },
+        "atlas_size": 128,
+        "chimney": null,
+        "storeys": 1,
+        "church": {
+          "nave_width": 9.0,
+          "transept_depth": 8.0,
+          "crossing_offset": 5.0,
+          "tower_width": 4.5,
+          "tower_height": 20.0,
+          "buttress_reach": 3.0,
+          "bay_spacing": 3.6
+        },
+        "opening_defaults": {
+          "window": {
+            "width": 2.25,
+            "height": 6.0,
+            "sill": 1.65
+          },
+          "door": {
+            "width": 2.4,
+            "height": 3.6,
+            "sill": 0.0
+          }
+        },
+        "grub_filter": {
+          "enabled": true,
+          "height_falloff": 3.0
+        }
+      },
+      "min_count": 1,
+      "max_count": 1,
+      "placement": "centre"
+    },
+    {
+      "id": "cottage",
+      "building": {
+        "schema_version": 1,
+        "name": "Island cottage",
+        "seed": 42,
+        "width": 9.0,
+        "depth": 7.0,
+        "wall_height": 2.8,
+        "wall_thickness": 0.2,
+        "floor_thickness": 0.16,
+        "roof": {
+          "kind": "gable",
+          "rise": 2.0,
+          "overhang": 0.35,
+          "thickness": 0.12
+        },
+        "openings": [
+          {
+            "id": "entrance",
+            "facade": "south",
+            "kind": "door",
+            "offset": 0.0,
+            "width": 1.15,
+            "height": 2.2,
+            "sill": 0.0,
+            "hinge": "left",
+            "swing_degrees": 105.0
+          },
+          {
+            "id": "window-east",
+            "facade": "east",
+            "kind": "window",
+            "offset": -1.5,
+            "width": 1.4,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          },
+          {
+            "id": "window-west",
+            "facade": "west",
+            "kind": "window",
+            "offset": 1.5,
+            "width": 1.4,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          },
+          {
+            "id": "front-window",
+            "facade": "south",
+            "kind": "window",
+            "offset": 2.7,
+            "width": 1.3,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          },
+          {
+            "id": "rear-window",
+            "facade": "north",
+            "kind": "window",
+            "offset": 0.0,
+            "width": 1.4,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          }
+        ],
+        "partitions": [
+          {
+            "id": "cross-wall",
+            "axis": "x",
+            "offset": 0.7,
+            "door_offset": 0.0,
+            "door_width": 1.1,
+            "door_height": 2.2
+          }
+        ],
+        "materials": {
+          "wall": [
+            0.62,
+            0.38,
+            0.22
+          ],
+          "roof": [
+            0.23,
+            0.28,
+            0.29
+          ],
+          "floor": [
+            0.38,
+            0.27,
+            0.17
+          ],
+          "interior": [
+            0.76,
+            0.72,
+            0.61
+          ],
+          "trim": [
+            0.82,
+            0.76,
+            0.61
+          ],
+          "door": [
+            0.3,
+            0.2,
+            0.12
+          ],
+          "glass": [
+            0.65,
+            0.82,
+            0.88,
+            0.16
+          ],
+          "wall_recipe": null,
+          "roof_recipe": null,
+          "chimney": [
+            0.255,
+            0.25,
+            0.23
+          ],
+          "chimney_recipe": null
+        },
+        "atlas_size": 128,
+        "chimney": {
+          "facade": "north",
+          "offset": -2.5,
+          "width": 1.6,
+          "depth": 0.6,
+          "firebox_width": 1.0,
+          "firebox_height": 0.85,
+          "firebox_depth": 0.42,
+          "hearth_depth": 0.3,
+          "hearth_height": 0.12,
+          "stack_width": 0.65,
+          "stack_depth": 0.5,
+          "height_above_roof": 0.8
+        }
+      },
+      "min_count": 5,
+      "max_count": 12,
+      "placement": "other"
+    },
+    {
+      "id": "workshop",
+      "building": {
+        "schema_version": 1,
+        "name": "Harbour workshop",
+        "seed": 42,
+        "width": 10.0,
+        "depth": 7.0,
+        "wall_height": 3.4,
+        "wall_thickness": 0.2,
+        "floor_thickness": 0.16,
+        "roof": {
+          "kind": "shed",
+          "rise": 1.2,
+          "overhang": 0.35,
+          "thickness": 0.12
+        },
+        "openings": [
+          {
+            "id": "entrance",
+            "facade": "south",
+            "kind": "door",
+            "offset": 0.0,
+            "width": 1.5,
+            "height": 2.6,
+            "sill": 0.0,
+            "hinge": "left",
+            "swing_degrees": 105.0
+          },
+          {
+            "id": "window-east",
+            "facade": "east",
+            "kind": "window",
+            "offset": 0.0,
+            "width": 1.4,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          },
+          {
+            "id": "window-west",
+            "facade": "west",
+            "kind": "window",
+            "offset": 0.0,
+            "width": 1.4,
+            "height": 1.1,
+            "sill": 0.95,
+            "hinge": "left",
+            "swing_degrees": 90.0
+          }
+        ],
+        "partitions": [],
+        "materials": {
+          "wall": [
+            0.49,
+            0.54,
+            0.49
+          ],
+          "roof": [
+            0.23,
+            0.28,
+            0.29
+          ],
+          "floor": [
+            0.38,
+            0.27,
+            0.17
+          ],
+          "interior": [
+            0.76,
+            0.72,
+            0.61
+          ],
+          "trim": [
+            0.82,
+            0.76,
+            0.61
+          ],
+          "door": [
+            0.3,
+            0.2,
+            0.12
+          ],
+          "glass": [
+            0.65,
+            0.82,
+            0.88,
+            0.16
+          ],
+          "wall_recipe": null,
+          "roof_recipe": null,
+          "chimney": [
+            0.255,
+            0.25,
+            0.23
+          ],
+          "chimney_recipe": null
+        },
+        "atlas_size": 128,
+        "chimney": {
+          "facade": "north",
+          "offset": 0.0,
+          "width": 1.6,
+          "depth": 0.6,
+          "firebox_width": 1.0,
+          "firebox_height": 0.85,
+          "firebox_depth": 0.42,
+          "hearth_depth": 0.3,
+          "hearth_height": 0.12,
+          "stack_width": 0.65,
+          "stack_depth": 0.5,
+          "height_above_roof": 0.8
+        }
+      },
+      "min_count": 2,
+      "max_count": 4,
+      "placement": "other"
+    }
+  ],
+  "settings": {}
+}
