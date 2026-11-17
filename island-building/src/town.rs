@@ -5,6 +5,7 @@
 mod input;
 mod placement;
 mod rivers;
+mod roads;
 
 pub use input::*;
 
@@ -25,6 +26,23 @@ pub struct TownInstance {
     pub position: [f32; 3],
     /// Radians about native +Z.
     pub yaw: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontage: Option<TownFrontage>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TownFrontage {
+    pub door_id: String,
+    /// Native Z-up metres at the walking surface of the adjoining street.
+    pub street_edge: [f32; 3],
+}
+
+/// Opposing bank approaches reserved as information for a future bridge.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BridgeCandidate {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
+    pub width: f32,
 }
 
 /// Horizontal rectangle for removal of trees, rocks and other terrain decorations.
@@ -81,6 +99,10 @@ pub struct TownOutput {
     pub support_colliders: Vec<BoxCollider>,
     pub stair_colliders: Vec<BoxCollider>,
     pub clearance: Vec<ClearanceRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roads: Option<motu::roads::RoadNetwork>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bridge_candidates: Vec<BridgeCandidate>,
     /// Requested copies can be skipped when no safe placement exists.
     pub skipped_count: u32,
 }

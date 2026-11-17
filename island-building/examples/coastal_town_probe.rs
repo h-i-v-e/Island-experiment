@@ -8,7 +8,7 @@
 use island_building::town::{
     HeightGrid, RiverPolyline, TownInput, TownOutput, TownRecipe, generate_town,
 };
-use motu::{CoastalStripOptions, ISLAND_WORLD_METRES, Island, IslandOptions};
+use motu::{CoastalStripOptions, ISLAND_WORLD_METRES, Island, IslandOptions, Vec2};
 use serde::Serialize;
 use std::{
     env,
@@ -113,6 +113,8 @@ struct Summary<'a> {
     centre: Option<[f32; 2]>,
     buildings: usize,
     skipped: u32,
+    road_sections: usize,
+    bridge_candidates: usize,
     prototypes: Vec<PrototypeSummary<'a>>,
     support_vertices: usize,
     support_triangles: usize,
@@ -214,7 +216,23 @@ fn rerun_input(args: &Arguments, path: &Path) -> Result<()> {
                 .count(),
         })
         .collect();
-    let summary = serde_json::json!({"source_input":path,"tile_seed":input.tile_seed,"town_seconds":elapsed,"river_lines":input.rivers.len(),"river_points":input.rivers.iter().map(|r|r.points.len()).sum::<usize>(),"mouth":output.mouth,"centre":output.centre,"buildings":output.instances.len(),"skipped":output.skipped_count,"prototypes":counts,"support_vertices":output.supports.positions.len(),"support_triangles":output.supports.triangle_count(),"clearance_rectangles":output.clearance.len()});
+    let summary = serde_json::json!({
+        "source_input": path,
+        "tile_seed": input.tile_seed,
+        "town_seconds": elapsed,
+        "river_lines": input.rivers.len(),
+        "river_points": input.rivers.iter().map(|r| r.points.len()).sum::<usize>(),
+        "mouth": output.mouth,
+        "centre": output.centre,
+        "buildings": output.instances.len(),
+        "skipped": output.skipped_count,
+        "road_sections": road_sections(&output),
+        "bridge_candidates": output.bridge_candidates.len(),
+        "prototypes": counts,
+        "support_vertices": output.supports.positions.len(),
+        "support_triangles": output.supports.triangle_count(),
+        "clearance_rectangles": output.clearance.len(),
+    });
     write_json(&args.output.join("summary.json"), &summary)?;
     write_json(&args.output.join("town.json"), &output)?;
     write_svg(&args.output.join("plan.svg"), &input, &output)?;
@@ -234,9 +252,10 @@ fn town_input(island: &Island, tile_seed: u64) -> TownInput {
                 for (row, values) in rows.chunks_mut(DIM).enumerate() {
                     let y = chunk * rows_per_chunk + row;
                     for (x, value) in values.iter_mut().enumerate() {
-                        *value = island.terrain().sample(
-                            x as f32 * SPACING / ISLAND_WORLD_METRES,
-                            y as f32 * SPACING / ISLAND_WORLD_METRES,
+                        let point = Vec2::new(x as f32, y as f32) * SPACING / ISLAND_WORLD_METRES;
+                        *value = island.terrain().sample_accurate_surface(point).map_or_else(
+                            || island.terrain().sample(point.x, point.y),
+                            |hit| hit.position.z,
                         ) * ISLAND_WORLD_METRES;
                     }
                 }
@@ -267,6 +286,7 @@ fn town_input(island: &Island, tile_seed: u64) -> TownInput {
     TownInput {
         tile_seed,
         sea_level: 0.,
+        protected_terrain: island.town_protected_terrain(),
         terrain: HeightGrid {
             origin: [0.; 2],
             spacing: SPACING,
@@ -305,6 +325,8 @@ fn summary<'a>(
         centre: town.centre,
         buildings: town.instances.len(),
         skipped: town.skipped_count,
+        road_sections: road_sections(town),
+        bridge_candidates: town.bridge_candidates.len(),
         prototypes: town
             .prototypes
             .iter()
@@ -325,6 +347,10 @@ fn summary<'a>(
         clearance: &town.clearance,
     }
 }
+fn road_sections(town: &TownOutput) -> usize {
+    town.roads.as_ref().map_or(0, |roads| roads.strips.len())
+}
+
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let mut writer = BufWriter::new(File::create(path)?);
     serde_json::to_writer(&mut writer, value)?;
@@ -364,7 +390,7 @@ fn write_svg(path: &Path, input: &TownInput, town: &TownOutput) -> Result<()> {
     for rect in &town.clearance {
         writeln!(
             writer,
-            r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#e9c391" stroke="#493723" stroke-width="1.5" transform="translate({} {}) rotate({})"/>"##,
+            r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#e9c391" fill-opacity="0.18" stroke="#493723" stroke-width="0.5" transform="translate({} {}) rotate({})"/>"##,
             -rect.half_extents[0],
             -rect.half_extents[1],
             rect.half_extents[0] * 2.,
@@ -372,6 +398,26 @@ fn write_svg(path: &Path, input: &TownInput, town: &TownOutput) -> Result<()> {
             rect.centre[0],
             rect.centre[1],
             rect.yaw.to_degrees()
+        )?;
+    }
+    if let Some(roads) = &town.roads {
+        for strip in &roads.strips {
+            write!(
+                writer,
+                r##"<polyline fill="none" stroke="#68513e" stroke-width="{}" stroke-linecap="round" points=""##,
+                strip.half_width * 2.
+            )?;
+            for station in &strip.stations {
+                write!(writer, "{},{} ", station.point.x, station.point.y)?;
+            }
+            writeln!(writer, r#""/>"#)?;
+        }
+    }
+    for bridge in &town.bridge_candidates {
+        writeln!(
+            writer,
+            r##"<path d="M {} {} L {} {}" stroke="#8d3dad" stroke-width="2.5" stroke-dasharray="4 3"/>"##,
+            bridge.from[0], bridge.from[1], bridge.to[0], bridge.to[1]
         )?;
     }
     if let Some(mouth) = town.mouth {

@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
+using Motu.Towns;
 using UnityEngine;
 
 namespace Motu.Islands
@@ -11,10 +13,28 @@ namespace Motu.Islands
         internal const string Extension = ".motuhorizon";
         private const int Magic = 0x4D484F52;
         private const int Version = 1;
+        private const int TownRoadRevision = 1;
         private const int MaximumBytes = 32 * 1024 * 1024;
 
         internal static string PathFor(string snapshotPath) => string.IsNullOrEmpty(snapshotPath)
             ? null : Path.ChangeExtension(snapshotPath, Extension);
+
+        internal static string TownRoadPathFor(string snapshotPath, string townRecipe, ulong townSeed)
+        {
+            if (string.IsNullOrEmpty(snapshotPath) || string.IsNullOrEmpty(townRecipe)) return null;
+            using var bytes = new MemoryStream();
+            using (var writer = new BinaryWriter(bytes, Encoding.UTF8, true))
+            {
+                writer.Write(TownNative.ApiVersion);
+                writer.Write(TownRoadRevision);
+                writer.Write(Path.GetFileNameWithoutExtension(snapshotPath));
+                writer.Write(townSeed);
+                writer.Write(townRecipe);
+            }
+            using var sha = SHA256.Create();
+            var key = BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").ToLowerInvariant();
+            return Path.Combine(Path.GetDirectoryName(snapshotPath), key + Extension);
+        }
 
         internal static bool TryLoad(string snapshotPath, out IslandPreparedMesh mesh)
         {
@@ -65,7 +85,8 @@ namespace Motu.Islands
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        internal static bool TrySave(string snapshotPath, IslandPreparedMesh mesh, long budgetBytes)
+        internal static bool TrySave(string snapshotPath, IslandPreparedMesh mesh, long budgetBytes,
+            string protectBaseSnapshot = null)
         {
             var path = PathFor(snapshotPath);
             if (path == null) return false;
@@ -93,7 +114,7 @@ namespace Motu.Islands
                 { file.Write(bytes, 0, bytes.Length); file.Write(hash, 0, hash.Length); }
                 if (File.Exists(path)) File.Replace(temporary, path, null);
                 else File.Move(temporary, path);
-                IslandSnapshotCache.TrimToBudget(Path.GetDirectoryName(path), budgetBytes, snapshotPath);
+                IslandSnapshotCache.TrimToBudget(Path.GetDirectoryName(path), budgetBytes, protectBaseSnapshot ?? snapshotPath);
                 return true;
             }
             catch (IOException error) { Debug.LogWarning($"Could not cache island horizon: {error.Message}"); return false; }

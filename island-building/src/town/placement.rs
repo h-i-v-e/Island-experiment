@@ -1,4 +1,5 @@
 use super::rivers::distance;
+use super::roads::{self, Access, Lot, Streets};
 use super::{
     ClearanceRect, TownError, TownInput, TownInstance, TownMouth, TownOutput, TownPlacement,
     TownPrototype, TownRecipe, TownSettings,
@@ -8,6 +9,7 @@ use crate::{
     collision::BoxCollider,
     terrain_support::{self, PlacementPose},
 };
+use motu::roads::RoadNetwork;
 use std::path::Path;
 
 struct Random(u64);
@@ -69,6 +71,8 @@ struct Placed {
     pose: PlacementPose,
     supports: terrain_support::FittedSupports,
     clearance: ClearanceRect,
+    access: Option<Access>,
+    streets: Option<Streets>,
 }
 
 pub(super) fn generate(
@@ -100,6 +104,9 @@ pub(super) fn generate(
         {
             generate_entry(entry, &mut search, &mut output, base)?;
         }
+    }
+    if let Some(roads) = &output.roads {
+        output.clearance.extend(roads::clearance(roads, 0.25));
     }
     Ok(output)
 }
@@ -138,9 +145,9 @@ fn generate_entry(
         foundations: terrain_support::foundation_footprints(&building),
     };
     for _ in 0..copies {
-        let Some(placed) = find_placement(
+        let Some(mut placed) = find_placement(
             search,
-            output.centre,
+            output,
             &mut generation,
             footprint,
             entry.placement,
@@ -154,7 +161,14 @@ fn generate_entry(
             .centre
             .get_or_insert([placed.pose.origin[0], placed.pose.origin[1]]);
         search.occupied.push(placed.clearance);
-        publish_placement(output, &placed)?;
+        if let Some(access) = &placed.access {
+            search.occupied.push(access.clearance);
+        }
+        if let Some(streets) = placed.streets.take() {
+            output.roads = Some(streets.network);
+            output.bridge_candidates = streets.bridges;
+        }
+        publish_placement(output, placed)?;
     }
     if output.instances.len() > first_instance
         && let Some(mut prototype) = generation.prototype
@@ -181,15 +195,17 @@ fn generate_entry(
 
 fn find_placement(
     search: &mut Search<'_>,
-    centre: Option<[f32; 2]>,
+    output: &TownOutput,
     generation: &mut EntryGeneration<'_>,
     footprint: BoxCollider,
     placement: TownPlacement,
     random: &mut Random,
 ) -> Result<Option<Placed>, TownError> {
     let settings = search.settings;
-    let input = search.input;
-    for attempt in 0..settings.attempts_per_copy {
+    let mut site_attempt = 0;
+    let mut alternate_sites = None;
+    let mut fallback = None::<Placed>;
+    for _ in 0..settings.attempts_per_copy {
         if (search.cancelled)() {
             return Err(TownError::Cancelled);
         }
@@ -197,89 +213,258 @@ fn find_placement(
             break;
         }
         search.total_attempts += 1;
-        let (position, yaw) = candidate(
-            search.mouth,
-            centre,
-            placement,
-            attempt,
-            &footprint,
-            settings,
-            random,
-        );
-        let rect = posed_rect(footprint, position, yaw, 0.);
-        if search
-            .occupied
-            .iter()
-            .any(|other| overlaps(&rect, other, settings.building_gap))
-            || touches_river(&rect, input, settings.river_margin)
-        {
-            continue;
-        }
-        let Some(floor) = sample_regions(
-            generation.foundations.iter().copied(),
+        let lot = if let Some(network) = &output.roads {
+            let building = generation.resolved_recipe()?;
+            let Some(lot) = roads::entrance(building).and_then(|door| {
+                roads::lot(
+                    network,
+                    building,
+                    door,
+                    settings,
+                    std::array::from_fn(|_| random.unit()),
+                )
+            }) else {
+                return Ok(None);
+            };
+            let centre = output.centre.expect("roads have a centre");
+            let radius = settings.town_radius
+                * if placement == TownPlacement::Centre {
+                    0.65
+                } else {
+                    1.
+                };
+            if distance(centre, lot.position) > radius {
+                continue;
+            }
+            Some(lot)
+        } else {
+            None
+        };
+        let alternate = alternate_sites.as_mut().and_then(Iterator::next);
+        let (position, yaw) = if let Some(lot) = lot {
+            (lot.position, lot.yaw)
+        } else if let Some(alternate) = alternate {
+            alternate
+        } else {
+            let site = candidate(
+                search.mouth,
+                output.centre,
+                placement,
+                site_attempt,
+                &footprint,
+                settings,
+                random,
+            );
+            site_attempt += 1;
+            site
+        };
+        let Some(mut placed) = fit_placement(
+            search,
+            generation,
+            footprint,
             position,
             yaw,
-            search,
-        ) else {
-            continue;
-        };
-        let building = generation.resolved_recipe()?;
-        let pose = PlacementPose {
-            origin: [
-                position[0],
-                position[1],
-                floor + building.floor_thickness + 0.02,
-            ],
-            yaw,
-        };
-        let sampler = |x, y| input.terrain.sample(x, y);
-        let options = terrain_support::SupportOptions {
-            sample_spacing: settings.sample_spacing.min(input.terrain.spacing * 0.5),
-            ..terrain_support::SupportOptions::default()
-        };
-        let Ok(supports) = terrain_support::fit_with_options(building, pose, &sampler, options)
+            output.roads.as_ref(),
+        )?
         else {
             continue;
         };
-        if supports
-            .foundation_colliders
-            .iter()
-            .any(|bounds| bounds.max[2] - bounds.min[2] > settings.max_support_height)
-        {
-            continue;
+        if settings.roads.is_some() {
+            if output.roads.is_none() && alternate.is_none() {
+                alternate_sites = Some(centre_orientations(position, yaw));
+            }
+            if !connect_street(
+                search,
+                generation.resolved_recipe()?,
+                &mut placed,
+                lot,
+                output.roads.as_ref(),
+            )? {
+                continue;
+            }
         }
-        let approaches = door_approaches(building, settings.approach_length);
-        if sample_regions(
-            approaches.chain(supports.stairs.iter().map(|stairs| stairs.bounds)),
-            position,
-            yaw,
-            search,
-        )
-        .is_none()
-        {
-            continue;
+        if let Some(placed) = prefer_ring_frontage(placed, &mut fallback) {
+            return Ok(Some(placed));
         }
-        let mut reserved = supports.clearance_bounds;
-        for axis in 0..2 {
-            reserved.min[axis] = reserved.min[axis].min(footprint.min[axis]);
-            reserved.max[axis] = reserved.max[axis].max(footprint.max[axis]);
-        }
-        let clearance = posed_rect(reserved, position, yaw, settings.clearance_margin);
-        if touches_river(&clearance, input, settings.river_margin)
-            || search
-                .occupied
-                .iter()
-                .any(|other| overlaps(&clearance, other, settings.building_gap))
-        {
-            continue;
-        }
-        return Ok(Some(Placed {
-            pose,
-            supports,
-            clearance,
-        }));
     }
-    Ok(None)
+    Ok(fallback)
+}
+
+fn prefer_ring_frontage(placed: Placed, fallback: &mut Option<Placed>) -> Option<Placed> {
+    let Some(streets) = &placed.streets else {
+        return Some(placed);
+    };
+    if streets.ring_length >= 88. {
+        return Some(placed);
+    }
+    // Give a useful arc of the square priority, while keeping the best short
+    // plan in reserve for a bank with a broken circuit.
+    if fallback
+        .as_ref()
+        .and_then(|prior| prior.streets.as_ref())
+        .is_none_or(|prior| {
+            streets
+                .ring_length
+                .total_cmp(&prior.ring_length)
+                .then_with(|| {
+                    streets
+                        .network
+                        .strips
+                        .len()
+                        .cmp(&prior.network.strips.len())
+                })
+                .is_gt()
+        })
+    {
+        *fallback = Some(placed);
+    }
+    None
+}
+
+fn fit_placement(
+    search: &mut Search<'_>,
+    generation: &mut EntryGeneration<'_>,
+    footprint: BoxCollider,
+    position: [f32; 2],
+    yaw: f32,
+    roads: Option<&RoadNetwork>,
+) -> Result<Option<Placed>, TownError> {
+    let settings = search.settings;
+    let input = search.input;
+    let rect = posed_rect(footprint, position, yaw, 0.);
+    if blocked(&rect, search)
+        || roads.is_some_and(|network| roads::obstructs(network, &rect, false))
+    {
+        return Ok(None);
+    }
+    let Some(floor) = sample_regions(
+        generation.foundations.iter().copied(),
+        position,
+        yaw,
+        search,
+    ) else {
+        return Ok(None);
+    };
+    let building = generation.resolved_recipe()?;
+    let pose = PlacementPose {
+        origin: [
+            position[0],
+            position[1],
+            floor + building.floor_thickness + 0.02,
+        ],
+        yaw,
+    };
+    let sampler = |x, y| input.terrain.sample(x, y);
+    let options = terrain_support::SupportOptions {
+        sample_spacing: settings.sample_spacing.min(input.terrain.spacing * 0.5),
+        ..terrain_support::SupportOptions::default()
+    };
+    let Ok(supports) = terrain_support::fit_with_options(building, pose, &sampler, options) else {
+        return Ok(None);
+    };
+    if supports
+        .foundation_colliders
+        .iter()
+        .any(|bounds| bounds.max[2] - bounds.min[2] > settings.max_support_height)
+    {
+        return Ok(None);
+    }
+    let approaches = door_approaches(building, settings.approach_length);
+    if sample_regions(
+        approaches.chain(supports.stairs.iter().map(|stairs| stairs.bounds)),
+        position,
+        yaw,
+        search,
+    )
+    .is_none()
+    {
+        return Ok(None);
+    }
+    let reserved = enclose(supports.clearance_bounds, footprint);
+    let clearance = posed_rect(reserved, position, yaw, settings.clearance_margin);
+    Ok((!blocked(&clearance, search)).then_some(Placed {
+        pose,
+        supports,
+        clearance,
+        access: None,
+        streets: None,
+    }))
+}
+
+fn blocked(rect: &ClearanceRect, search: &Search<'_>) -> bool {
+    let settings = search.settings;
+    search
+        .occupied
+        .iter()
+        .any(|other| overlaps(rect, other, settings.building_gap))
+        || (settings.roads.is_some() && protected(rect, search.input))
+        || touches_river(rect, search.input, settings.river_margin)
+}
+
+fn connect_street(
+    search: &Search<'_>,
+    building: &crate::BuildingRecipe,
+    placed: &mut Placed,
+    lot: Option<Lot>,
+    roads: Option<&RoadNetwork>,
+) -> Result<bool, TownError> {
+    let settings = search.settings;
+    let input = search.input;
+    let pose = placed.pose;
+    let supports = &placed.supports;
+    let support_rect = posed_rect(
+        supports.clearance_bounds,
+        [pose.origin[0], pose.origin[1]],
+        pose.yaw,
+        0.05,
+    );
+    if let (Some(lot), Some(network)) = (lot, roads) {
+        if !roads::obstructs(network, &support_rect, true) {
+            placed.access = roads::entrance(building).and_then(|door| {
+                roads::approach(
+                    network,
+                    building,
+                    door,
+                    supports,
+                    pose,
+                    lot.street_edge,
+                    input,
+                    settings,
+                    &search.occupied,
+                )
+            });
+        }
+    } else {
+        let core = enclose(shell_footprint(building), supports.clearance_bounds);
+        let Some(streets) = roads::layout(core, pose, settings, input, search.cancelled)? else {
+            return Ok(false);
+        };
+        if !roads::obstructs(&streets.roads, &support_rect, true)
+            && let Some((root, access)) = roads::central_approach(
+                &streets,
+                building,
+                supports,
+                pose,
+                input,
+                settings,
+                &search.occupied,
+            )
+        {
+            placed.access = Some(access);
+            placed.streets = Some(streets.finish(root, input, settings));
+        }
+    }
+    Ok(placed.access.is_some())
+}
+
+fn centre_orientations(position: [f32; 2], yaw: f32) -> impl Iterator<Item = ([f32; 2], f32)> {
+    // The building can fit on a bank that only has a usable road in one
+    // direction. Recheck the footprint and door for alternative headings.
+    [
+        90_f32, -90., 180., 30., -30., 60., -60., 120., -120., 150., -150., 15., -15.,
+    ]
+    .into_iter()
+    .map(move |degrees| (position, yaw + degrees.to_radians()))
 }
 
 fn sample_regions(
@@ -332,7 +517,7 @@ fn door_approaches(
         })
 }
 
-fn publish_placement(output: &mut TownOutput, placed: &Placed) -> Result<(), TownError> {
+fn publish_placement(output: &mut TownOutput, placed: Placed) -> Result<(), TownError> {
     output.clearance.push(placed.clearance);
     append_mesh(
         &mut output.supports,
@@ -358,11 +543,22 @@ fn publish_placement(output: &mut TownOutput, placed: &Placed) -> Result<(), Tow
         prototype_index: output.prototypes.len(),
         position: placed.pose.origin,
         yaw: placed.pose.yaw,
+        frontage: placed.access.map(|access| {
+            output.clearance.push(access.clearance);
+            access.frontage
+        }),
     });
     Ok(())
 }
 
-fn footprint(building: &crate::BuildingRecipe, settings: &TownSettings) -> BoxCollider {
+fn enclose(a: BoxCollider, b: BoxCollider) -> BoxCollider {
+    BoxCollider {
+        min: std::array::from_fn(|i| a.min[i].min(b.min[i])),
+        max: std::array::from_fn(|i| a.max[i].max(b.max[i])),
+    }
+}
+
+fn shell_footprint(building: &crate::BuildingRecipe) -> BoxCollider {
     let mut bounds = BoxCollider {
         min: [f32::INFINITY; 3],
         max: [f32::NEG_INFINITY; 3],
@@ -377,6 +573,13 @@ fn footprint(building: &crate::BuildingRecipe, settings: &TownSettings) -> BoxCo
         bounds.min[axis] -= building.roof.overhang + 0.15;
         bounds.max[axis] += building.roof.overhang + 0.15;
     }
+    bounds.min[2] = 0.;
+    bounds.max[2] = 0.;
+    bounds
+}
+
+fn footprint(building: &crate::BuildingRecipe, settings: &TownSettings) -> BoxCollider {
+    let mut bounds = shell_footprint(building);
     for door in building
         .openings
         .iter()
@@ -465,7 +668,7 @@ fn posed_rect(bounds: BoxCollider, origin: [f32; 2], yaw: f32, margin: f32) -> C
     rect
 }
 
-fn overlaps(a: &ClearanceRect, b: &ClearanceRect, gap: f32) -> bool {
+pub(super) fn overlaps(a: &ClearanceRect, b: &ClearanceRect, gap: f32) -> bool {
     let (sa, ca) = a.yaw.sin_cos();
     let (sb, cb) = b.yaw.sin_cos();
     let axes_a = [[ca, sa], [-sa, ca]];
@@ -539,7 +742,24 @@ fn fitted_floor(
     Some(max)
 }
 
-fn touches_river(rect: &ClearanceRect, input: &TownInput, margin: f32) -> bool {
+pub(super) fn protected(rect: &ClearanceRect, input: &TownInput) -> bool {
+    use motu::Vec2;
+    input.protected_terrain.iter().any(|area| {
+        let a = Vec2::from_array(area.min);
+        let b = Vec2::from_array(area.max);
+        overlaps(
+            rect,
+            &ClearanceRect {
+                centre: ((a + b) * 0.5).to_array(),
+                half_extents: ((b - a) * 0.5).to_array(),
+                yaw: 0.,
+            },
+            0.,
+        )
+    })
+}
+
+pub(super) fn touches_river(rect: &ClearanceRect, input: &TownInput, margin: f32) -> bool {
     input.rivers.iter().any(|river| {
         river.points.windows(2).enumerate().any(|(i, pair)| {
             let a = rect.local(pair[0]);
@@ -653,6 +873,7 @@ mod tests {
         let input = TownInput {
             tile_seed: 1,
             sea_level: 0.,
+            protected_terrain: vec![],
             rivers: vec![],
             terrain: HeightGrid {
                 origin: [-10., -10.],
@@ -720,6 +941,7 @@ mod occupied_footprint_tests {
             let input = TownInput {
                 tile_seed: 1,
                 sea_level: 0.,
+                protected_terrain: vec![],
                 rivers: vec![],
                 terrain: HeightGrid {
                     origin: [-30.; 2],
@@ -769,6 +991,7 @@ mod occupied_footprint_tests {
         let input = TownInput {
             tile_seed: 1,
             sea_level: 0.,
+            protected_terrain: vec![],
             rivers: vec![],
             terrain: HeightGrid {
                 origin: [-30.; 2],

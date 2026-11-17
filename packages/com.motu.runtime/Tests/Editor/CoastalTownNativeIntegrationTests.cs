@@ -61,7 +61,7 @@ namespace Motu.Tests
         public void RealCoastalTerrainExportsTownInputAndAcceptsNativeClearance()
         {
             var result = RealFixture.Value.town;
-            Assert.That(result.schema_version, Is.EqualTo(1));
+            Assert.That(result.schema_version, Is.EqualTo(2));
             Assert.That(result.clearance_json, Is.Not.Null.And.Not.Empty);
             Assert.That(result.instances.Length, Is.GreaterThan(0), "The fixed seed-42 coast must exercise actual building/support export and clearance.");
             TestContext.Progress.WriteLine($"Real coast town roundtrip: {result.instances.Length} buildings, {result.supports.indices.Length / 3} support triangles.");
@@ -71,14 +71,20 @@ namespace Motu.Tests
         {
             internal TownPreparedData town;
             internal IslandPreparedMesh terrain;
+            internal float roadHeightMapError;
         }
 
         private static RealTownScene GenerateRealCoast()
         {
             var generation = new IslandGenerationSettings {
-                TerrainShape = IslandTerrainShape.CoastalStrip, UseSnapshotCache = false, CoastalSectionCount = 8
+                TerrainShape = IslandTerrainShape.CoastalStrip, UseSnapshotCache = false,
+                CoastalSectionCount = 8, WaterRatio = 0.8f, MaximumHeightMetres = 400f
             };
-            var profile = new IslandGenerationProfile(generation, new IslandRiverSettings(), new IslandForestSettings(),
+            var rivers = new IslandRiverSettings {
+                SourceCatchmentHectares = 0.1f, SteepSourceCatchmentMultiplier = 8f, SourceElevationBoost = 20f,
+                SourceWidthMetres = 2f, MaximumWidthMetres = 5f, SourceDepthMetres = 0.35f, MaximumDepthMetres = 1f
+            };
+            var profile = new IslandGenerationProfile(generation, rivers, new IslandForestSettings(),
                 new IslandReedSettings(), new IslandFernSettings(), new IslandRenderingSettings(), new IslandDebugSettings(),
                 new IslandCaveSettings { Enabled = false }, towns: new CoastalTownSettings { enabled = false });
             var request = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
@@ -92,24 +98,96 @@ namespace Motu.Tests
             Assert.That(handle, Is.Not.EqualTo(IntPtr.Zero));
             try
             {
-                var catalogue = Resources.Load<TownRecipeCatalogue>("Towns/DefaultTownCatalogue");
-                var recipe = catalogue.CaptureJson(out var dependencies);
+                var recipe = new CoastalTownSettings().CaptureJson(out var dependencies);
                 var result = TownNative.Prepare(handle, recipe, request.TownSeed, dependencies);
-                Assert.That(result.schema_version, Is.EqualTo(1));
+                Assert.That(result.schema_version, Is.EqualTo(2));
                 Assert.That(result.seed, Is.EqualTo(request.TownSeed.ToString()));
                 Assert.That(result.clearance_json, Is.Not.Null.And.Not.Empty);
                 Assert.That(result.instances.Length, Is.GreaterThan(0), "The fixed seed-42 coast must exercise actual building/support export and clearance.");
-                return new RealTownScene { town = result, terrain = TerrainCrop(handle, result) };
+                return new RealTownScene {
+                    town = result, terrain = TerrainCrop(handle, result),
+                    roadHeightMapError = RoadHeightMapError(handle, result.road_mesh)
+                };
             }
             finally { MotuNative.ReleaseMotu(handle); }
         }
 
+        [Test, Category("NativeIntegration"), Timeout(300000)]
+        public void RealCoastRoadMeshMeetsCarvedTerrainCollision()
+        {
+            var fixture = RealFixture.Value;
+            var roads = fixture.town.road_mesh;
+            Assert.That(fixture.town.road_count, Is.GreaterThan(4),
+                "The default coast has room for a connected network beyond a single access stub.");
+            Assert.That(roads.indices.Length, Is.GreaterThan(0));
+            Assert.That(fixture.town.instances.All(instance => instance.frontage?.street_edge?.Length == 3), Is.True);
+            Assert.That(fixture.roadHeightMapError, Is.LessThan(0.15f),
+                "The streamed player collision height map should follow the finished grade.");
+            var ground = new GameObject("Carved town terrain collision");
+            var terrainMesh = IslandMeshInterop.CreateTerrainMesh(fixture.terrain, 0);
+            try
+            {
+                var collider = ground.AddComponent<MeshCollider>();
+                collider.sharedMesh = terrainMesh;
+                Physics.SyncTransforms();
+                float maximumError = 0;
+                int samples = 0;
+                int stride = Math.Max(1, roads.indices.Length / (3 * 160));
+                for (var index = 0; index < roads.indices.Length; index += 3 * stride)
+                {
+                    var centre = (RoadPosition(roads, roads.indices[index])
+                        + RoadPosition(roads, roads.indices[index + 1])
+                        + RoadPosition(roads, roads.indices[index + 2])) / 3f;
+                    Assert.That(collider.Raycast(new Ray(centre + Vector3.up * 5f, Vector3.down),
+                        out var hit, 10f), Is.True, $"No native terrain collision at {centre}");
+                    maximumError = Mathf.Max(maximumError, Mathf.Abs(hit.point.y - centre.y));
+                    samples++;
+                }
+            TestContext.Progress.WriteLine($"Carved road collision. {fixture.town.road_count} road sections, {samples} samples, maximum error {maximumError:F3} m.");
+                Assert.That(maximumError, Is.LessThan(0.12f), "Roads and native collision should share the finished grade.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(ground);
+                Object.DestroyImmediate(terrainMesh);
+            }
+        }
+
+        private static float RoadHeightMapError(IntPtr handle, TownMesh roads)
+        {
+            if (roads?.indices == null || roads.indices.Length == 0) return float.PositiveInfinity;
+            var heights = TerrainPreparation.PrepareColliderHeightMap(handle, 2000f);
+            float maximumError = 0;
+            int stride = Math.Max(1, roads.indices.Length / (3 * 160));
+            for (var index = 0; index < roads.indices.Length; index += 3 * stride)
+            {
+                var centre = (RoadPosition(roads, roads.indices[index])
+                    + RoadPosition(roads, roads.indices[index + 1])
+                    + RoadPosition(roads, roads.indices[index + 2])) / 3f;
+                var grid = new Vector2(centre.x + 1000f, centre.z + 1000f) * ((heights.dimension - 1) / 2000f);
+                var x = Mathf.FloorToInt(grid.x);
+                var z = Mathf.FloorToInt(grid.y);
+                var left = Mathf.Lerp(heights.WorldHeightAt(x, z), heights.WorldHeightAt(x, z + 1), grid.y - z);
+                var right = Mathf.Lerp(heights.WorldHeightAt(x + 1, z), heights.WorldHeightAt(x + 1, z + 1), grid.y - z);
+                maximumError = Mathf.Max(maximumError, Mathf.Abs(Mathf.Lerp(left, right, grid.x - x) - centre.y));
+            }
+            TestContext.Progress.WriteLine($"Road error from the player collision height map. {maximumError:F3} m maximum.");
+            return maximumError;
+        }
+
+        private static Vector3 RoadPosition(TownMesh mesh, int index)
+        {
+            var offset = index * 3;
+            return new Vector3(mesh.positions[offset] - 1000f, mesh.positions[offset + 2],
+                mesh.positions[offset + 1] - 1000f);
+        }
+
         private static IslandPreparedMesh TerrainCrop(IntPtr handle, TownPreparedData town)
         {
-            var x = town.instances.Average(instance => instance.position[0]);
-            var y = town.instances.Average(instance => instance.position[1]);
-            var area = new MotuNative.ExportArea(Mathf.Clamp01((x - 160f) / 2000f), Mathf.Clamp01((y - 160f) / 2000f),
-                Mathf.Clamp01((x + 160f) / 2000f), Mathf.Clamp01((y + 160f) / 2000f));
+            var position = town.instances[0].position;
+            var area = new MotuNative.ExportArea(Mathf.Clamp01((position[0] - 170f) / 2000f),
+                Mathf.Clamp01((position[1] - 170f) / 2000f), Mathf.Clamp01((position[0] + 170f) / 2000f),
+                Mathf.Clamp01((position[1] + 170f) / 2000f));
             var memory = Marshal.AllocHGlobal(Marshal.SizeOf<MotuNative.ExportArea>());
             try
             {
@@ -199,6 +277,9 @@ namespace Motu.Tests
                 GraphicsSettings.defaultRenderPipeline = pipeline;
                 QualitySettings.renderPipeline = pipeline;
                 var town = TownRenderer.Install(root.transform, data, 2000f);
+                if (data.road_count > 0)
+                    Assert.That(town.transform.Find("Town roads").GetComponent<MeshFilter>().sharedMesh.vertexCount,
+                        Is.EqualTo(data.road_mesh.positions.Length / 3));
                 var bounds = town.GetComponentsInChildren<MeshRenderer>().Select(r => r.bounds)
                     .Aggregate((a, b) => { a.Encapsulate(b); return a; });
                 var ground = new GameObject("Native terrain beneath town");
@@ -243,6 +324,12 @@ namespace Motu.Tests
                 RenderSettings.ambientProbe = probe;
                 yield return null;
                 CaptureFrame(camera, target, image, fileName + ".png");
+                if (data.road_count > 0)
+                {
+                    camera.transform.position = focus + Vector3.up * bounds.size.magnitude;
+                    camera.transform.LookAt(focus, Vector3.forward);
+                    CaptureFrame(camera, target, image, fileName + "-road-plan.png");
+                }
                 camera.orthographicSize = 13f;
                 focus = town.InspectionLocalPosition + Vector3.up * 2f;
                 camera.transform.position = focus + new Vector3(18f, 15f, -22f);
@@ -273,7 +360,9 @@ namespace Motu.Tests
             RenderTexture.active = target;
             image.ReadPixels(new Rect(0, 0, image.width, image.height), 0, 0);
             image.Apply();
-            var path = Path.Combine(Path.DirectorySeparatorChar == '/' ? "/tmp" : Path.GetTempPath(), "coastal-towns-20261117", fileName);
+            var directory = Environment.GetEnvironmentVariable("MOTU_TOWN_RENDER_DIR")
+                ?? Path.Combine(Path.GetTempPath(), "motu-coastal-town-render");
+            var path = Path.Combine(directory, fileName);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             File.WriteAllBytes(path, image.EncodeToPNG());
             TestContext.Progress.WriteLine("Native town camera render: " + path);

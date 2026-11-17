@@ -564,8 +564,10 @@ namespace Motu.World
                 var horizon = root.AddComponent<IslandHorizonRenderer>();
                 horizon.Initialize(mesh, entry.GenerationRequest.Generation.MaximumHeightMetres,
                     entry.GenerationRequest.Generation.TerrainShape);
-                entry.Horizon = horizon;
                 horizon.SetViewPosition(lastQueryPosition, true, Lod3DistanceMetres);
+                if (entry.Horizon != null) entry.Horizon.gameObject.SetActive(false);
+                DestroyHorizon(entry);
+                entry.Horizon = horizon;
             }
             catch { Motu.Rendering.UnityObjectLifetime.DestroyUnityObject(root); throw; }
         }

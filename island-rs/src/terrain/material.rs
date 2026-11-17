@@ -1,8 +1,7 @@
 #[cfg(test)]
 use super::Vec3;
 use super::{
-    EdgeSplitStencil, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2,
-    Vec4, sample_mesh_triangle,
+    EdgeSplitStencil, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2, Vec4,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -286,7 +285,7 @@ impl TerrainMaterialField {
     }
 
     pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec4 {
-        sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point).map_or_else(
+        terrain.sample_triangle(point).map_or_else(
             || {
                 let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
                 self.values[nearest]
@@ -331,7 +330,7 @@ impl TerrainEnvironmentField {
     }
 
     pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec2 {
-        sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point).map_or_else(
+        terrain.sample_triangle(point).map_or_else(
             || {
                 let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
                 self.values[nearest]

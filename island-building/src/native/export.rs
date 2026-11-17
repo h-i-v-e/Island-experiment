@@ -1,7 +1,8 @@
 //! Unity-friendly JSON encoding without copying source meshes or raw image data.
 use crate::{
     BakedAtlas, BuildingMesh, BuildingPrototype, MaterialSlot, MaterialTexture,
-    collision::BoxCollider, town::TownOutput,
+    collision::BoxCollider,
+    town::{BridgeCandidate, TownFrontage, TownOutput},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Serialize, Serializer};
@@ -77,10 +78,11 @@ struct Prototype<'a> {
     atlas: Material,
 }
 #[derive(Serialize)]
-struct Instance {
+struct Instance<'a> {
     prototype_index: usize,
     position: [f32; 3],
     yaw_radians: f32,
+    frontage: Option<&'a TownFrontage>,
 }
 #[derive(Serialize)]
 struct Package<'a> {
@@ -89,12 +91,16 @@ struct Package<'a> {
     mouth: Vec<f32>,
     diagnostics: Vec<String>,
     prototypes: Vec<Prototype<'a>>,
-    instances: Vec<Instance>,
+    instances: Vec<Instance<'a>>,
     supports: Mesh<'a>,
     support_material: Option<Material>,
     support_colliders: &'a [BoxCollider],
     stair_colliders: &'a [BoxCollider],
     clearance_json: String,
+    roads_json: String,
+    road_mesh: Mesh<'a>,
+    road_count: usize,
+    bridge_candidates: &'a [BridgeCandidate],
 }
 
 pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
@@ -118,15 +124,30 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
             )
         })
         .transpose()?;
+    let road_mesh = output
+        .roads
+        .as_ref()
+        .map(motu::roads::RoadNetwork::mesh)
+        .unwrap_or_default();
+    let road_count = output.roads.as_ref().map_or(0, |roads| roads.strips.len());
+    let roads_json = output
+        .roads
+        .as_ref()
+        .filter(|_| road_count > 0)
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
     let package = Package {
-        schema_version: 1,
+        schema_version: 2,
         seed: output.tile_seed.to_string(),
         mouth: output
             .mouth
             .map_or_else(Vec::new, |mouth| mouth.position.to_vec()),
         diagnostics: vec![format!(
-            "Placed {} buildings; skipped {} copies without suitable terrain",
+            "Placed {} buildings and {} road sections. Skipped {} copies without suitable terrain or frontage.",
             output.instances.len(),
+            road_count,
             output.skipped_count
         )],
         prototypes,
@@ -137,6 +158,7 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
                 prototype_index: p.prototype_index,
                 position: p.position,
                 yaw_radians: p.yaw,
+                frontage: p.frontage.as_ref(),
             })
             .collect(),
         supports: mesh(&output.supports, &output.supports_grub_positions),
@@ -144,6 +166,16 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
         support_colliders: &output.support_colliders,
         stair_colliders: &output.stair_colliders,
         clearance_json: serde_json::to_string(&output.clearance).map_err(|e| e.to_string())?,
+        roads_json,
+        road_mesh: Mesh {
+            positions: Flat(&road_mesh.positions),
+            normals: Flat(&road_mesh.normals),
+            uvs: Flat(&road_mesh.uvs),
+            indices: &road_mesh.indices,
+            grub_positions: Flat(&[]),
+        },
+        road_count,
+        bridge_candidates: &output.bridge_candidates,
     };
     serde_json::to_string(&package).map_err(|e| e.to_string())
 }

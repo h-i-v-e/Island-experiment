@@ -1,6 +1,8 @@
 //! Additive owned JSON boundary for engine-independent town terrain and clearance.
 use super::{Island, c_char, c_void};
-use crate::{DecorationClearance, ISLAND_WORLD_METRES, Vec2};
+use crate::{
+    DecorationClearance, ISLAND_WORLD_METRES, TownProtectedTerrain, Vec2, roads::RoadNetwork,
+};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::{
@@ -20,7 +22,7 @@ fn error(message: &str) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn GetCoastalTownApiVersion() -> u32 {
-    1
+    2
 }
 
 #[unsafe(no_mangle)]
@@ -48,6 +50,7 @@ struct TownInput {
     sea_level: f32,
     terrain: HeightGrid,
     rivers: Vec<RiverPolyline>,
+    protected_terrain: Vec<TownProtectedTerrain>,
 }
 
 #[allow(clippy::cast_precision_loss)] // Grid indices are at most 1000, exactly representable in f32.
@@ -109,6 +112,54 @@ fn terrain_input(island: &Island, tile_seed: u64) -> TownInput {
             heights,
         },
         rivers,
+        protected_terrain: island.town_protected_terrain(),
+    }
+}
+
+/// Grades the resident terrain before terrain, collider and decoration exports.
+///
+/// Returns 1 on success, 0 for malformed JSON or null arguments, and -1 if the
+/// road network fails geometry checks. A failure leaves the island unchanged.
+///
+/// # Safety
+/// The caller must own exclusive access to a live island and supply a valid
+/// NUL-terminated UTF-8 buffer. The native island must be a fresh generated or
+/// restored base snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ApplyCoastalTownRoadsJson(
+    handle: *mut c_void,
+    json: *const c_char,
+) -> i32 {
+    const MAXIMUM_ROAD_JSON_BYTES: usize = 16 * 1024 * 1024;
+    let Some(island) = (unsafe { handle.cast::<Island>().as_mut() }) else {
+        error("road grading requires a live exclusively owned island");
+        return 0;
+    };
+    if json.is_null() {
+        error("road grading JSON is null");
+        return 0;
+    }
+    let bytes = unsafe { CStr::from_ptr(json) }.to_bytes();
+    if bytes.len() > MAXIMUM_ROAD_JSON_BYTES {
+        error("road grading JSON exceeds 16 MiB");
+        return 0;
+    }
+    let roads = match serde_json::from_slice::<RoadNetwork>(bytes) {
+        Ok(roads) => roads,
+        Err(reason) => {
+            error(&reason.to_string());
+            return 0;
+        }
+    };
+    match island.apply_town_roads(&roads) {
+        Ok(()) => {
+            error("");
+            1
+        }
+        Err(reason) => {
+            error(&reason);
+            -1
+        }
     }
 }
 
@@ -195,6 +246,28 @@ mod tests {
             island == before,
             "invalid clearance must not mutate the island"
         );
-        assert_eq!(GetCoastalTownApiVersion(), 1);
+        assert_eq!(GetCoastalTownApiVersion(), 2);
+    }
+
+    #[test]
+    fn road_boundary_distinguishes_protocol_rejection_and_no_op() {
+        let mut island = Island::shared_forest_fixture(crate::ForestOptions::default());
+        let before = island.clone();
+        let handle = (&raw mut island).cast();
+        let empty = c"{\"strips\":[],\"junctions\":[],\"shoulder\":0}";
+        let invalid = c"{\"strips\":[],\"junctions\":[],\"shoulder\":-2}";
+        assert_eq!(
+            unsafe { ApplyCoastalTownRoadsJson(handle, c"[]".as_ptr()) },
+            0
+        );
+        assert_eq!(
+            unsafe { ApplyCoastalTownRoadsJson(handle, invalid.as_ptr()) },
+            -1
+        );
+        assert_eq!(
+            unsafe { ApplyCoastalTownRoadsJson(handle, empty.as_ptr()) },
+            1
+        );
+        assert!(island == before);
     }
 }

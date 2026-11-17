@@ -85,6 +85,12 @@ pub(super) fn is_snapshot(path: &Path) -> io::Result<bool> {
 }
 
 pub(super) fn save(island: &Island, path: &Path) -> io::Result<()> {
+    if island.terrain.road_sampling_bounds.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "saved island snapshots must precede town road grading",
+        ));
+    }
     validate_island(island)?;
     let temporary_path = temporary_path(path);
     let result = save_to_temporary_file(island, &temporary_path)

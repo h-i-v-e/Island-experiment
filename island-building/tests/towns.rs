@@ -27,6 +27,7 @@ fn input() -> TownInput {
     TownInput {
         tile_seed: 543,
         sea_level: 0.,
+        protected_terrain: vec![],
         terrain: terrain(|_, y| (y * 0.2).clamp(-2., 4.)),
         rivers: vec![RiverPolyline {
             join: None,
@@ -91,6 +92,64 @@ fn deterministic_catalogue_counts_and_centre_priority() {
         a.prototypes[1].building == changed.prototypes[1].building,
         "changing copy count must preserve the shared building variant"
     );
+}
+
+#[test]
+fn working_streets_face_the_resolved_ground_floor_doors() {
+    use island_building::terrain_support::PlacementPose;
+    use motu::Vec2;
+    let mut input = input();
+    input.terrain = terrain(|x, y| if x.abs() < 2. && y < 0. { -1. } else { 6. });
+    let mut recipe = recipe();
+    recipe.settings.roads = Some(TownRoadSettings::default());
+    let mut cottage = recipe.catalogue[0].building.clone();
+    cottage
+        .openings
+        .retain(|opening| opening.facade != island_building::Facade::East);
+    let door = cottage
+        .openings
+        .iter_mut()
+        .find(|door| door.kind == island_building::OpeningKind::Door)
+        .unwrap();
+    door.facade = island_building::Facade::East;
+    door.offset = 1.;
+    recipe.catalogue[0].building = cottage;
+    let output = generate_town(&recipe, &input).unwrap();
+    let repeat = generate_town(&recipe, &input).unwrap();
+    assert_eq!(output.instances, repeat.instances);
+    assert_eq!(output.roads, repeat.roads);
+    assert_eq!(
+        output.instances.len(),
+        4,
+        "all planned copies have dry land"
+    );
+    let roads = output.roads.unwrap();
+    assert!(!roads.strips.is_empty());
+    for instance in &output.instances {
+        let frontage = instance.frontage.as_ref().unwrap();
+        let recipe = &output.prototypes[instance.prototype_index].building.recipe;
+        let door = recipe
+            .openings
+            .iter()
+            .find(|door| door.id == frontage.door_id)
+            .unwrap();
+        let pose = PlacementPose {
+            origin: instance.position,
+            yaw: instance.yaw,
+        };
+        let [x, y, _] = pose.world_point(door.facade.point(recipe, door.offset, 0., 0.));
+        let [dx, dy, _] = door.facade.normal();
+        let [edge_x, edge_y, edge_height] = frontage.street_edge;
+        let edge = Vec2::new(edge_x, edge_y);
+        let facing = Vec2::from_angle(pose.yaw).rotate(Vec2::new(dx, dy));
+        assert!((edge - Vec2::new(x, y)).normalize().dot(facing) > 0.95);
+        assert!((roads.surface_height(edge).unwrap() - edge_height).abs() < 0.001);
+    }
+    assert!(output.supports.positions.iter().all(|point| {
+        roads
+            .surface_height(Vec2::new(point[0], point[1]))
+            .is_none()
+    }));
 }
 
 #[test]

@@ -12,6 +12,10 @@ namespace Motu.Towns
         public TownBox[] support_colliders, stair_colliders;
         public TownMaterial support_material;
         public string clearance_json;
+        public string roads_json;
+        public TownMesh road_mesh;
+        public int road_count;
+        public TownBridgeCandidate[] bridge_candidates;
         public string[] diagnostics;
         public float[] mouth;
         public string seed;
@@ -46,6 +50,17 @@ namespace Motu.Towns
         public int prototype_index;
         public float[] position;
         public float yaw_radians;
+        public TownFrontage frontage;
+    }
+    [Serializable] internal sealed class TownFrontage
+    {
+        public string door_id;
+        public float[] street_edge;
+    }
+    [Serializable] internal sealed class TownBridgeCandidate
+    {
+        public float[] from, to;
+        public float width;
     }
     [Serializable] internal sealed class TownBox { public float[] min, max; }
     [Serializable] internal sealed class TownDoorData

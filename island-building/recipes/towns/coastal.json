@@ -388,5 +388,7 @@
       "placement": "other"
     }
   ],
-  "settings": {}
+  "settings": {
+    "roads": {}
+  }
 }

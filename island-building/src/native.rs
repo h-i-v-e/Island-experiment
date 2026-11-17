@@ -56,7 +56,7 @@ fn generate(request: &str, base: &Path) -> Result<CString, String> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn GetMotuTownApiVersion() -> u32 {
-    1
+    2
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn GetLastMotuTownError() -> *const c_char {
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
     #[test]
     fn null_and_invalid_native_requests_report_errors() {
-        assert_eq!(GetMotuTownApiVersion(), 1);
+        assert_eq!(GetMotuTownApiVersion(), 2);
         assert!(unsafe { CreateMotuTown(ptr::null(), ptr::null()) }.is_null());
         let request = CString::new("{}").unwrap();
         assert!(unsafe { CreateMotuTown(request.as_ptr(), ptr::null()) }.is_null());
@@ -161,6 +161,9 @@ mod tests {
             .to_str()
             .unwrap();
         let exported: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(exported["schema_version"], 2);
+        assert_eq!(exported["roads_json"], "");
+        assert_eq!(exported["road_count"], 0);
         assert_eq!(exported["instances"].as_array().unwrap().len(), 1);
         let supports = &exported["supports"];
         assert_eq!(

@@ -127,6 +127,8 @@ impl TriangleIndex {
 pub struct Terrain {
     pub(super) mesh: Mesh,
     pub(super) triangle_index: TriangleIndex,
+    #[serde(skip)]
+    pub(super) road_sampling_bounds: Option<[Vec2; 2]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,7 +195,22 @@ impl Terrain {
         Self {
             mesh,
             triangle_index,
+            road_sampling_bounds: None,
         }
+    }
+
+    pub(super) fn road_precision_at(&self, point: Vec2) -> bool {
+        self.road_sampling_bounds
+            .is_some_and(|[min, max]| !point.cmplt(min).any() && !point.cmpgt(max).any())
+    }
+
+    pub(super) fn sample_triangle(&self, point: Vec2) -> Option<([usize; 3], [f32; 3])> {
+        let sample = if self.road_precision_at(point) {
+            precise_triangle
+        } else {
+            sample_mesh_triangle
+        };
+        sample(&self.mesh, &self.triangle_index, point)
     }
 
     #[must_use]
@@ -218,25 +235,10 @@ impl Terrain {
 
     #[must_use]
     pub fn sample(&self, u: f32, v: f32) -> f32 {
-        sample_mesh_triangle(
-            &self.mesh,
-            &self.triangle_index,
-            Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
-        )
-        .map_or_else(
-            || {
-                let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
-                self.mesh.vertices[self.triangle_index.nearest_vertex(&self.mesh, point)].z
-            },
-            |(triangle, weights)| {
-                weights[0].mul_add(
-                    self.mesh.vertices[triangle[0]].z,
-                    weights[1].mul_add(
-                        self.mesh.vertices[triangle[1]].z,
-                        weights[2] * self.mesh.vertices[triangle[2]].z,
-                    ),
-                )
-            },
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        self.sample_triangle(point).map_or_else(
+            || self.mesh.vertices[self.triangle_index.nearest_vertex(&self.mesh, point)].z,
+            |(triangle, weights)| weighted_height(&self.mesh, triangle, weights),
         )
     }
 
@@ -278,14 +280,9 @@ impl Terrain {
 
     #[must_use]
     pub fn sample_normal(&self, u: f32, v: f32) -> Vec3 {
-        sample_mesh_triangle(
-            &self.mesh,
-            &self.triangle_index,
-            Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
-        )
-        .map_or_else(
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        self.sample_triangle(point).map_or_else(
             || {
-                let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
                 let nearest = self.triangle_index.nearest_vertex(&self.mesh, point);
                 self.mesh.normals[nearest]
             },
@@ -302,7 +299,7 @@ impl Terrain {
     pub(crate) fn sample_vertex_scalar(&self, values: &[f32], u: f32, v: f32) -> f32 {
         debug_assert_eq!(values.len(), self.mesh.vertices.len());
         let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
-        sample_mesh_triangle(&self.mesh, &self.triangle_index, point).map_or_else(
+        self.sample_triangle(point).map_or_else(
             || values[self.triangle_index.nearest_vertex(&self.mesh, point)],
             |(triangle, weights)| {
                 weights[0].mul_add(
@@ -314,7 +311,13 @@ impl Terrain {
     }
 
     pub(crate) fn sample_surface(&self, u: f32, v: f32) -> (f32, Vec3) {
-        sample_mesh_surface(&self.mesh, &self.triangle_index, u, v)
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        mesh_surface(
+            &self.mesh,
+            &self.triangle_index,
+            point,
+            self.road_precision_at(point),
+        )
     }
 
     /// Atlas baking needs interpolation even on sub-metre source triangles.
@@ -365,7 +368,7 @@ impl Terrain {
 
     pub(crate) fn sample_support(&self, point: Vec2) -> TerrainSupportSample {
         let point = point.clamp(Vec2::ZERO, Vec2::ONE);
-        sample_mesh_triangle(&self.mesh, &self.triangle_index, point).map_or_else(
+        self.sample_triangle(point).map_or_else(
             || {
                 let nearest = self.triangle_index.nearest_vertex(&self.mesh, point);
                 TerrainSupportSample {
@@ -395,6 +398,7 @@ impl Terrain {
     }
 }
 
+#[cfg(test)]
 pub(super) fn sample_mesh_surface(
     mesh: &Mesh,
     triangle_index: &TriangleIndex,
@@ -402,19 +406,27 @@ pub(super) fn sample_mesh_surface(
     v: f32,
 ) -> (f32, Vec3) {
     let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
-    sample_mesh_triangle(mesh, triangle_index, point).map_or_else(
+    mesh_surface(mesh, triangle_index, point, false)
+}
+
+pub(super) fn mesh_surface(
+    mesh: &Mesh,
+    triangle_index: &TriangleIndex,
+    point: Vec2,
+    precise: bool,
+) -> (f32, Vec3) {
+    let sample = if precise {
+        precise_triangle
+    } else {
+        sample_mesh_triangle
+    };
+    sample(mesh, triangle_index, point).map_or_else(
         || {
             let nearest = triangle_index.nearest_vertex(mesh, point);
             (mesh.vertices[nearest].z, mesh.normals[nearest])
         },
         |(triangle, weights)| {
-            let elevation = weights[0].mul_add(
-                mesh.vertices[triangle[0]].z,
-                weights[1].mul_add(
-                    mesh.vertices[triangle[1]].z,
-                    weights[2] * mesh.vertices[triangle[2]].z,
-                ),
-            );
+            let elevation = weighted_height(mesh, triangle, weights);
             let normal = (mesh.normals[triangle[0]] * weights[0]
                 + mesh.normals[triangle[1]] * weights[1]
                 + mesh.normals[triangle[2]] * weights[2])
@@ -423,6 +435,33 @@ pub(super) fn sample_mesh_surface(
             (elevation, normal)
         },
     )
+}
+
+fn weighted_height(mesh: &Mesh, triangle: [usize; 3], weights: [f32; 3]) -> f32 {
+    weights[0].mul_add(
+        mesh.vertices[triangle[0]].z,
+        weights[1].mul_add(
+            mesh.vertices[triangle[1]].z,
+            weights[2] * mesh.vertices[triangle[2]].z,
+        ),
+    )
+}
+
+fn precise_triangle(
+    mesh: &Mesh,
+    index: &TriangleIndex,
+    point: Vec2,
+) -> Option<([usize; 3], [f32; 3])> {
+    if let Some(sample) = sample_domain_edge(mesh, index, point) {
+        return Some(sample);
+    }
+    index.candidates(point).iter().find_map(|&face| {
+        let offset = face as usize * 3;
+        let triangle = [0, 1, 2].map(|corner| mesh.triangles[offset + corner] as usize);
+        let positions = triangle.map(|vertex| mesh.vertices[vertex].truncate());
+        precise_weights(point, positions)
+            .map(|weights| (triangle, weights.map(|weight| weight as f32)))
+    })
 }
 
 pub(super) fn sample_mesh_triangle(
@@ -455,10 +494,16 @@ pub(super) fn sample_mesh_triangle(
 /// weights prevents a tolerated negative weight from extrapolating a steep face.
 #[allow(clippy::cast_possible_truncation)]
 fn precise_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
-    let [a, b, c] = triangle.map(Vec3::as_dvec3);
-    let first = b.truncate() - a.truncate();
-    let second = c.truncate() - a.truncate();
-    let relative = point.as_dvec2() - a.truncate();
+    let weights = precise_weights(point, triangle.map(Vec3::truncate))?;
+    let [a, b, c] = triangle.map(|position| f64::from(position.z));
+    Some((a * weights[0] + b * weights[1] + c * weights[2]) as f32)
+}
+
+fn precise_weights(point: Vec2, triangle: [Vec2; 3]) -> Option<[f64; 3]> {
+    let [a, b, c] = triangle.map(Vec2::as_dvec2);
+    let first = b - a;
+    let second = c - a;
+    let relative = point.as_dvec2() - a;
     let area = first.perp_dot(second);
     if !area.is_finite() || area == 0.0 {
         return None;
@@ -474,7 +519,7 @@ fn precise_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
     }
     let weights = weights.map(|weight| weight.max(0.0));
     let sum = weights.iter().sum::<f64>();
-    Some(((a.z * weights[0] + b.z * weights[1] + c.z * weights[2]) / sum) as f32)
+    Some(weights.map(|weight| weight / sum))
 }
 
 // Domain edges are an exact geometry contract, not a proximity test. Their

@@ -48,12 +48,14 @@ mod generation_method;
 mod gpu_generation;
 mod lod;
 mod material;
+mod road_grade;
 mod sampling;
-pub(crate) mod town;
+pub use road_grade::TownProtectedTerrain;
 mod snapshot;
 #[cfg(feature = "surface-atlas")]
 mod surface_atlas;
 mod surface_maps;
+pub(crate) mod town;
 #[cfg(feature = "surface-atlas")]
 pub use surface_atlas::SurfaceAtlas;
 
@@ -75,9 +77,11 @@ use gpu_generation::GpuParticleErosionScratch;
 pub(crate) use material::{SurfaceMaterial, projected_vertex_control_areas};
 use material::{TerrainEnvironmentField, TerrainMaterialField};
 pub(crate) use sampling::TerrainSupportSample;
+#[cfg(test)]
+use sampling::sample_mesh_surface;
 pub use sampling::{SurfaceMaps, Terrain};
 use sampling::{
-    SurfaceSample, TriangleIndex, bury_river_banks, sample_mesh_surface, sample_mesh_triangle,
+    SurfaceSample, TriangleIndex, bury_river_banks, mesh_surface, sample_mesh_triangle,
 };
 use surface_maps::bake_surface_maps;
 

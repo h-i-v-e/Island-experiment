@@ -1,18 +1,22 @@
+using System;
+using System.IO;
 using Motu.Islands;
 using Motu.Settings;
 using Motu.Towns;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEditor;
+using Object = UnityEngine.Object;
 
 namespace Motu.Tests
 {
     public sealed class CoastalTownAdapterTests
     {
-        [Test]
-        public void PackagedShaderImportsWithoutErrors()
+        [TestCase("Towns/TownBuilding")]
+        [TestCase("Towns/TownRoad")]
+        public void PackagedTownShadersImportWithoutErrors(string path)
         {
-            var shader = Resources.Load<Shader>("Towns/TownBuilding");
+            var shader = Resources.Load<Shader>(path);
             Assert.That(shader, Is.Not.Null);
             Assert.That(ShaderUtil.ShaderHasError(shader), Is.False);
         }
@@ -74,6 +78,52 @@ namespace Motu.Tests
             }
             finally { Object.DestroyImmediate(factoryRoot); }
         }
+
+        [Test]
+        public void TownRoadHorizonPrefersItsOwnRecipeAndKeepsTheBaseCache()
+        {
+            var root = new GameObject("Town road horizon test");
+            var cache = Path.Combine(Path.GetTempPath(), "motu-town-horizon-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var factory = root.AddComponent<SingleIsland>();
+                factory.GenerationSettings.TerrainShape = IslandTerrainShape.CoastalStrip;
+                factory.GenerationSettings.UseSnapshotCache = true;
+                factory.GenerationSettings.SnapshotCacheDirectory = cache;
+                var roads = factory.CreateIslandGenerationRequest(Vector2Int.zero);
+                Assert.That(roads.TownRecipeJson, Does.Contain("\"roads\":"));
+                Assert.That(roads.TownRoadHorizonPath, Is.Not.Null);
+                Assert.That(roads.TownRoadHorizonPath, Is.Not.EqualTo(IslandHorizonCache.PathFor(roads.SnapshotPath)));
+
+                var baseMesh = HorizonMesh(2);
+                Assert.That(IslandHorizonCache.TrySave(roads.SnapshotPath, baseMesh, 1024 * 1024), Is.True);
+                Assert.That(IslandPreparationPipeline.PrepareHorizon(roads, default).vertices[0].y, Is.EqualTo(2));
+
+                Assert.That(IslandHorizonCache.TrySave(roads.TownRoadHorizonPath, HorizonMesh(1), 1024 * 1024), Is.True);
+                Assert.That(IslandPreparationPipeline.PrepareHorizon(roads, default).vertices[0].y, Is.EqualTo(1));
+
+                factory.TownSettings.roads.half_width = 4f;
+                var wider = factory.CreateIslandGenerationRequest(Vector2Int.zero);
+                Assert.That(wider.TownRoadHorizonPath, Is.Not.EqualTo(roads.TownRoadHorizonPath));
+                Assert.That(wider.SnapshotPath, Is.EqualTo(roads.SnapshotPath));
+                Assert.That(IslandPreparationPipeline.PrepareHorizon(wider, default).vertices[0].y, Is.EqualTo(2));
+
+                factory.TownSettings.roadsEnabled = false;
+                var disabled = factory.CreateIslandGenerationRequest(Vector2Int.zero);
+                Assert.That(disabled.TownRecipeJson, Does.Not.Contain("\"roads\":"));
+                Assert.That(disabled.TownRoadHorizonPath, Is.Null);
+                Assert.That(IslandPreparationPipeline.PrepareHorizon(disabled, default).vertices[0].y, Is.EqualTo(2));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                if (Directory.Exists(cache)) Directory.Delete(cache, true);
+            }
+        }
+
+        private static IslandPreparedMesh HorizonMesh(float height) => new IslandPreparedMesh(
+            new[] { Vector3.up * height, Vector3.right, Vector3.forward }, Array.Empty<Vector3>(),
+            new[] { 0, 2, 1 }, Array.Empty<Vector2>(), Array.Empty<Color>(), Array.Empty<Vector2>());
 
         [TestCase(2000f), TestCase(1000f)]
         public void AdapterPreservesMetreScaleWindingAndSharedPrototypeResources(float worldSize)

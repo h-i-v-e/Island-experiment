@@ -2,9 +2,9 @@
   "abi_version": 2,
   "target": "aarch64-apple-darwin",
   "library": "libmotu.dylib",
-  "sha256": "72211ec4942095b5e728207ca4aebdb630b765efa0ac694bb21634320a63ff4a",
+  "sha256": "d767f8a3894ac066232e649fa194d492a543dcb361385be40e97bbc3b696aae3",
   "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
-  "source_tree_sha256": "61ae00c8270e76831292c911b0b73f314f8b38cd787ae2088dc8db15d019f97a",
+  "source_tree_sha256": "7c93dce425c9f5fad0760e20590a3c67eec63f029bf461be430d7aaed9595770",
   "cargo_lock_sha256": "67156139b61039d916e6c848454d2c26bbb5b71df9073bf982d3c63a70f48155",
   "build": "cargo build --release --lib --locked --no-default-features --features surface-atlas",
   "features": [

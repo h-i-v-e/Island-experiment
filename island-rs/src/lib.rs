@@ -23,6 +23,7 @@ mod raster;
 mod reeds;
 mod rivers;
 mod rng;
+pub mod roads;
 mod sea_mask;
 mod sky;
 mod terrain;
@@ -55,11 +56,11 @@ pub use sea_mask::SeaMask;
 pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 #[cfg(feature = "surface-atlas")]
 pub use terrain::SurfaceAtlas;
+pub use terrain::town::{DecorationClearance, DecorationClearanceStats};
 pub use terrain::{
     CoastalStripOptions, Decoration, Decorations, GenerationMethod, Island, IslandOptions,
-    LandBirdPerch, SurfaceMaps, Terrain, TerrainSurfaceHit,
+    LandBirdPerch, SurfaceMaps, Terrain, TerrainSurfaceHit, TownProtectedTerrain,
 };
-pub use terrain::town::{DecorationClearance, DecorationClearanceStats};
 pub use trees::{
     BranchTip, TreeMeshes, TreeShells, broadleaf_crown, generate_conifer, generate_palm,
     generate_tree, tree_shells, twig_cards,

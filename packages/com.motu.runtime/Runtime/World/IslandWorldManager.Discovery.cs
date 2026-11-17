@@ -246,7 +246,8 @@ namespace Motu.World
                             generated = await generator.GenerateAsync(request, cancellation.Token,
                                 installationBudgetMilliseconds, mesh =>
                                 {
-                                    if (!destroyed && generationToken == entry.GenerationToken && entry.Horizon == null)
+                                    if (!destroyed && generationToken == entry.GenerationToken
+                                        && (entry.Horizon == null || request.TownRoadsRequested))
                                         InstallHorizon(entry, mesh);
                                 });
                         else

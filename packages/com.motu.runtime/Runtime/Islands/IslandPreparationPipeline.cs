@@ -70,7 +70,7 @@ namespace Motu.Islands
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                // Snapshot remains pre-clearance; apply native town exclusions before decoration exports.
+                // Snapshots hold base terrain. Finish town grading and clearance before deriving terrain or decorations.
                 var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies);
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
@@ -95,7 +95,10 @@ namespace Motu.Islands
                 var navigationMesh = prepareNavigation ? PrepareNavigationMesh(handle, worldSize) : null;
                 cancellationToken.ThrowIfCancellationRequested();
                 var lod3 = PrepareLod3(handle, worldSize);
-                IslandHorizonCache.TrySave(snapshotPath, lod3, snapshotCacheBudgetBytes);
+                var horizonPath = !string.IsNullOrEmpty(town?.roads_json)
+                    ? IslandHorizonCache.TownRoadPathFor(snapshotPath, townRecipeJson, townSeed)
+                    : snapshotPath;
+                IslandHorizonCache.TrySave(horizonPath, lod3, snapshotCacheBudgetBytes, snapshotPath);
                 cancellationToken.ThrowIfCancellationRequested();
                 var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -149,7 +152,9 @@ namespace Motu.Islands
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (IslandHorizonCache.TryLoad(request.SnapshotPath, out var cached))
+            // Prefer the last detailed grade. A cold distant tile can use the base silhouette until its detailed handoff.
+            if (IslandHorizonCache.TryLoad(request.TownRoadHorizonPath, out var cached)
+                || IslandHorizonCache.TryLoad(request.SnapshotPath, out cached))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return cached;

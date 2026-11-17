@@ -80,6 +80,8 @@ pub struct TownInput {
     pub sea_level: f32,
     pub terrain: HeightGrid,
     pub rivers: Vec<RiverPolyline>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protected_terrain: Vec<motu::TownProtectedTerrain>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -126,6 +128,9 @@ pub struct TownSettings {
     pub sample_spacing: f32,
     pub attempts_per_copy: u32,
     pub max_total_attempts: u32,
+    /// Enable the terrain-graded street layout for this settlement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roads: Option<TownRoadSettings>,
 }
 impl Default for TownSettings {
     fn default() -> Self {
@@ -142,7 +147,56 @@ impl Default for TownSettings {
             sample_spacing: 0.75,
             attempts_per_copy: 96,
             max_total_attempts: 4096,
+            roads: None,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TownRoadSettings {
+    pub ring_count: u8,
+    pub ring_spacing: f32,
+    pub half_width: f32,
+    pub access_half_width: f32,
+    pub shoulder: f32,
+    /// Rise over horizontal run.
+    pub max_grade: f32,
+    /// Maximum terrain change in metres.
+    pub max_cut: f32,
+    /// Maximum ground-floor door distance from a road edge in metres.
+    pub max_frontage_distance: f32,
+}
+
+impl Default for TownRoadSettings {
+    fn default() -> Self {
+        Self {
+            ring_count: 2,
+            ring_spacing: 24.,
+            half_width: 2.,
+            access_half_width: 3.,
+            shoulder: 2.,
+            max_grade: 0.22,
+            max_cut: 3.,
+            max_frontage_distance: 8.,
+        }
+    }
+}
+
+impl TownRoadSettings {
+    fn valid(self) -> bool {
+        (1..=2).contains(&self.ring_count)
+            && [
+                (self.ring_spacing, 12., 60.),
+                (self.half_width, 1., 6.),
+                (self.access_half_width, 1., 6.),
+                (self.shoulder, 0.5, 5.),
+                (self.max_grade, 0.03, 0.25),
+                (self.max_cut, 0.1, 3.),
+                (self.max_frontage_distance, 4., 12.),
+            ]
+            .into_iter()
+            .all(|(value, lower, upper)| (lower..=upper).contains(&value))
     }
 }
 
@@ -168,6 +222,11 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
         return fail(
             "terrain origin, heights and sea level must be finite; spacing must be >= 0.05m",
         );
+    }
+    if input.protected_terrain.len() > 64
+        || input.protected_terrain.iter().any(|area| !area.is_valid())
+    {
+        return fail("protected terrain requires up to 64 finite, ordered rectangles");
     }
     if recipe.catalogue.len() > 64
         || recipe
@@ -227,6 +286,9 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
         return fail(
             "settings outside supported finite bounds: radii 1..1000m, slope 0.1..40deg, sample spacing 0.25..4m, attempts/copy 1..512, total attempts 1..16384",
         );
+    }
+    if s.roads.is_some_and(|roads| !roads.valid()) {
+        return fail("road settings outside supported bounds");
     }
     Ok(())
 }

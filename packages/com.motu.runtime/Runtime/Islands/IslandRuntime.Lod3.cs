@@ -1,6 +1,7 @@
 using System;
 using Motu.Interop;
 using Motu.Settings;
+using Motu.Towns;
 using Motu.World;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -19,8 +20,15 @@ namespace Motu.Islands
         private float lod3MaximumHeightMetres;
         private bool lod3FixedCoastalSeams;
         private bool beyondLod3Distance;
+        internal TownRenderer Town { get; private set; }
         public bool IsLod3Visible => lod3Object != null && lod3Object.activeInHierarchy;
         public int Lod3TriangleCount => lod3Mesh != null ? (int)lod3Mesh.GetIndexCount(0) / 3 : 0;
+
+        internal void SetTownRenderer(TownRenderer town)
+        {
+            RequireInstalling();
+            Town = town;
+        }
 
         internal void InstallLod3(IslandPreparedMesh prepared, float maximumHeightMetres,
             IslandTerrainShape terrainShape = IslandTerrainShape.Island)
@@ -99,6 +107,7 @@ namespace Motu.Islands
                 TerrainStreamer.ClearPlayerFocus();
             TerrainStreamer?.gameObject.SetActive(!far);
             Caves?.gameObject.SetActive(!far);
+            Town?.SetRoadVisibility(!far);
             lod3Object?.SetActive(far);
         }
 

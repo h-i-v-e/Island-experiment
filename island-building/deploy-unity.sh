@@ -28,13 +28,12 @@ files += sorted((root / "island-building/recipes").rglob("*.json"))
 files += [root / "island-building/Cargo.toml", root / "island-building/Cargo.lock"]
 files += sorted((root / "island-rs/src").rglob("*.rs"))
 files += sorted((root / "island-rs/texture-recipes").rglob("*.json"))
-files += sorted((root / "island-rs/texture-recipes").rglob("*.json"))
 files += [root / "island-rs/Cargo.toml", root / "island-rs/build.rs"]
 digest = hashlib.sha256()
 for path in files:
     digest.update(str(path.relative_to(root)).encode())
     digest.update(path.read_bytes())
-manifest = {"api_version": 1, "sha256": hashlib.sha256(plugin.read_bytes()).hexdigest(),
+manifest = {"api_version": 2, "sha256": hashlib.sha256(plugin.read_bytes()).hexdigest(),
             "building_source_sha256": digest.hexdigest(),
             "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()}
 plugin.with_suffix(".dylib.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

@@ -1,6 +1,6 @@
 use super::{
-    Mesh, StageTimer, SurfaceMaps, SurfaceSample, Terrain, TriangleIndex, Vec2, Vec3,
-    sample_mesh_surface, thread,
+    Mesh, StageTimer, SurfaceMaps, SurfaceSample, Terrain, TriangleIndex, Vec2, Vec3, mesh_surface,
+    thread,
 };
 
 pub(super) const OCCLUSION_OFFSETS: [(isize, isize); 15] = [
@@ -267,7 +267,13 @@ impl DetailMapBaker<'_> {
             {
                 let u = x as f32 / self.surface.width.saturating_sub(1).max(1) as f32;
                 let (elevation, high_normal) = self.surface.high_detail.sample_surface(u, v);
-                let (_, target_normal) = sample_mesh_surface(self.target, self.target_index, u, v);
+                let point = Vec2::new(u, v);
+                let (_, target_normal) = mesh_surface(
+                    self.target,
+                    self.target_index,
+                    point,
+                    self.surface.high_detail.road_precision_at(point),
+                );
                 *sample = SurfaceSample {
                     position: Vec3::new(u, v, elevation),
                     normal: high_normal,

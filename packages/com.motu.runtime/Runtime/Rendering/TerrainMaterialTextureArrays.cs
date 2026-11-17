@@ -27,6 +27,7 @@ namespace Motu.Rendering
         private Texture2DArray mask;
         private readonly Vector4 parallaxNeutralHeightsA;
         private readonly Vector4 parallaxNeutralHeightsB;
+        private readonly Vector4 roadTileMetres;
 
         internal TerrainMaterialTextureArrays(IslandPreparedMaterialTextures textures)
         {
@@ -60,6 +61,8 @@ namespace Motu.Rendering
                 layers[FallenStonesLayer].NormalizedBaseHeight,
                 0f,
                 0f);
+            roadTileMetres = new Vector4(textures.dirt.physicalTileWidthMetres, textures.dirt.physicalTileHeightMetres,
+                textures.rock.physicalTileWidthMetres, textures.rock.physicalTileHeightMetres);
 
             albedo = CreateArray(
                 "Island terrain albedo array",
@@ -120,6 +123,13 @@ namespace Motu.Rendering
         {
             RequireProperties(material, MaskArrayId);
             material.SetTexture(MaskArrayId, mask);
+        }
+
+        internal void BindRoad(Material material)
+        {
+            material.SetTexture(AlbedoArrayId, albedo);
+            material.SetVector("_RoadTileMetres", roadTileMetres);
+            material.SetFloat("_UseTerrainAlbedo", 1f);
         }
 
         internal void Unbind(Material terrain, Material grass)

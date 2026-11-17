@@ -46,7 +46,8 @@ namespace Motu.Towns
 
         internal string CaptureJson() => CaptureJson(out _);
 
-        internal string CaptureJson(out TownDependencyData[] dependencies, bool preview = false)
+        internal string CaptureJson(out TownDependencyData[] dependencies, bool preview = false,
+            TownRoadSettings roads = null)
         {
             if (entries == null || entries.Length > 64) throw new ArgumentException("Town catalogues support up to 64 entries.");
             settings.Validate();
@@ -70,7 +71,15 @@ namespace Motu.Towns
                 });
             }
             dependencies = new List<TownDependencyData>(captured.Values).ToArray();
-            return JsonUtility.ToJson(new Recipe { catalogue = catalogue.ToArray(), settings = settings });
+            var recipe = JsonUtility.ToJson(new Recipe { catalogue = catalogue.ToArray() });
+            var planning = JsonUtility.ToJson(settings);
+            // JsonUtility serializes missing inline classes as default objects. Omit roads entirely for legacy plots.
+            if (!preview && roads != null)
+            {
+                roads.Validate();
+                planning = planning.Remove(planning.Length - 1) + ",\"roads\":" + JsonUtility.ToJson(roads) + "}";
+            }
+            return recipe.Remove(recipe.Length - 1) + ",\"settings\":" + planning + "}";
         }
 
         private string BindMaterials(string buildingJson, Dictionary<string, TownDependencyData> captured)
@@ -101,7 +110,6 @@ namespace Motu.Towns
         {
             public int schema_version = 1;
             public Entry[] catalogue;
-            public TownPlanningSettings settings;
         }
 
         [Serializable] private sealed class Entry
@@ -144,11 +152,38 @@ namespace Motu.Towns
             Require("Total attempts", max_total_attempts, 1, 16384);
         }
 
-        private static void Require(string name, float value, float min, float max)
+        internal static void Require(string name, float value, float min, float max)
         {
             if (!float.IsFinite(value) || value < min || value > max)
                 throw new ArgumentException($"{name} must be finite and between {min} and {max}.");
         }
+    }
+
+    [Serializable]
+    public sealed class TownRoadSettings
+    {
+        [Range(1, 2), InspectorName("Ring Count")] public int ring_count = 2;
+        [Range(12f, 60f), InspectorName("Ring Spacing (m)")] public float ring_spacing = 24f;
+        [Range(1f, 6f), InspectorName("Street Half Width (m)")] public float half_width = 2f;
+        [Range(1f, 6f), InspectorName("Access Road Half Width (m)")] public float access_half_width = 3f;
+        [Range(0.5f, 5f), InspectorName("Shoulder Width (m)")] public float shoulder = 2f;
+        [Range(0.03f, 0.25f), InspectorName("Maximum Grade (rise/run)")] public float max_grade = 0.22f;
+        [Range(0.1f, 3f), InspectorName("Maximum Cut (m)")] public float max_cut = 3f;
+        [Range(4f, 12f), InspectorName("Maximum Door Distance (m)")] public float max_frontage_distance = 8f;
+
+        internal void Validate()
+        {
+            TownPlanningSettings.Require("Ring count", ring_count, 1, 2);
+            TownPlanningSettings.Require("Ring spacing", ring_spacing, 12, 60);
+            TownPlanningSettings.Require("Street half width", half_width, 1, 6);
+            TownPlanningSettings.Require("Access road half width", access_half_width, 1, 6);
+            TownPlanningSettings.Require("Road shoulder width", shoulder, 0.5f, 5);
+            TownPlanningSettings.Require("Maximum road grade", max_grade, 0.03f, 0.25f);
+            TownPlanningSettings.Require("Maximum road cut", max_cut, 0.1f, 3);
+            TownPlanningSettings.Require("Maximum frontage distance", max_frontage_distance, 4, 12);
+        }
+
+        internal TownRoadSettings Copy() => (TownRoadSettings)MemberwiseClone();
     }
 
     [Serializable]
@@ -158,6 +193,11 @@ namespace Motu.Towns
         public bool enabled = true;
         [Tooltip("Empty uses the packaged cathedral, cottage and workshop catalogue.")]
         public TownRecipeCatalogue catalogue;
+        [Tooltip("Plan streets, place buildings along them and cut roadbeds into the native terrain.")]
+        public bool roadsEnabled = true;
+        public TownRoadSettings roads = new TownRoadSettings();
+        [Tooltip("Empty uses packed dirt and stone from the island's terrain materials. Road mesh UVs are in metres.")]
+        public Material roadMaterial;
 
         internal string CaptureJson() => CaptureJson(out _);
 
@@ -167,9 +207,14 @@ namespace Motu.Towns
             if (!enabled) return null;
             var source = catalogue != null ? catalogue : Resources.Load<TownRecipeCatalogue>("Towns/DefaultTownCatalogue");
             if (source == null) throw new InvalidOperationException("The default Motu town catalogue is missing.");
-            return source.CaptureJson(out dependencies);
+            return source.CaptureJson(out dependencies, roads: roadsEnabled ? roads ?? new TownRoadSettings() : null);
         }
 
-        internal CoastalTownSettings Copy() => (CoastalTownSettings)MemberwiseClone();
+        internal CoastalTownSettings Copy()
+        {
+            var copy = (CoastalTownSettings)MemberwiseClone();
+            copy.roads = roads?.Copy() ?? new TownRoadSettings();
+            return copy;
+        }
     }
 }
