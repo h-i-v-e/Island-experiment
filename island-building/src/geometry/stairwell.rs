@@ -12,6 +12,27 @@ fn plan(stairs: &StaircaseLayout) -> Option<StairwellEnclosure> {
     })
 }
 
+fn wall_span(plan: &StairwellEnclosure, side: StairwellSide, thickness: f32) -> [f32; 2] {
+    if side.across() {
+        [
+            plan.min[0]
+                - if plan.shared_sides[StairwellSide::Left.index()] {
+                    0.
+                } else {
+                    thickness
+                },
+            plan.max[0]
+                + if plan.shared_sides[StairwellSide::Right.index()] {
+                    0.
+                } else {
+                    thickness
+                },
+        ]
+    } else {
+        [plan.min[1], plan.max[1]]
+    }
+}
+
 fn wall_box(
     stairs: &StaircaseLayout,
     side: StairwellSide,
@@ -56,14 +77,7 @@ pub(crate) fn walls(recipe: &BuildingRecipe, stairs: &StaircaseLayout) -> Vec<Bo
         if plan.shared_sides[side.index()] {
             continue;
         }
-        let [low, high] = if side.across() {
-            [
-                plan.min[0] - if plan.shared_sides[3] { 0. } else { t },
-                plan.max[0] + if plan.shared_sides[1] { 0. } else { t },
-            ]
-        } else {
-            [plan.min[1], plan.max[1]]
-        };
+        let [low, high] = wall_span(&plan, side, t);
         if side != plan.door_side {
             walls.push(wall_box(
                 stairs,
@@ -143,10 +157,9 @@ pub(crate) fn generate(
     let Some(room) = &stairs.stairwell else {
         return;
     };
-    for wall in walls(recipe, stairs) {
-        builder.cube(MaterialSlot::Interior, wall.min, wall.max);
-        colliders.push(wall);
-    }
+    let walls = walls(recipe, stairs);
+    super::slabs::joined_boxes(builder, MaterialSlot::Interior, &walls);
+    colliders.extend(walls);
     framing(builder, recipe, stairs);
     let plan = plan(stairs).expect("enclosed doorway");
     let left = plan.door_offset - room.door_width * 0.5;
@@ -187,15 +200,14 @@ fn framing(builder: &mut Builder, recipe: &BuildingRecipe, stairs: &StaircaseLay
             if plan.shared_sides[side.index()] {
                 continue;
             }
-            let range = if side.across() {
-                [
-                    plan.min[0] - if plan.shared_sides[3] { 0. } else { t },
-                    plan.max[0] + if plan.shared_sides[1] { 0. } else { t },
-                ]
-            } else {
-                [plan.min[1], plan.max[1]]
-            };
-            let bounds = wall_box(stairs, side, range, [floor, top], 0.);
+            let (bounds, open_ends, shared_ends) = frame_bounds(
+                stairs,
+                &plan,
+                side,
+                t,
+                [floor, top],
+                local.walls.frame_projection,
+            );
             let door = (side == plan.door_side).then(|| {
                 let axis = super::interior_wall::axis(bounds);
                 super::interior_wall::Doorway {
@@ -204,7 +216,50 @@ fn framing(builder: &mut Builder, recipe: &BuildingRecipe, stairs: &StaircaseLay
                     height: room.door_height,
                 }
             });
-            super::interior_wall::decorate(builder, &local, bounds, door);
+            super::interior_wall::decorate(builder, &local, bounds, door, open_ends);
+            super::interior_wall::end_posts(builder, &local, bounds, door, shared_ends);
         }
     }
+}
+
+fn frame_bounds(
+    stairs: &StaircaseLayout,
+    plan: &StairwellEnclosure,
+    side: StairwellSide,
+    thickness: f32,
+    heights: [f32; 2],
+    projection: f32,
+) -> (BoxCollider, [bool; 2], [bool; 2]) {
+    let across = side.across();
+    let adjacent = if across {
+        [StairwellSide::Left, StairwellSide::Right]
+    } else {
+        [StairwellSide::Near, StairwellSide::Far]
+    };
+    let mut range = wall_span(plan, side, thickness);
+    let mut shared_ends = adjacent.map(|neighbor| plan.shared_sides[neighbor.index()]);
+    for (index, sign) in [-1., 1.].into_iter().enumerate() {
+        // Cross walls own the corner post. Run their caps flush with the
+        // return's outer timber, and stop the return at the post's inner face.
+        if !shared_ends[index] {
+            range[index] += if across { sign } else { -sign } * projection;
+        }
+    }
+    let bounds = wall_box(stairs, side, range, heights, 0.);
+    // The flat panel's end flags are ordered by ascending world coordinate.
+    let along = super::interior_wall::axis(bounds);
+    let origin = stairs.point(0., 0., 0.);
+    let step = if across {
+        stairs.point(1., 0., 0.)
+    } else {
+        stairs.point(0., 1., 0.)
+    };
+    if step[along] < origin[along] {
+        shared_ends.reverse();
+    }
+    (
+        bounds,
+        shared_ends.map(|shared| shared || !across),
+        shared_ends,
+    )
 }

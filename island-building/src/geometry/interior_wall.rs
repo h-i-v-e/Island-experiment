@@ -76,7 +76,7 @@ pub(crate) fn generate(
     mesh.indices.extend(keep);
     let mut frame_bounds = bounds;
     frame_bounds.max[2] = frame_bounds.max[2].min(bounds.min[2] + super::ceiling_height(recipe));
-    decorate(builder, recipe, frame_bounds, door);
+    decorate(builder, recipe, frame_bounds, door, [true; 2]);
     colliders.extend(
         shapes
             .into_iter()
@@ -84,11 +84,64 @@ pub(crate) fn generate(
     );
 }
 
+pub(crate) fn end_posts(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    bounds: BoxCollider,
+    door: Option<Doorway>,
+    ends: [bool; 2],
+) {
+    use timber_frame::junction::{CASING_MARGIN, Post, opening_clearance};
+    if recipe.walls.style != WallStyle::WattleAndDaub {
+        return;
+    }
+    let along = axis(bounds);
+    let across = 1 - along;
+    let facades = if along == 0 {
+        [Facade::West, Facade::East]
+    } else {
+        [Facade::South, Facade::North]
+    };
+    let width = recipe.walls.beam_width;
+    for (end, facade) in facades
+        .into_iter()
+        .enumerate()
+        .filter(|(end, _)| ends[*end])
+    {
+        let sign = facade.normal()[along];
+        let bound = if end == 0 { bounds.min } else { bounds.max };
+        let run = door.map_or(width, |door| {
+            width.min(sign * (bound[along] - door.centre) - door.width * 0.5 - CASING_MARGIN)
+        });
+        for (side, sign_across) in [(-1., bounds.min[across]), (1., bounds.max[across])] {
+            let mut corner = bounds.min;
+            corner[along] = bound[along];
+            corner[across] = sign_across;
+            let mut direction = [0.; 3];
+            direction[across] = side;
+            let span = opening_clearance(
+                recipe,
+                facade,
+                corner,
+                direction,
+                bounds.max[2] - bounds.min[2],
+            );
+            let mut reach = [0.; 2];
+            reach[along] = -sign * run.max(0.);
+            reach[across] = side * span.max(0.);
+            if let Some(post) = Post::at(recipe, corner, reach, |_| bounds.max[2] + 0.008) {
+                post.append(builder);
+            }
+        }
+    }
+}
+
 pub(crate) fn decorate(
     builder: &mut Builder,
     recipe: &BuildingRecipe,
     bounds: BoxCollider,
     door: Option<Doorway>,
+    open_ends: [bool; 2],
 ) {
     if recipe.walls.style != WallStyle::WattleAndDaub {
         return;
@@ -124,7 +177,7 @@ pub(crate) fn decorate(
         });
     }
     let mut frame = Builder::default();
-    timber_frame::interior_panel(&mut frame, &local);
+    timber_frame::interior_panel(&mut frame, &local, open_ends);
     let mut lod = frame.finish();
     for part in &mut lod.parts {
         for p in &mut part.mesh.positions {

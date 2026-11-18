@@ -1,5 +1,5 @@
 use super::{DIM, units::Dimensions};
-use crate::BuildingRecipe;
+use crate::{BuildingRecipe, ChurchTowerStyle};
 use bevy_egui::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, r: &mut BuildingRecipe, d: Dimensions) {
@@ -20,9 +20,20 @@ pub(super) fn show(ui: &mut egui::Ui, r: &mut BuildingRecipe, d: Dimensions) {
     d.length(ui, "Window bay spacing", &mut c.bay_spacing, 0);
     ui.separator();
     ui.strong("Towers & flying buttresses");
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut c.tower_style, ChurchTowerStyle::Twin, "Twin towers");
+        ui.selectable_value(
+            &mut c.tower_style,
+            ChurchTowerStyle::SingleFront,
+            "Single front tower",
+        );
+    });
     d.length(ui, "Tower width", &mut c.tower_width, 0);
     d.length(ui, "Tower height", &mut c.tower_height, 1);
-    d.length(ui, "Buttress reach", &mut c.buttress_reach, 0);
+    ui.checkbox(&mut c.flying_buttresses, "Flying buttresses");
+    if c.flying_buttresses {
+        d.length(ui, "Buttress reach", &mut c.buttress_reach, 0);
+    }
     d.length(ui, "Roof rise", &mut r.roof.rise, 1);
     ui.horizontal(|ui| {
         ui.label("Roof overhang");

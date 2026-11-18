@@ -27,6 +27,30 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChurchTowerStyle {
+    #[default]
+    Twin,
+    SingleFront,
+}
+
+impl ChurchTowerStyle {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    const fn is_twin(&self) -> bool {
+        matches!(self, Self::Twin)
+    }
+}
+
+const fn enabled() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_enabled(value: &bool) -> bool {
+    *value
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ChurchRecipe {
@@ -34,8 +58,12 @@ pub struct ChurchRecipe {
     pub transept_depth: f32,
     /// Crossing centre along the nave, positive towards the chancel.
     pub crossing_offset: f32,
+    #[serde(skip_serializing_if = "ChurchTowerStyle::is_twin")]
+    pub tower_style: ChurchTowerStyle,
     pub tower_width: f32,
     pub tower_height: f32,
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    pub flying_buttresses: bool,
     pub buttress_reach: f32,
     pub bay_spacing: f32,
 }
@@ -45,8 +73,10 @@ impl Default for ChurchRecipe {
             nave_width: 9.,
             transept_depth: 8.,
             crossing_offset: 5.,
+            tower_style: ChurchTowerStyle::Twin,
             tower_width: 4.5,
             tower_height: 20.,
+            flying_buttresses: true,
             buttress_reach: 3.,
             bay_spacing: 3.6,
         }
@@ -59,7 +89,7 @@ pub struct ChurchLayout {
     pub outline: Vec<[f32; 2]>,
     pub nave: BoxCollider,
     pub transept: BoxCollider,
-    pub towers: [BoxCollider; 2],
+    pub towers: Vec<BoxCollider>,
 }
 
 impl BuildingRecipe {
@@ -102,6 +132,42 @@ impl BuildingRecipe {
         r.materials.glass = [0.32, 0.57, 0.69, 0.23];
         r
     }
+
+    /// A smaller cathedral-style church with one projecting entrance tower.
+    #[must_use]
+    pub fn parish_church() -> Self {
+        let mut r = Self::gothic_church();
+        r.name = "Stone Gothic parish church".into();
+        r.width = 16.;
+        r.depth = 24.;
+        r.wall_height = 6.8;
+        r.wall_thickness = 0.4;
+        r.floor_thickness = 0.25;
+        r.roof.rise = 3.2;
+        r.roof.overhang = 0.3;
+        r.church = Some(ChurchRecipe {
+            nave_width: 6.5,
+            transept_depth: 5.5,
+            crossing_offset: 3.,
+            tower_style: ChurchTowerStyle::SingleFront,
+            tower_width: 4.2,
+            tower_height: 14.,
+            flying_buttresses: false,
+            bay_spacing: 3.,
+            ..ChurchRecipe::default()
+        });
+        r.opening_defaults.window = OpeningDimensions {
+            width: 1.5,
+            height: 4.2,
+            sill: 1.1,
+        };
+        r.opening_defaults.door = OpeningDimensions {
+            width: 1.8,
+            height: 2.7,
+            sill: 0.,
+        };
+        r
+    }
 }
 
 pub(crate) fn validate(r: &BuildingRecipe) -> Result<(), BuildingError> {
@@ -136,11 +202,15 @@ pub(crate) fn validate(r: &BuildingRecipe) -> Result<(), BuildingError> {
         && (4.0..=r.depth * 0.4).contains(&c.transept_depth)
         && c.crossing_offset.abs() + c.transept_depth * 0.5 + 4. < r.depth * 0.5
         && (2.5..=6.).contains(&c.tower_width)
-        && c.nave_width + 2. * c.tower_width <= r.width
+        && match c.tower_style {
+            ChurchTowerStyle::Twin => c.nave_width + 2. * c.tower_width <= r.width,
+            ChurchTowerStyle::SingleFront => c.tower_width + 2. * r.wall_thickness < c.nave_width,
+        }
         && c.crossing_offset - c.transept_depth * 0.5 > -r.depth * 0.5 + c.tower_width + 2.
         && (r.wall_height + r.roof.rise + 1.0..=30.).contains(&c.tower_height)
-        && (1.5..=5.).contains(&c.buttress_reach)
-        && c.nave_width * 0.5 + c.buttress_reach + 0.6 < r.width * 0.5
+        && (!c.flying_buttresses
+            || ((1.5..=5.).contains(&c.buttress_reach)
+                && c.nave_width * 0.5 + c.buttress_reach + 0.6 < r.width * 0.5))
         && (2.5..=6.).contains(&c.bay_spacing)
         && [w.width, w.height, w.sill].iter().all(|v| v.is_finite())
         && (1.0..=c.bay_spacing - 0.6).contains(&w.width)
@@ -151,7 +221,11 @@ pub(crate) fn validate(r: &BuildingRecipe) -> Result<(), BuildingError> {
         && r.openings[0].kind == OpeningKind::Door
         && r.openings[0].facade == Facade::South
         && r.openings[0].offset.abs() < 0.001
-        && r.openings[0].width + 1. < c.nave_width;
+        && r.openings[0].width + 1.
+            < match c.tower_style {
+                ChurchTowerStyle::Twin => c.nave_width,
+                ChurchTowerStyle::SingleFront => c.tower_width,
+            };
     let entrance_fits = r
         .openings
         .first()

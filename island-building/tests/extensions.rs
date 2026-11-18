@@ -150,7 +150,7 @@ fn assert_connection_surfaces(
             .parts
             .iter()
             .filter(|p| matches!(p.material, MaterialSlot::Floor | MaterialSlot::Foundation))
-            .map(|p| horizontal_faces_at(&p.mesh, point))
+            .map(|p| faces_at(&p.mesh, point, 2, 1.))
             .sum();
         assert_eq!(
             count, 1,
@@ -184,19 +184,28 @@ fn assert_connection_surfaces(
     );
 }
 
-fn horizontal_faces_at(mesh: &island_building::BuildingMesh, point: [f32; 3]) -> usize {
+fn faces_at(
+    mesh: &island_building::BuildingMesh,
+    point: [f32; 3],
+    axis: usize,
+    sign: f32,
+) -> usize {
+    let [first, second] = [(axis + 1) % 3, (axis + 2) % 3];
     mesh.indices
         .chunks_exact(3)
         .filter(|tri| {
             let vertices = [tri[0], tri[1], tri[2]].map(|i| mesh.positions[i as usize]);
-            if vertices.iter().any(|p| (p[2] - point[2]).abs() > 0.00001)
-                || mesh.normals[tri[0] as usize][2] < 0.5
+            if vertices
+                .iter()
+                .any(|p| (p[axis] - point[axis]).abs() > 0.00001)
+                || mesh.normals[tri[0] as usize][axis] * sign < 0.5
             {
                 return false;
             }
             let [a, b, c] = vertices;
             let area = |a: [f32; 3], b: [f32; 3], c: [f32; 3]| {
-                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+                (b[first] - a[first]) * (c[second] - a[second])
+                    - (b[second] - a[second]) * (c[first] - a[first])
             };
             let total = area(a, b, c);
             total.abs() > 0.00001
@@ -205,6 +214,92 @@ fn horizontal_faces_at(mesh: &island_building::BuildingMesh, point: [f32; 3]) ->
                     .all(|v| *v / total > 0.00001)
         })
         .count()
+}
+
+#[test]
+fn timber_posts_cover_both_attachment_seams_at_every_detail_level() {
+    for facade in Facade::ALL {
+        for kind in [ExtensionKind::Wing, ExtensionKind::LeanTo] {
+            let mut recipe = house(facade, kind);
+            recipe.walls.style = WallStyle::WattleAndDaub;
+            recipe.roof.covering = RoofCovering::StandingSeam;
+            let p = generate(&recipe).unwrap();
+            let ext = &recipe.extensions[0];
+            let width = recipe.walls.beam_width;
+            let normal = facade.normal();
+            let axis = usize::from(normal[1].abs() > 0.5);
+            let timber_faces = |level: usize, along: f32, z: f32| {
+                let point = facade.point(&recipe, along, z, -width);
+                p.lods[level]
+                    .parts
+                    .iter()
+                    .filter(|p| p.material == MaterialSlot::Timber)
+                    .map(|p| faces_at(&p.mesh, point, axis, normal[axis]))
+                    .sum::<usize>()
+            };
+            for sign in [-1., 1.] {
+                let exterior = ext.offset + sign * (ext.width * 0.5 + width * 0.43);
+                let interior =
+                    ext.offset + sign * (ext.width * 0.5 - recipe.wall_thickness - width * 0.43);
+                for level in 0..3 {
+                    for height in [0.29, ext.wall_height - 0.22] {
+                        assert_eq!(
+                            timber_faces(level, exterior, height),
+                            1,
+                            "{facade:?} {kind:?} LOD{level}"
+                        );
+                    }
+                }
+                assert_eq!(
+                    timber_faces(0, interior, 1.17),
+                    1,
+                    "inside {facade:?} {kind:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn multi_storey_wing_keeps_one_exposed_face_over_the_floor_band() {
+    for facade in Facade::ALL {
+        let mut recipe = house(facade, ExtensionKind::Wing);
+        recipe.storeys = 2;
+        recipe.floor_thickness = 0.05;
+        recipe.walls.style = WallStyle::WattleAndDaub;
+        recipe.roof.covering = RoofCovering::Thatch;
+        let wing = &mut recipe.extensions[0];
+        wing.wall_height = recipe.wall_height;
+        wing.roof_rise = 2.4;
+        let p = generate(&recipe).unwrap();
+        let normal = facade.normal();
+        let axis = usize::from(normal[1].abs() > 0.5);
+        let count = |slot, along, height| {
+            let point = facade.point(&recipe, along, height, 0.);
+            p.lods[0]
+                .parts
+                .iter()
+                .filter(|p| p.material == slot)
+                .map(|p| faces_at(&p.mesh, point, axis, normal[axis]))
+                .sum::<usize>()
+        };
+        for along in [-1.12, 0.137, 1.05] {
+            let band = recipe.wall_height + 0.024;
+            assert_eq!(count(MaterialSlot::Timber, along, band), 1, "{facade:?}");
+            assert_eq!(
+                count(MaterialSlot::Interior, along, band),
+                0,
+                "plaster overlaps the timber floor band on {facade:?}"
+            );
+            for height in [recipe.wall_height - 0.023, recipe.floor_height(1) + 0.023] {
+                assert_eq!(
+                    count(MaterialSlot::Interior, along, height),
+                    1,
+                    "{facade:?} at {height}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -433,6 +528,189 @@ fn compound_export_preserves_layout_foundations_and_regenerates_identically() {
         foundation,
         island_building::geometry::foundation::enclosing_bounds(&p.recipe)
     );
-    assert_eq!(manifest.geometry_version, 57);
+    assert_eq!(manifest.geometry_version, 64);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+fn walk_through_extension(prototype: &island_building::BuildingPrototype) -> [f32; 3] {
+    let ext = &prototype.layout.extensions[0];
+    let door = prototype
+        .doors
+        .iter()
+        .find(|d| d.id == ext.door_id)
+        .unwrap();
+    let aperture = ext.doorway.unwrap();
+    let centre = std::array::from_fn(|i| (aperture.min[i] + aperture.max[i]) * 0.5);
+    let normal = ext.facade.normal();
+    for sample in -10_i16..=10 {
+        let distance = f32::from(sample) * 0.05;
+        let feet = [
+            centre[0] + normal[0] * distance,
+            centre[1] + normal[1] * distance,
+            0.025,
+        ];
+        assert!(
+            !prototype
+                .colliders
+                .iter()
+                .any(|b| b.intersects_capsule(feet, 0.28, 1.8))
+                && !door
+                    .collider_at(door.swing_angle)
+                    .intersects_capsule(feet, 0.28, 1.8),
+            "door approach blocked at {feet:?}"
+        );
+    }
+    centre
+}
+
+#[test]
+fn extensions_can_share_a_fireplace_wall_and_put_the_door_near_a_corner() {
+    for kind in [ExtensionKind::LeanTo, ExtensionKind::Wing] {
+        let mut recipe = house(Facade::East, kind);
+        recipe.depth = 9.;
+        recipe.openings.retain(|o| o.facade != Facade::East);
+        recipe.chimney = Some(island_building::ChimneyRecipe {
+            facade: Facade::East,
+            offset: 0.,
+            ..Default::default()
+        });
+        recipe.extensions[0].width = 6.;
+        recipe.extensions[0].roof_rise = 3.1;
+        let p = generate(&recipe).unwrap();
+        let centre = walk_through_extension(&p);
+        assert!(centre[1].abs() > 1.45, "{kind:?} doorway at {centre:?}");
+        let hearth = island_building::geometry::chimney::hearth_bounds(&recipe).unwrap();
+        assert!(p.colliders.contains(&hearth));
+
+        let mut host = recipe.clone();
+        host.extensions.clear();
+        let host = generate(&host).unwrap();
+        let part_size = |building: &island_building::BuildingPrototype, slot| {
+            building.lods[0]
+                .parts
+                .iter()
+                .find(|p| p.material == slot)
+                .unwrap()
+                .mesh
+                .indices
+                .len()
+        };
+        for slot in [
+            MaterialSlot::Chimney,
+            MaterialSlot::StoneSlab,
+            MaterialSlot::Firebox,
+        ] {
+            assert_eq!(
+                part_size(&p, slot),
+                part_size(&host, slot),
+                "lost {slot:?} geometry"
+            );
+        }
+
+        let shaft = island_building::geometry::chimney::stack_bounds(&recipe).unwrap();
+        let point = [
+            (shaft.min[0] + shaft.max[0]) * 0.5,
+            (shaft.min[1] + shaft.max[1]) * 0.5,
+            shaft.max[2] + 1.,
+        ];
+        for lod in &p.lods[..2] {
+            assert!(
+                !lod.parts
+                    .iter()
+                    .filter(|p| p.material == MaterialSlot::Roof)
+                    .any(|p| { ray_hits(&p.mesh, point, [0., 0., -1.], point[2] - shaft.min[2]) }),
+                "extension roof covers the flue"
+            );
+        }
+        recipe.extensions[0].width = 3.5;
+        assert!(
+            generate(&recipe)
+                .unwrap_err()
+                .to_string()
+                .contains("No clear door")
+        );
+    }
+}
+
+#[test]
+fn a_stairwell_on_the_join_moves_the_opening_to_a_clear_end() {
+    let mut recipe = house(Facade::East, ExtensionKind::Wing);
+    recipe.width = 10.;
+    recipe.depth = 9.;
+    recipe.storeys = 2;
+    recipe.staircase.axis = island_building::StairAxis::Y;
+    recipe.staircase.position = Some([3.5, 0.]);
+    recipe.extensions[0].width = 8.;
+    let p = generate(&recipe).unwrap();
+    let centre = walk_through_extension(&p);
+    let stairs = p
+        .layout
+        .staircase
+        .as_ref()
+        .unwrap()
+        .stairwell
+        .as_ref()
+        .unwrap();
+    assert!(
+        centre[1] < stairs.bounds.min[1] - 0.27 || centre[1] > stairs.bounds.max[1] + 0.27,
+        "doorway {centre:?} still meets the stairwell {:?}",
+        stairs.bounds
+    );
+}
+
+#[test]
+fn lean_to_framing_stays_outside_the_stairwell_at_the_floor_join() {
+    let mut recipe = house(Facade::North, ExtensionKind::LeanTo);
+    recipe.width = 7.;
+    recipe.depth = 8.;
+    recipe.storeys = 3;
+    recipe.wall_height = 2.9;
+    recipe.floor_thickness = 0.16;
+    recipe.wall_thickness = 0.2;
+    recipe.walls.style = WallStyle::WattleAndDaub;
+    recipe.walls.frame_projection = 0.025;
+    recipe.roof.covering = RoofCovering::Thatch;
+    recipe.staircase.wall = Some(Facade::North);
+    recipe.staircase.enclosed = true;
+    let extension = &mut recipe.extensions[0];
+    extension.width = 6.;
+    extension.depth = 4.;
+    extension.wall_height = recipe.wall_height;
+    extension.roof_rise = 2.;
+
+    let p = generate(&recipe).unwrap();
+    let stairwell = p.layout.staircase.unwrap().stairwell.unwrap().bounds;
+    let wall = recipe.depth * 0.5 - recipe.wall_thickness;
+    let half_width = recipe.width * 0.5 - recipe.wall_thickness;
+    let join = recipe.floor_height(1) - recipe.floor_thickness;
+    for lod in &p.lods[..2] {
+        for part in lod
+            .parts
+            .iter()
+            .filter(|part| matches!(part.material, MaterialSlot::Timber | MaterialSlot::Interior))
+        {
+            let mesh = &part.mesh;
+            for triangle in mesh.indices.chunks_exact(3) {
+                let points =
+                    [triangle[0], triangle[1], triangle[2]].map(|i| mesh.positions[i as usize]);
+                let in_join = points
+                    .iter()
+                    .all(|p| (join - 0.0101..=join + 0.0001).contains(&p[2]))
+                    && points.iter().any(|p| p[2] < join - 0.009)
+                    && points.iter().any(|p| p[2] > join - 0.001);
+                let projects_into_stairs = points
+                    .iter()
+                    .all(|p| p[0].abs() < half_width - 0.02 && p[1] < wall - 0.001)
+                    && points.iter().any(|p| {
+                        (stairwell.min[0]..stairwell.max[0]).contains(&p[0])
+                            && (wall - 0.3..wall - 0.04).contains(&p[1])
+                    });
+                assert!(
+                    !(in_join && projects_into_stairs),
+                    "{:?} projects into the stairwell at {points:?}",
+                    part.material
+                );
+            }
+        }
+    }
 }

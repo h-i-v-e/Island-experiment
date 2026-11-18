@@ -97,8 +97,11 @@ fn presets(ui: &mut egui::Ui, state: &mut StudioState) {
             }
         }
     });
-    if ui.button("Gothic church · cruciform stone").clicked() {
+    if ui.button("Cathedral · twin Gothic towers").clicked() {
         request_action(state, PendingAction::New("church".into()));
+    }
+    if ui.button("Parish church · one front tower").clicked() {
+        request_action(state, PendingAction::New("parish-church".into()));
     }
 }
 

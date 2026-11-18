@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "name": "Stone Gothic parish church",
+  "seed": 42,
+  "width": 16.0,
+  "depth": 24.0,
+  "wall_height": 6.8,
+  "wall_thickness": 0.4,
+  "floor_thickness": 0.25,
+  "roof": {
+    "kind": "gable",
+    "rise": 3.2,
+    "overhang": 0.3,
+    "thickness": 0.12,
+    "covering": "slate"
+  },
+  "openings": [
+    {
+      "id": "entrance",
+      "facade": "south",
+      "kind": "door",
+      "offset": 0.0,
+      "width": 1.15,
+      "height": 2.2,
+      "sill": 0.0,
+      "hinge": "left",
+      "swing_degrees": 105.0,
+      "use_default_dimensions": true
+    }
+  ],
+  "partitions": [],
+  "materials": {
+    "wall": [
+      0.58,
+      0.53,
+      0.43
+    ],
+    "roof": [
+      0.15,
+      0.19,
+      0.23
+    ],
+    "floor": [
+      0.48,
+      0.45,
+      0.39
+    ],
+    "interior": [
+      0.58,
+      0.53,
+      0.43
+    ],
+    "trim": [
+      0.7,
+      0.64,
+      0.52
+    ],
+    "door": [
+      0.3,
+      0.2,
+      0.12
+    ],
+    "glass": [
+      0.32,
+      0.57,
+      0.69,
+      0.23
+    ],
+    "wall_recipe": null,
+    "roof_recipe": null,
+    "chimney": [
+      0.255,
+      0.25,
+      0.23
+    ],
+    "chimney_recipe": null,
+    "ceiling": [
+      0.65,
+      0.61,
+      0.51
+    ]
+  },
+  "atlas_size": 512,
+  "chimney": null,
+  "storeys": 1,
+  "church": {
+    "nave_width": 6.5,
+    "transept_depth": 5.5,
+    "crossing_offset": 3.0,
+    "tower_width": 4.2,
+    "tower_height": 14.0,
+    "buttress_reach": 3.0,
+    "bay_spacing": 3.0,
+    "tower_style": "single_front",
+    "flying_buttresses": false
+  },
+  "opening_defaults": {
+    "window": {
+      "width": 1.5,
+      "height": 4.2,
+      "sill": 1.1
+    },
+    "door": {
+      "width": 1.8,
+      "height": 2.7,
+      "sill": 0.0
+    }
+  },
+  "grub_filter": {
+    "enabled": true,
+    "height_falloff": 3.0
+  }
+}

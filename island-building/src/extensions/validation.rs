@@ -95,14 +95,6 @@ pub(super) fn connections(recipe: &BuildingRecipe) -> Result<(), crate::Building
                 "Move the exterior entrance clear of this extension, or choose another host wall.",
             ));
         }
-        if recipe.chimney.as_ref().is_some_and(|c| {
-            c.facade == extension.facade && overlaps(extension, c.offset, c.width + 0.3)
-        }) {
-            errors.push(error(
-                &extension.id,
-                "Move the chimney clear of the extension connection.",
-            ));
-        }
         let bounds = node::placement(recipe, extension).bounds(
             extension.width,
             extension.depth,

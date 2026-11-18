@@ -23,7 +23,8 @@ The default package command builds release; `--debug` uses incremental developme
 artifacts. `--no-build` reuses an executable you have already verified is current.
 The bundle includes the building recipes, the wooden plank, floorboard, rough stone, solid slab, daub, slate and thatch material recipes,
 and this README in `Contents/Resources`.
-Packaging protects an existing bundle and honours `CARGO_TARGET_DIR`.
+Packaging automatically replaces the old bundle after the new app builds and passes
+signature verification, and honours `CARGO_TARGET_DIR`.
 
 ## Mesh cleanup and experimental texture arrays
 
@@ -136,10 +137,10 @@ The Gothic church retains its separate cruciform formula.
 
 Every attachment is a separate room with a hinged internal door. Covered
 windows are omitted and the shared junction is rebuilt as a dividing wall.
-Doors use the building-wide door width/height and open into the annex. They
-start centred, moving along the divider and choosing a clear hinge side when
-necessary. Each extension can select a plank or frame-and-panel door. If the
-shared dimensions or a clear approach do not fit, Studio diagnoses the conflict.
+Doors use the building-wide door width/height and open into the annex. If stairs,
+a fireplace, or a partition block the centre, the door searches toward either
+corner for a clear approach and swing. Each extension can select a plank or
+frame-and-panel door. Studio reports when there is no room for a clear opening.
 
 Wattle-and-daub buildings use the same timber bays, braces and door crosspieces
 on both sides of the divider, ordinary interior partitions and stairwell walls.
@@ -153,8 +154,9 @@ floor/foundation faces are removed at joins. The extensions share
 the building's wall, timber, roof, floor and ceiling materials, including slate
 or thatch. Attached thatched lean-tos omit the high-side ridge cap.
 Generated exterior windows use the building-wide dimensions; each extension can
-disable windows or override pane rows/columns. Keep entrances, entrance stairs
-and chimneys clear of the connections; conflicts show a validation error.
+disable windows or override pane rows/columns. Keep exterior entrances and their
+steps clear of the extension footprint. A fireplace can share the divider when
+there is room beside it for the internal door.
 
 Foundations follow the compound footprint and share a burial depth sufficient
 for a 30° slope across the complete building. The terrain preview uses the actual
@@ -319,11 +321,19 @@ other windows keep their original height. Saved recipes retain the authored valu
 Door jambs start 20 mm above the floor. Wall caps beneath upper stairwell doorways
 end 20 mm below the boards, keeping both sets of faces clear of the floor surface.
 
-**Gothic church** is available under Starting places, through `--preset church`,
+**Cathedral** is available under Starting places, through `--preset church`,
 in `recipes/gothic-church.json`, and from `BuildingRecipe::gothic_church()`.
-Its `church` recipe controls nave width, transept depth and position, twin tower
-dimensions, flying-buttress reach and window bay spacing. Width is the overall
-transept span and depth is the nave/chancel length. The shared window dimensions
+**Parish church** uses the same Gothic stonework, pointed windows and cruciform
+floor plan at a smaller scale, with one central front tower and no buttresses.
+Choose it under Starting places, use `--preset parish-church`, open
+`recipes/parish-church.json`, or call `BuildingRecipe::parish_church()`.
+Both recipes are also packaged as Unity TextAssets for custom town catalogues.
+
+The shared `church` recipe controls nave width, transept depth and position, tower
+dimensions, `tower_style` (`twin` or `single_front`), `flying_buttresses`,
+buttress reach and window bay spacing. Missing tower and buttress options retain
+the cathedral's twin towers and flying buttresses. Width is the overall
+transept span and depth includes the front tower. The shared window dimensions
 control the pointed lancets; shared door dimensions control the south entrance.
 The entrance has two independently openable timber leaves extending to the pointed
 arch apex, with no glass fanlight. **Door spring height** sets where the curved
@@ -340,8 +350,8 @@ simplified version of the same tracery over opaque glazing, and LOD2 bakes the
 pattern. Upper tower windows fit their actual wall height without stretching the
 circle into an oval.
 
-The cruciform floor is connected through the crossing, with no internal walls
-blocking the arms. LOD0 includes an unfurnished stone interior, solid pointed arches
+Both recipes use a cruciform floor connected through the crossing, with no
+internal walls blocking the arms. LOD0 includes an unfurnished stone interior, solid pointed arches
 filled up to the sloping ceiling,
 recessed clear glazing, mullions/tracery, paired pointed timber doors, crenellated towers
 and pinnacles. Flying buttresses have open circular arches matching the windows,
@@ -353,7 +363,8 @@ with layered noise driving colour variation and normal-map relief instead of
 block joints. The shared recipe is [`rough-stone.json`](../island-rs/texture-recipes/rough-stone.json);
 material assignments still override the defaults. The slate roof has closed,
 mitred eaves around the nave and transepts. **Structure → Roof overhang** adjusts
-the projection; zero removes it. New church presets use a 0.45 m overhang.
+the projection; zero removes it. The cathedral uses a 0.45 m overhang and the
+parish church uses 0.3 m.
 
 Church presets enable the existing two-scale grub and moss shader with a 3 m
 height falloff from floor level. Only dedicated exterior stone faces, foundations
@@ -361,8 +372,8 @@ and stairs receive it. Inner wall faces, reveals, ceilings, floors, doors and sh
 trim remain clean; the mixed LOD2 atlas also stays clean. **Grub** adjusts or disables
 weathering without altering the base stone maps.
 `layout.church` exports the outline and nave/transept/tower bounds; floor support
-follows the cruciform footprint. Foundations also include individual pads under
-every outer buttress pier, meeting its underside. Terrain fitting, placement
+follows the cruciform footprint. When buttresses are enabled, foundations also
+include individual pads under every outer pier, meeting its underside. Terrain fitting, placement
 checks and collision include these pads. Interior and Window inspection views
 target the nave and its lancets.
 
@@ -390,11 +401,14 @@ materials. They align beneath one roof stack and cap. Stair placement reserves t
 chimney wall and a clear route in front of its hearths for the rooms; an enclosure
 cannot reuse that wall. Explicit stair positions must satisfy the same clearance.
 Fireplace inspection follows **Inspect storey**, including CLI `--storey` captures.
+Under **Structure → Internal staircase → Staircase wall**, choose the wall the
+flights run along. The stair planner finds a clear position along that wall.
+**Automatic** uses the existing flight axis and position controls.
 
 ```rust
 let mut recipe = island_building::BuildingRecipe::procedural(8.0, 7.0);
 recipe.storeys = 3;
-// Optional: recipe.staircase.axis = island_building::StairAxis::X;
+// Optional: recipe.staircase.wall = Some(island_building::Facade::West);
 let building = island_building::generate(&recipe).expect("clear stair layout");
 ```
 

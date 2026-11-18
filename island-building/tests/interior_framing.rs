@@ -62,6 +62,26 @@ fn partition_frames_cover_both_sides_with_shared_clean_daub() {
                 "both partition faces have framing"
             );
         }
+        let host_position = [recipe.width, recipe.depth][along] * 0.5 - recipe.wall_thickness;
+        let post_position = recipe.wall_thickness * 0.5 + recipe.walls.beam_width;
+        for end in [-1., 1.] {
+            for side in [-1., 1.] {
+                assert!(
+                    timber
+                        .positions
+                        .iter()
+                        .zip(&timber.normals)
+                        .any(|(point, normal)| {
+                            (point[across] - side * post_position).abs() < 0.0001
+                                && (point[along] - end * host_position).abs()
+                                    < recipe.walls.beam_width + 0.01
+                                && point[2] > 2.
+                                && normal[across] * side > 0.99
+                        }),
+                    "partition end post at {axis:?} {end}, facing {side}"
+                );
+            }
+        }
         let restored = generate(&p.recipe).unwrap();
         assert_eq!(p.hash, restored.hash);
         assert_eq!(p.lods, restored.lods);

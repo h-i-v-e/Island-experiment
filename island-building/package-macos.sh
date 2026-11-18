@@ -21,11 +21,6 @@ if [ "$(uname -s)" != "Darwin" ]; then
     echo "package-macos.sh requires macOS" >&2
     exit 1
 fi
-if [ -e "$bundle_path" ]; then
-    echo "$bundle_path already exists; move it aside before packaging again" >&2
-    exit 1
-fi
-
 task_target_dir=${CARGO_TARGET_DIR:-"$repository_dir/target"}
 case "$task_target_dir" in
     /*) ;;
@@ -63,7 +58,7 @@ plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$plist"
 plutil -insert CFBundleName -string "Building Studio" "$plist"
 plutil -insert CFBundlePackageType -string "APPL" "$plist"
 plutil -insert CFBundleShortVersionString -string "0.1.0" "$plist"
-plutil -insert CFBundleVersion -string "63" "$plist"
+plutil -insert CFBundleVersion -string "64" "$plist"
 plutil -insert CFBundleDevelopmentRegion -string "en" "$plist"
 plutil -insert LSApplicationCategoryType -string "public.app-category.graphics-design" "$plist"
 plutil -insert NSHighResolutionCapable -bool true "$plist"
@@ -71,6 +66,7 @@ plutil -insert NSSupportsAutomaticGraphicsSwitching -bool true "$plist"
 
 codesign --force --sign - "$stage_bundle"
 codesign --verify --deep --strict "$stage_bundle"
+rm -rf -- "$bundle_path"
 mv "$stage_bundle" "$bundle_path"
 rmdir "$stage_dir"
 trap - EXIT HUP INT TERM

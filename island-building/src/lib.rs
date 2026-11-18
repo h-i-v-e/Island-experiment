@@ -3,7 +3,7 @@
 pub mod bake;
 pub mod church;
 pub mod collision;
-pub use church::{ChurchLayout, ChurchRecipe};
+pub use church::{ChurchLayout, ChurchRecipe, ChurchTowerStyle};
 pub mod document;
 pub mod export;
 pub mod extensions;

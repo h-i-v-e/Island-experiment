@@ -1,6 +1,6 @@
 use super::{
     ExtensionLayout, atlas,
-    clip::{self, Vertex},
+    clip::{self, Vertex, Volume},
     node::{self, Node, Placement},
     validation,
 };
@@ -69,17 +69,33 @@ pub(super) fn generate(
     for (node, component) in nodes.iter_mut().zip(&components) {
         node.set_surfaces(&component.lods, bottom);
     }
-    let mut lods = merge(&components, &nodes, resolved.atlas_size);
+    let posts = super::posts::exterior(&resolved, &nodes);
+    let mut lods = merge(&components, &nodes, resolved.atlas_size, &posts);
     let mut colliders = Vec::new();
     let mut supports = Vec::new();
     for (index, component) in components.iter().enumerate() {
         colliders.extend(collision(&component.colliders, &nodes, index));
         supports.extend_from_slice(&component.supports);
     }
-    let connections =
-        super::rooms::generate(&resolved, &nodes, &mut lods[0], &mut colliders, &mut doors)?;
+    let connections = super::rooms::generate(
+        &resolved,
+        &nodes,
+        layout.staircase.as_ref(),
+        &mut lods[0],
+        &mut colliders,
+        &mut doors,
+    )?;
     crate::validation::validate_door_swings(&doors, &colliders)?;
     extend_layout(&mut layout, &resolved, &nodes, &components, &connections);
+    for point in posts
+        .iter()
+        .flat_map(crate::geometry::timber_frame::junction::Post::points)
+    {
+        for (axis, &value) in point.iter().enumerate() {
+            layout.bounds_min[axis] = layout.bounds_min[axis].min(value);
+            layout.bounds_max[axis] = layout.bounds_max[axis].max(value);
+        }
+    }
     let atlases: Vec<_> = components.into_iter().map(|c| c.atlas).collect();
     let atlas = atlas::pack(&atlases, resolved.atlas_size);
     let hash = crate::materials::prototype_hash(&resolved, &materials)?;
@@ -207,7 +223,13 @@ fn component(
     })
 }
 
-fn merge(components: &[Component], nodes: &[Node], size: u32) -> [BuildingLod; 3] {
+fn merge(
+    components: &[Component],
+    nodes: &[Node],
+    size: u32,
+    posts: &[crate::geometry::timber_frame::junction::Post],
+) -> [BuildingLod; 3] {
+    let shaft = crate::geometry::chimney::stack_bounds(&nodes[0].recipe).map(Volume::bounds);
     std::array::from_fn(|level| {
         let mut builder = Builder::default();
         for (index, component) in components.iter().enumerate() {
@@ -217,7 +239,14 @@ fn merge(components: &[Component], nodes: &[Node], size: u32) -> [BuildingLod; 3
                     .iter()
                     .map(|part| crate::MeshPart {
                         material: part.material,
-                        mesh: mesh(&part.mesh, part.material, nodes, index, level),
+                        mesh: mesh(
+                            &part.mesh,
+                            part.material,
+                            nodes,
+                            index,
+                            level,
+                            shaft.as_ref(),
+                        ),
                     })
                     .collect(),
             };
@@ -225,6 +254,9 @@ fn merge(components: &[Component], nodes: &[Node], size: u32) -> [BuildingLod; 3
                 atlas::remap(&mut lod, index, nodes.len(), size);
             }
             builder.append(lod, 0.);
+        }
+        for post in posts {
+            post.append(&mut builder);
         }
         let mut lod = builder.finish();
         crate::finalize::lod(&mut lod);
@@ -238,6 +270,7 @@ fn mesh(
     nodes: &[Node],
     owner: usize,
     level: usize,
+    shaft: Option<&Volume>,
 ) -> BuildingMesh {
     let mut result = BuildingMesh::default();
     for tri in source.indices.chunks_exact(3) {
@@ -254,9 +287,11 @@ fn mesh(
             .collect();
         let roof = super::junction::roof_surface(slot, &vertices, &nodes[owner].recipe);
         let underside = roof && vertices[0].normal[2] < -0.01;
-        if slot == MaterialSlot::Interior
+        let interior_detail = slot == MaterialSlot::Interior
             && !underside
-            && !nodes[owner].inner_wall(vertices[0].point, vertices[0].normal)
+            && !nodes[owner].inner_wall(vertices[0].point, vertices[0].normal);
+        if owner == 0
+            && (interior_detail || (shaft.is_some() && fireplace_surface(slot, &vertices)))
         {
             clip::append(&mut result, &vertices);
             continue;
@@ -277,21 +312,33 @@ fn mesh(
         };
         let mut pieces = vec![vertices];
         if underside {
-            for node in nodes {
-                pieces = pieces
-                    .into_iter()
-                    .flat_map(|p| clip::subtract(p, &node.wall_volume, false))
-                    .collect();
-            }
+            pieces = pieces
+                .into_iter()
+                .flat_map(|p| clip::subtract(p, &nodes[owner].wall_volume, false))
+                .collect();
+        }
+        if owner != 0
+            && roof
+            && let Some(shaft) = shaft
+        {
+            pieces = pieces
+                .into_iter()
+                .flat_map(|p| clip::subtract(p, shaft, false))
+                .collect();
         }
         for (index, node) in nodes.iter().enumerate() {
-            // Outside every occupied wall footprint, a roof's underside is
-            // exposed. A neighbour's ground-to-roof envelope also contains air
-            // below its eaves, so it cannot be used to remove these soffits.
-            if index == owner || underside {
+            if index == owner || (interior_detail && index != 0) {
                 continue;
             }
-            let volumes = volumes(node, slot, owner, level, bounds, roof);
+            let overhangs = (roof && !underside).then(|| node.roof[level].query(bounds));
+            let occupied = if roof {
+                node.outer[level].query(bounds)
+            } else {
+                volumes(node, slot, owner, index, level, bounds)
+            };
+            // A neighbour's overhang can hide a roof top, but its projected
+            // volume does not occlude soffits outside the neighbour's walls.
+            let volumes = occupied.chain(overhangs.into_iter().flatten());
             for volume in volumes {
                 pieces = pieces
                     .into_iter()
@@ -322,19 +369,30 @@ fn mesh(
     result
 }
 
+fn fireplace_surface(slot: MaterialSlot, vertices: &[Vertex]) -> bool {
+    matches!(slot, MaterialSlot::Chimney | MaterialSlot::Firebox | MaterialSlot::StoneSlab)
+        // A chimney reserves the bottom two rows of the distant atlas.
+        || (slot == MaterialSlot::Atlas && vertices.iter().all(|v| v.uv[1] >= 0.5))
+}
+
 fn volumes(
     node: &Node,
     slot: MaterialSlot,
     owner: usize,
+    target: usize,
     level: usize,
     bounds: BoxCollider,
-    roof: bool,
 ) -> super::index::Query<'_> {
     use super::index::Query;
-    if roof {
-        return node.roof[level].query(bounds);
-    }
     match slot {
+        MaterialSlot::Ceiling
+        | MaterialSlot::Interior
+        | MaterialSlot::Trim
+        | MaterialSlot::Timber
+            if target == 0 =>
+        {
+            Query::all(std::slice::from_ref(&node.interior_span), bounds)
+        }
         // Open the shared wall only through the occupied room. Retain its
         // loft infill behind separate roof layers and raised thatch ridge caps.
         MaterialSlot::Wall | MaterialSlot::Atlas if owner == 0 => Query::all(&node.rooms, bounds),
@@ -350,10 +408,19 @@ fn volumes(
 }
 
 fn collision(source: &[BoxCollider], nodes: &[Node], owner: usize) -> Vec<BoxCollider> {
+    let interior = nodes[0].room_bounds[0];
     source
         .iter()
         .flat_map(|&shape| {
-            if shape.max[2] <= 0.0001 {
+            // Carve the host shell, but preserve obstacles inside it. Attachment
+            // rooms overlap slightly past the wall and must not shave stairs or hearths.
+            if shape.max[2] <= 0.0001
+                || (owner == 0
+                    && (0..2).all(|i| {
+                        shape.min[i] >= interior.min[i] - 0.00001
+                            && shape.max[i] <= interior.max[i] + 0.00001
+                    }))
+            {
                 return vec![shape];
             }
             let mut pieces = vec![shape];
@@ -361,7 +428,12 @@ fn collision(source: &[BoxCollider], nodes: &[Node], owner: usize) -> Vec<BoxCol
                 if index == owner {
                     continue;
                 }
-                for &room in &node.room_bounds {
+                let rooms = if index == 0 {
+                    std::slice::from_ref(&node.interior_span.bounds)
+                } else {
+                    &node.room_bounds
+                };
+                for &room in rooms {
                     pieces = pieces
                         .into_iter()
                         .flat_map(|b| clip::box_difference(b, room))

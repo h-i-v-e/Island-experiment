@@ -208,6 +208,9 @@ pub(super) fn preset(name: &str) -> BuildingRecipe {
     if name == "church" {
         return BuildingRecipe::gothic_church();
     }
+    if name == "parish-church" {
+        return BuildingRecipe::parish_church();
+    }
     let mut recipe = match name {
         "cottage" => BuildingRecipe::cottage(),
         "workshop" => BuildingRecipe::workshop(),
@@ -868,7 +871,7 @@ pub fn parse_arguments(
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop|church\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|extension|stairs|stair-door|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--storey 0..5] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --renderer standard|arrays\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
+                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop|church|parish-church\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|extension|stairs|stair-door|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--storey 0..5] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --renderer standard|arrays\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
                 );
                 return Ok(None);
             }
@@ -877,8 +880,12 @@ pub fn parse_arguments(
             }
             "--preset" => {
                 settings.preset = args.next().ok_or("--preset needs a name")?;
-                if !["hut", "cottage", "workshop", "church"].contains(&settings.preset.as_str()) {
-                    return Err("Preset must be hut, cottage, workshop, or church".into());
+                if !["hut", "cottage", "workshop", "church", "parish-church"]
+                    .contains(&settings.preset.as_str())
+                {
+                    return Err(
+                        "Preset must be hut, cottage, workshop, church, or parish-church".into(),
+                    );
                 }
             }
             "--seed" => {

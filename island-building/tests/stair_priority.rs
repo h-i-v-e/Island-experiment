@@ -142,3 +142,64 @@ fn both_stair_axes_use_the_minimum_wall_clearance_with_multiple_entrances() {
         assert_eq!(prototype.doors.iter().filter(|d| d.exterior).count(), 2);
     }
 }
+
+#[test]
+fn selected_wall_sets_the_axis_and_keeps_the_flights_against_that_wall() {
+    use island_building::stairs;
+    let mut recipe = BuildingRecipe::procedural(9., 8.);
+    recipe.storeys = 2;
+    recipe.chimney = None;
+    recipe.walls.style = WallStyle::WattleAndDaub;
+    recipe.atlas_size = 128;
+    // Keep the old manual controls as preferences for when the wall is cleared.
+    recipe.staircase.axis = StairAxis::X;
+    recipe.staircase.position = Some([0.; 2]);
+    let legacy_json = serde_json::to_value(recipe.staircase).unwrap();
+    assert!(legacy_json.get("wall").is_none());
+    let legacy: island_building::StaircaseRecipe = serde_json::from_value(legacy_json).unwrap();
+    assert_eq!(legacy.wall, None);
+
+    for wall in Facade::ALL {
+        recipe.staircase.wall = Some(wall);
+        let saved = serde_json::to_vec(&recipe).unwrap();
+        let authored: BuildingRecipe = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(authored.staircase, recipe.staircase);
+        let prototype = generate(&authored).unwrap();
+        let layout = prototype.layout.staircase.unwrap();
+        let normal = wall.normal();
+        let axis = usize::from(normal[1].abs() > 0.5);
+        let edge = if normal[axis] > 0. {
+            layout.opening.max[axis]
+        } else {
+            -layout.opening.min[axis]
+        };
+        let gap = [recipe.width, recipe.depth][axis] * 0.5
+            - recipe.wall_thickness
+            - recipe.walls.frame_projection
+            - edge;
+        assert!((gap - 0.04).abs() < 0.00001, "{wall:?} gap: {gap}");
+        assert_eq!(layout.axis, [StairAxis::Y, StairAxis::X][axis]);
+        assert_eq!(prototype.doors.iter().filter(|d| !d.exterior).count(), 2);
+    }
+
+    recipe.staircase.wall = None;
+    let layout = stairs::resolve(&recipe).unwrap().unwrap();
+    assert_eq!(layout.axis, StairAxis::X);
+    assert!(
+        layout
+            .position
+            .iter()
+            .all(|coordinate| coordinate.abs() < 0.00001)
+    );
+}
+
+#[test]
+fn a_blocked_selected_wall_reports_why_without_relocating_the_staircase() {
+    let mut recipe = cottage();
+    let wall = recipe.chimney.as_ref().unwrap().facade;
+    assert!(island_building::stairs::resolve(&recipe).is_ok());
+    recipe.staircase.wall = Some(wall);
+    let error = island_building::stairs::resolve(&recipe).unwrap_err();
+    assert!(error.to_string().contains("reserved for the fireplace"));
+    assert_eq!(error.diagnostics[0].element, "staircase.wall");
+}

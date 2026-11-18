@@ -1,4 +1,4 @@
-use super::{ChurchLayout, ChurchRecipe};
+use super::{ChurchLayout, ChurchRecipe, ChurchTowerStyle};
 use crate::{BuildingRecipe, collision::BoxCollider};
 
 #[derive(Clone, Copy)]
@@ -89,6 +89,14 @@ impl<'a> Plan<'a> {
             ..self
         }
     }
+
+    /// The rear belfry window must clear the nave ridge in geometry and its bake.
+    pub fn above_nave_roof(mut self) -> Option<Self> {
+        self.window.sill = self.r.roof.rise + 0.2;
+        self.window.height = self.window.height.min(self.height - self.window.sill - 0.4);
+        self.window_chart = 5;
+        (self.window.height > self.window.width * 0.87 + 0.8).then_some(self)
+    }
     /// Interior skins meet on the offset outline, rather than continuing behind
     /// the neighbouring wall's exterior skin. Bay subdivisions retain the same
     /// corner ownership as their original perimeter edge.
@@ -131,7 +139,6 @@ impl<'a> Plan<'a> {
     fn corner_offset(&self, wall: Wall, u: f32) -> f32 {
         if self.tower_shell {
             self.towers()
-                .into_iter()
                 .find_map(|rect| {
                     let [a, b] = rect.min;
                     let [c, d] = rect.max;
@@ -147,6 +154,27 @@ impl<'a> Plan<'a> {
             n, t, y, d, w, c, ..
         } = *self;
         let q = c.tower_width;
+        if c.tower_style == ChurchTowerStyle::SingleFront {
+            let front = self.nave_front();
+            return [
+                [-q * 0.5, -d],
+                [q * 0.5, -d],
+                [q * 0.5, front],
+                [n, front],
+                [n, y - t],
+                [w, y - t],
+                [w, y + t],
+                [n, y + t],
+                [n, d],
+                [-n, d],
+                [-n, y + t],
+                [-w, y + t],
+                [-w, y - t],
+                [-n, y - t],
+                [-n, front],
+                [-q * 0.5, front],
+            ];
+        }
         [
             [-n - q, -d],
             [n + q, -d],
@@ -173,14 +201,19 @@ impl<'a> Plan<'a> {
             b: outline[(i + 1) % outline.len()],
         })
     }
-    pub fn floors(&self) -> [Rect; 5] {
-        let Self {
-            n, t, y, d, w, c, ..
-        } = *self;
-        let q = c.tower_width;
+    pub fn nave_front(&self) -> f32 {
+        -self.d
+            + match self.c.tower_style {
+                ChurchTowerStyle::Twin => 0.,
+                ChurchTowerStyle::SingleFront => self.c.tower_width,
+            }
+    }
+
+    pub fn floors(&self) -> impl Iterator<Item = Rect> {
+        let Self { n, t, y, d, w, .. } = *self;
         [
             Rect {
-                min: [-n, -d],
+                min: [-n, self.nave_front()],
                 max: [n, d],
             },
             Rect {
@@ -191,29 +224,50 @@ impl<'a> Plan<'a> {
                 min: [n, y - t],
                 max: [w, y + t],
             },
-            Rect {
-                min: [-n - q, -d],
-                max: [-n, -d + q],
-            },
-            Rect {
-                min: [n, -d],
-                max: [n + q, -d + q],
-            },
         ]
+        .into_iter()
+        .chain(self.towers())
     }
-    pub fn towers(&self) -> [Rect; 2] {
-        [self.floors()[3], self.floors()[4]]
+    pub fn towers(&self) -> impl Iterator<Item = Rect> {
+        let q = self.c.tower_width;
+        let (first, second) = match self.c.tower_style {
+            ChurchTowerStyle::Twin => (
+                Rect {
+                    min: [-self.n - q, -self.d],
+                    max: [-self.n, -self.d + q],
+                },
+                Some(Rect {
+                    min: [self.n, -self.d],
+                    max: [self.n + q, -self.d + q],
+                }),
+            ),
+            ChurchTowerStyle::SingleFront => (
+                Rect {
+                    min: [-q * 0.5, -self.d],
+                    max: [q * 0.5, self.nave_front()],
+                },
+                None,
+            ),
+        };
+        std::iter::once(first).chain(second)
     }
     pub fn layout(&self) -> ChurchLayout {
         ChurchLayout {
             outline: self.outline().to_vec(),
-            nave: self.floors()[0].bounds(0., self.r.wall_height),
+            nave: Rect {
+                min: [-self.n, self.nave_front()],
+                max: [self.n, self.d],
+            }
+            .bounds(0., self.r.wall_height),
             transept: Rect {
                 min: [-self.w, self.y - self.t],
                 max: [self.w, self.y + self.t],
             }
             .bounds(0., self.r.wall_height),
-            towers: self.towers().map(|r| r.bounds(0., self.c.tower_height)),
+            towers: self
+                .towers()
+                .map(|r| r.bounds(0., self.c.tower_height))
+                .collect(),
         }
     }
     pub fn buttress_rows(&self) -> impl Iterator<Item = f32> + '_ {
@@ -232,6 +286,7 @@ impl<'a> Plan<'a> {
 
     pub fn buttresses(&self) -> impl Iterator<Item = super::buttress::Layout> + '_ {
         self.buttress_rows()
+            .filter(|_| self.c.flying_buttresses)
             .flat_map(|y| [-1., 1.].map(|side| super::buttress::Layout::new(self, side, y)))
     }
 }
@@ -326,7 +381,7 @@ mod tests {
                 (corner.min[0] + corner.max[0]) * 0.5,
                 (corner.min[1] + corner.max[1]) * 0.5,
             ];
-            assert!(plan.floors().iter().any(|floor| {
+            assert!(plan.floors().any(|floor| {
                 (0..2).all(|axis| centre[axis] > floor.min[axis] && centre[axis] < floor.max[axis])
             }));
             assert!(corner.min[2].abs() < 0.0001);

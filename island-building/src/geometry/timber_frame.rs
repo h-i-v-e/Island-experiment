@@ -3,6 +3,7 @@ use super::Builder;
 mod corners;
 mod interior;
 pub(crate) mod joists;
+pub(crate) mod junction;
 use crate::{
     BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofCovering, RoofKind,
     WallStyle,
@@ -512,10 +513,11 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detailed:
 }
 
 /// A flat, two-sided partition reuses the exterior bays, braces and aperture cuts.
-pub(crate) fn interior_panel(builder: &mut Builder, recipe: &BuildingRecipe) {
+pub(crate) fn interior_panel(builder: &mut Builder, recipe: &BuildingRecipe, open_ends: [bool; 2]) {
     let facade = Facade::South;
     let front = -recipe.walls.frame_projection;
     let back = recipe.wall_thickness + recipe.walls.frame_projection;
+    let half = recipe.width * 0.5;
     for member in layout(recipe, facade) {
         let polygon = &member.polygon;
         for i in 1..polygon.len() - 1 {
@@ -531,6 +533,11 @@ pub(crate) fn interior_panel(builder: &mut Builder, recipe: &BuildingRecipe) {
             }
         }
         for (a, b) in edges(polygon) {
+            if open_ends.into_iter().zip([-half, half]).any(|(open, end)| {
+                open && (a[0] - end).abs() < 0.00001 && (b[0] - end).abs() < 0.00001
+            }) {
+                continue;
+            }
             // The floor and ceiling hide these horizontal perimeter caps.
             if (a[1] - b[1]).abs() < 0.00001
                 && (a[1].abs() < 0.00001 || (a[1] - recipe.wall_height).abs() < 0.00001)

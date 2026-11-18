@@ -1,6 +1,8 @@
 //! Padded, lighting-free stone/roof/window bays for the minimal church exterior.
 use super::windows;
-use crate::{BakedAtlas, BuildingRecipe, MaterialSlot, MaterialTexture, geometry::Builder};
+use crate::{
+    BakedAtlas, BuildingRecipe, ChurchTowerStyle, MaterialSlot, MaterialTexture, geometry::Builder,
+};
 
 fn uv(chart: usize, u: f32, v: f32) -> [f32; 2] {
     [
@@ -55,6 +57,9 @@ pub(super) fn bake(r: &BuildingRecipe, materials: &[MaterialTexture]) -> BakedAt
     let pattern = super::tracery::Pattern::new(r.opening_defaults.window);
     let tower = super::plan::Plan::new(r).at_height(c.tower_height - r.wall_height);
     let tower_pattern = super::tracery::Pattern::new(tower.window);
+    let rear = (c.tower_style == ChurchTowerStyle::SingleFront)
+        .then(|| tower.above_nave_roof())
+        .flatten();
     for y in 0..size {
         for x in 0..size {
             let column = x * 4 / size;
@@ -62,28 +67,22 @@ pub(super) fn bake(r: &BuildingRecipe, materials: &[MaterialTexture]) -> BakedAt
             let chart = row * 4 + column;
             let u = ((x as f32 / size as f32 * 4. - column as f32 - 0.05) / 0.9).clamp(0., 1.);
             let v = ((0.95 - (y as f32 / size as f32 * 2. - row as f32)) / 0.9).clamp(0., 1.);
-            let (slot, width, height) = match chart {
-                1 => (MaterialSlot::Roof, 2., 2.),
-                2 => (MaterialSlot::Wall, c.bay_spacing, r.wall_height),
-                3 => (MaterialSlot::Wall, c.nave_width, r.wall_height),
-                7 => (
-                    MaterialSlot::Wall,
-                    c.tower_width / (c.tower_width / c.bay_spacing).floor().max(1.),
-                    tower.height,
-                ),
-                5 => (MaterialSlot::Floor, 2., 2.),
-                6 => (MaterialSlot::Foundation, 2., 2.),
-                _ => (MaterialSlot::Wall, 2., 2.),
-            };
+            let (slot, width, height) = chart_dimensions(&tower, chart, rear.is_some());
             let mut pixel = sample(materials, slot, u * width, v * height);
             if chart == 4 {
                 for channel in &mut pixel.0[..3] {
                     *channel = (f32::from(*channel) * 1.12).min(255.) as u8;
                 }
             }
-            if matches!(chart, 2 | 3 | 7) {
-                let (w, h, sill) = if chart == 7 {
-                    (tower.window.width, tower.window.height, tower.window.sill)
+            let tower_window = if chart == 5 {
+                rear.as_ref()
+            } else {
+                Some(&tower)
+            };
+            if matches!(chart, 2 | 3 | 7) || (chart == 5 && rear.is_some()) {
+                let (w, h, sill) = if matches!(chart, 5 | 7) {
+                    let window = tower_window.expect("tower chart").window;
+                    (window.width, window.height, window.sill)
                 } else if chart == 2 {
                     let s = r.opening_defaults.window;
                     (s.width, s.height, s.sill)
@@ -112,7 +111,14 @@ pub(super) fn bake(r: &BuildingRecipe, materials: &[MaterialTexture]) -> BakedAt
                             }
                         }
                     } else {
-                        let mullion = if chart == 7 { tower_pattern } else { pattern }.stone_at(
+                        let tracery = match chart {
+                            5 => super::tracery::Pattern::new(
+                                rear.as_ref().expect("rear chart").window,
+                            ),
+                            7 => tower_pattern,
+                            _ => pattern,
+                        };
+                        let mullion = tracery.stone_at(
                             px,
                             z,
                             0.25 * (width * 4. / size as f32).max(height * 2. / size as f32),
@@ -136,6 +142,35 @@ pub(super) fn bake(r: &BuildingRecipe, materials: &[MaterialTexture]) -> BakedAt
     }
     atlas
 }
+fn chart_dimensions(
+    tower: &super::plan::Plan<'_>,
+    chart: u32,
+    rear_window: bool,
+) -> (MaterialSlot, f32, f32) {
+    let r = tower.r;
+    let c = tower.c;
+    match chart {
+        1 => (MaterialSlot::Roof, 2., 2.),
+        2 => (MaterialSlot::Wall, c.bay_spacing, r.wall_height),
+        3 => (
+            MaterialSlot::Wall,
+            match c.tower_style {
+                ChurchTowerStyle::Twin => c.nave_width,
+                ChurchTowerStyle::SingleFront => c.tower_width,
+            },
+            r.wall_height,
+        ),
+        7 | 5 if chart == 7 || rear_window => (
+            MaterialSlot::Wall,
+            c.tower_width / (c.tower_width / c.bay_spacing).floor().max(1.),
+            tower.height,
+        ),
+        5 => (MaterialSlot::Floor, 2., 2.),
+        6 => (MaterialSlot::Foundation, 2., 2.),
+        _ => (MaterialSlot::Wall, 2., 2.),
+    }
+}
+
 fn timber(
     r: &BuildingRecipe,
     materials: &[MaterialTexture],

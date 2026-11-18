@@ -3,7 +3,7 @@ use super::{
     plan::{Plan, Rect, Wall},
     shell, windows,
 };
-use crate::{MaterialSlot, collision::BoxCollider, geometry::Builder};
+use crate::{ChurchTowerStyle, MaterialSlot, collision::BoxCollider, geometry::Builder};
 
 pub(super) fn generate(b: &mut Builder, p: &Plan<'_>, level: u8, colliders: &mut Vec<BoxCollider>) {
     for tower in p.towers() {
@@ -29,7 +29,7 @@ fn tower_mesh(
     let upper_plan = p.at_height(top - p.r.wall_height);
     let mut upper = Builder::default();
     let mut obstacles = Vec::new();
-    for wall in [
+    for (index, wall) in [
         Wall {
             a: [a, c],
             b: [d, c],
@@ -46,8 +46,20 @@ fn tower_mesh(
             a: [a, e],
             b: [a, c],
         },
-    ] {
-        shell::bays(&mut upper, &upper_plan, wall, level, &mut obstacles);
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut wall_plan = upper_plan;
+        if p.c.tower_style == ChurchTowerStyle::SingleFront && index == 2 {
+            // Keep the rear belfry opening above the attached nave roof.
+            let Some(rear_plan) = wall_plan.above_nave_roof() else {
+                shell::solid_wall(&mut upper, &wall_plan, wall, level, &mut obstacles);
+                continue;
+            };
+            wall_plan = rear_plan;
+        }
+        shell::bays(&mut upper, &wall_plan, wall, level, &mut obstacles);
     }
     b.append(upper.finish(), p.r.wall_height);
     if level == 0 {

@@ -1,13 +1,13 @@
 //! Closed roof projections around the cruciform nave and transepts.
 use super::{atlas, plan::Plan, windows};
-use crate::{MaterialSlot, geometry::Builder};
+use crate::{ChurchTowerStyle, MaterialSlot, geometry::Builder};
 
 fn boundary(p: &Plan<'_>) -> [[f32; 2]; 16] {
     let (south, north) = (p.y - p.t, p.y + p.t);
     [
-        [-p.n, -p.d],
-        [0., -p.d],
-        [p.n, -p.d],
+        [-p.n, p.nave_front()],
+        [0., p.nave_front()],
+        [p.n, p.nave_front()],
         [p.n, south],
         [p.w, south],
         [p.w, p.y],
@@ -53,29 +53,34 @@ pub(super) fn generate(b: &mut Builder, p: &Plan<'_>, level: u8) {
     };
     for i in 0..16 {
         let j = (i + 1) % 16;
-        face(
-            b,
-            level,
-            MaterialSlot::Roof,
-            [inner[i], outer[i], outer[j], inner[j]],
-        );
+        let (mut a, mut c, mut d, mut e) = (inner[i], outer[i], outer[j], inner[j]);
+        if p.c.tower_style == ChurchTowerStyle::SingleFront && i < 2 {
+            // The front roof meets the tower; only its exposed shoulders have eaves.
+            let x = if i == 0 {
+                -p.c.tower_width * 0.5
+            } else {
+                p.c.tower_width * 0.5
+            };
+            let clip = |u: [f32; 3], v: [f32; 3]| {
+                let t = (x - u[0]) / (v[0] - u[0]);
+                std::array::from_fn(|axis| u[axis] + (v[axis] - u[axis]) * t)
+            };
+            if i == 0 {
+                d = clip(c, d);
+                e = clip(a, e);
+            } else {
+                a = clip(a, e);
+                c = clip(c, d);
+            }
+        }
+        face(b, level, MaterialSlot::Roof, [a, c, d, e]);
         face(
             b,
             level,
             MaterialSlot::Trim,
-            [
-                below(inner[j]),
-                below(outer[j]),
-                below(outer[i]),
-                below(inner[i]),
-            ],
+            [below(e), below(d), below(c), below(a)],
         );
-        face(
-            b,
-            level,
-            MaterialSlot::Trim,
-            [outer[i], below(outer[i]), below(outer[j]), outer[j]],
-        );
+        face(b, level, MaterialSlot::Trim, [c, below(c), below(d), d]);
     }
 }
 fn face(b: &mut Builder, level: u8, slot: MaterialSlot, points: [[f32; 3]; 4]) {

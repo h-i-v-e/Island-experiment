@@ -6,7 +6,7 @@ mod placement;
 mod windows;
 pub(crate) use windows::fit as fit_windows;
 
-use crate::{BuildingError, BuildingRecipe, collision::BoxCollider};
+use crate::{BuildingError, BuildingRecipe, Facade, collision::BoxCollider};
 
 pub const TREAD_THICKNESS: f32 = 0.07;
 pub const RAIL_HEIGHT: f32 = 0.95;
@@ -27,6 +27,9 @@ pub struct StaircaseRecipe {
     /// Enclose the flights in an interior stairwell with one door per floor.
     pub enclosed: bool,
     pub door_style: crate::DoorStyle,
+    /// A selected wall sets the flight axis and leaves the position along it automatic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wall: Option<Facade>,
     pub axis: StairAxis,
     /// None selects a clear position automatically. Metres from the building centre.
     pub position: Option<[f32; 2]>,
@@ -41,6 +44,7 @@ impl Default for StaircaseRecipe {
         Self {
             enclosed: true,
             door_style: crate::DoorStyle::FrameAndPanel,
+            wall: None,
             axis: StairAxis::Auto,
             position: None,
             width: 1.,
@@ -252,6 +256,19 @@ pub(crate) fn resolve_placement(
     if recipe.storeys == 1 {
         return Ok(None);
     }
+    if let Some(wall) = recipe.staircase.wall
+        && recipe
+            .chimney
+            .as_ref()
+            .is_some_and(|chimney| chimney.facade == wall)
+    {
+        return Err(BuildingError::new(
+            "staircase.wall",
+            format!(
+                "The {wall:?} wall is reserved for the fireplace. Choose another staircase wall or move the fireplace."
+            ),
+        ));
+    }
     let merge_unit = if recipe.staircase.enclosed {
         crate::units::MaterialGrid::load(recipe, base, crate::MaterialSlot::Wall)?.metres[0]
     } else {
@@ -277,6 +294,14 @@ pub(crate) fn resolve_placement(
                 }));
             }
         }
+    }
+    if let Some(wall) = recipe.staircase.wall {
+        return Err(BuildingError::new(
+            "staircase.wall",
+            format!(
+                "No staircase and door approach fit along the {wall:?} wall. Choose another wall or adjust the footprint, stairs or nearby openings."
+            ),
+        ));
     }
     Err(BuildingError::new(
         "staircase",

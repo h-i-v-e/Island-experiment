@@ -38,6 +38,46 @@ impl Volume {
             directional_boundary: false,
         }
     }
+
+    /// Pair the overlapping portions of an upper roof face and a soffit.
+    pub fn intersect(&self, underside: &Self) -> Option<Self> {
+        let bounds = BoxCollider {
+            min: std::array::from_fn(|i| self.bounds.min[i].max(underside.bounds.min[i])),
+            max: std::array::from_fn(|i| self.bounds.max[i].min(underside.bounds.max[i])),
+        };
+        if (0..2).any(|i| bounds.min[i] >= bounds.max[i]) || bounds.min[2] > bounds.max[2] {
+            return None;
+        }
+        Some(Self {
+            planes: self
+                .planes
+                .iter()
+                .chain(&underside.planes)
+                .copied()
+                .collect(),
+            bounds,
+            directional_boundary: true,
+        })
+    }
+
+    pub fn lower_at(&self, point: [f32; 3]) -> Option<f32> {
+        let mut low = self.bounds.min[2];
+        let mut high = self.bounds.max[2];
+        for plane in &self.planes {
+            let limit = plane.distance - plane.normal[0] * point[0] - plane.normal[1] * point[1];
+            let slope = plane.normal[2];
+            if slope.abs() < EPSILON {
+                if limit < -EPSILON {
+                    return None;
+                }
+            } else if slope < 0. {
+                low = low.max(limit / slope);
+            } else {
+                high = high.min(limit / slope);
+            }
+        }
+        (low <= high + EPSILON).then_some(low)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -156,6 +196,19 @@ pub(super) fn roof_volume(
     bottom: f32,
     restriction: Option<BoxCollider>,
 ) -> Option<Volume> {
+    surface_volume(points, bottom, 1., restriction)
+}
+
+pub(super) fn soffit_volume(points: [[f32; 3]; 3], top: f32) -> Option<Volume> {
+    surface_volume(points, top, -1., None)
+}
+
+fn surface_volume(
+    points: [[f32; 3]; 3],
+    limit: f32,
+    up: f32,
+    restriction: Option<BoxCollider>,
+) -> Option<Volume> {
     let a = std::array::from_fn::<_, 3, _>(|i| points[1][i] - points[0][i]);
     let b = std::array::from_fn::<_, 3, _>(|i| points[2][i] - points[0][i]);
     let normal = [
@@ -164,7 +217,7 @@ pub(super) fn roof_volume(
         a[0] * b[1] - a[1] * b[0],
     ];
     let length = normal.iter().map(|n| n * n).sum::<f32>().sqrt();
-    if normal[2] <= length * 0.01 {
+    if normal[2] * up <= length * 0.01 {
         return None;
     }
     let normal = normal.map(|n| n / length);
@@ -177,21 +230,28 @@ pub(super) fn roof_volume(
                 .fold(f32::NEG_INFINITY, f32::max)
         }),
     };
-    bounds.min[2] = bottom;
+    if (up > 0. && bounds.max[2] < limit) || (up < 0. && bounds.min[2] > limit) {
+        return None;
+    }
+    if up > 0. {
+        bounds.min[2] = limit;
+    } else {
+        bounds.max[2] = limit;
+    }
     let mut planes = vec![
         Plane {
             normal,
             distance: normal.iter().zip(points[0]).map(|(a, b)| a * b).sum(),
         },
         Plane {
-            normal: [0., 0., -1.],
-            distance: -bottom,
+            normal: [0., 0., -up],
+            distance: -up * limit,
         },
     ];
     for index in 0..3 {
         let a = points[index];
         let b = points[(index + 1) % 3];
-        let n = [b[1] - a[1], a[0] - b[0], 0.];
+        let n = [(b[1] - a[1]) * up, (a[0] - b[0]) * up, 0.];
         let length = n[0].hypot(n[1]);
         let n = n.map(|v| v / length);
         planes.push(Plane {

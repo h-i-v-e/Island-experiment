@@ -189,7 +189,7 @@ fn write_package(
         })
         .collect();
     let mut manifest=ExportManifest {
-        package_version:1,geometry_version:57,material_version:22,bake_version:25,
+        package_version:1,geometry_version:64,material_version:22,bake_version:25,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
@@ -199,7 +199,7 @@ fn write_package(
     };
     manifest.door_policy.push_str(" Optional collision_sections contains hinge-local solid boxes for shaped leaves. Rotate every section with the leaf; missing/empty sections use the rectangular width/height/thickness bounds. Each Gothic church entrance exports separate -left and -right leaf IDs, hinges, meshes, hardware and saved angles. Its timber leaves fill the complete pointed arch; the recipe door height is the spring line, where the arch begins.");
     if prototype.recipe.church.is_some() {
-        manifest.floor_policy="One connected cruciform church at Z=0, without occupied upper storeys or furnishings. layout.church describes the nave, transept, towers and counter-clockwise floor outline. Floors follow that outline. Buried foundations also support every outer buttress pier at its underside; foundation.json encloses the complete support footprint. LOD0 has openable entrance joinery, pointed see-through windows, tracery and interior stone ribs. LOD1 has opaque glazing and no interior surfaces. LOD2 uses padded, baked stone, roof, portal and pointed-window bay charts. Twin towers and open flying-buttress arches retain their silhouette at every LOD. Preserve instance door angles, floor support and collisions at every LOD.".into();
+        manifest.floor_policy="One connected cruciform church at Z=0, without occupied upper storeys or furnishings. layout.church describes the nave, transept, towers and counter-clockwise floor outline. Floors follow that outline. Buried foundations follow the occupied footprint and support any enabled outer buttress piers at their undersides; foundation.json encloses the complete support footprint. LOD0 has openable entrance joinery, pointed see-through windows, tracery and interior stone ribs. LOD1 has opaque glazing and no interior surfaces. LOD2 uses padded, baked stone, roof, portal and pointed-window bay charts. The authored tower arrangement and any enabled open flying-buttress arches retain their silhouette at every LOD. Preserve instance door angles, floor support and collisions at every LOD.".into();
     }
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     fs::write(root.join("manifest.json"), bytes)?;
@@ -816,7 +816,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (57, 22, 25)
+            (64, 22, 25)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

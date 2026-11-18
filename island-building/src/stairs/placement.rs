@@ -10,8 +10,13 @@ pub(super) struct Candidate {
 
 pub(super) fn candidates(recipe: &BuildingRecipe) -> Vec<Candidate> {
     let mut result = Vec::new();
+    let axis_preference = match recipe.staircase.wall {
+        Some(Facade::North | Facade::South) => StairAxis::X,
+        Some(Facade::East | Facade::West) => StairAxis::Y,
+        None => recipe.staircase.axis,
+    };
     for axis in [StairAxis::Y, StairAxis::X] {
-        if recipe.staircase.axis != StairAxis::Auto && recipe.staircase.axis != axis {
+        if axis_preference != StairAxis::Auto && axis_preference != axis {
             continue;
         }
         axis_candidates(recipe, axis, &mut result);
@@ -42,18 +47,25 @@ fn axis_candidates(recipe: &BuildingRecipe, axis: StairAxis, result: &mut Vec<Ca
         return;
     }
     let min = max.map(|r| -r);
-    let automatic = recipe.staircase.position.is_none();
-    let positions = recipe.staircase.position.into_iter().chain(
-        automatic
-            .then(|| placement_offsets(min[0], max[0]))
-            .into_iter()
-            .flatten()
-            .flat_map(|x| {
-                placement_offsets(min[1], max[1])
-                    .into_iter()
-                    .map(move |y| [x, y])
-            }),
-    );
+    let fixed = if let Some(wall) = recipe.staircase.wall {
+        let normal = wall.normal();
+        let axis = usize::from(normal[1].abs() > 0.5);
+        let mut position = [None; 2];
+        position[axis] = Some(normal[axis] * max[axis]);
+        position
+    } else {
+        recipe.staircase.position.map_or([None; 2], |p| p.map(Some))
+    };
+    let offsets = |axis: usize| {
+        fixed[axis].into_iter().chain(
+            fixed[axis]
+                .is_none()
+                .then(|| placement_offsets(min[axis], max[axis]))
+                .into_iter()
+                .flatten(),
+        )
+    };
+    let positions = offsets(0).flat_map(|x| offsets(1).map(move |y| [x, y]));
     for position in positions {
         if (0..2).any(|i| position[i] < min[i] - 0.00001 || position[i] > max[i] + 0.00001) {
             continue;

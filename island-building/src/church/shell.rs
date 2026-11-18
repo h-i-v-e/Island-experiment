@@ -3,7 +3,7 @@ use super::{
     plan::{Plan, Wall},
     windows,
 };
-use crate::{MaterialSlot, collision::BoxCollider, geometry::Builder};
+use crate::{ChurchTowerStyle, MaterialSlot, collision::BoxCollider, geometry::Builder};
 
 pub(super) const CEILING_DROP: f32 = 0.15;
 
@@ -20,7 +20,9 @@ pub(super) fn generate(
 ) {
     slabs(b, p, level, colliders, supports);
     for (index, wall) in p.walls().enumerate() {
-        if index == 0 {
+        if index == 0 && p.c.tower_style == ChurchTowerStyle::SingleFront {
+            windows::bay(b, p, wall, level, true, colliders);
+        } else if index == 0 {
             let q = p.c.tower_width;
             for (a, c, portal) in [
                 (0., q, false),
@@ -58,20 +60,7 @@ pub(super) fn bays(
     let len = wall.length();
     let minimum_bay = p.window.width + 2. * p.r.wall_thickness + 0.1;
     if len < minimum_bay {
-        if level == 2 {
-            atlas::face(
-                b,
-                0,
-                [
-                    wall.point(0., 0., 0.),
-                    wall.point(len, 0., 0.),
-                    wall.point(len, p.height, 0.),
-                    wall.point(0., p.height, 0.),
-                ],
-            );
-        } else {
-            windows::solid(b, p, wall, [0., len], [0.; 2], p.height, level, colliders);
-        }
+        solid_wall(b, p, wall, level, colliders);
         return;
     }
     let spacing = p.c.bay_spacing.max(minimum_bay);
@@ -91,6 +80,30 @@ pub(super) fn bays(
     }
 }
 
+pub(super) fn solid_wall(
+    b: &mut Builder,
+    p: &Plan<'_>,
+    wall: Wall,
+    level: u8,
+    colliders: &mut Vec<BoxCollider>,
+) {
+    let len = wall.length();
+    if level == 2 {
+        atlas::face(
+            b,
+            0,
+            [
+                wall.point(0., 0., 0.),
+                wall.point(len, 0., 0.),
+                wall.point(len, p.height, 0.),
+                wall.point(0., p.height, 0.),
+            ],
+        );
+    } else {
+        windows::solid(b, p, wall, [0., len], [0.; 2], p.height, level, colliders);
+    }
+}
+
 fn slabs(
     b: &mut Builder,
     p: &Plan<'_>,
@@ -102,7 +115,10 @@ fn slabs(
     let buried = (r.width + 2. * r.foundation.outset).hypot(r.depth + 2. * r.foundation.outset)
         * 30_f32.to_radians().tan()
         + r.foundation.burial_depth;
-    let floors = p.floors().map(|rect| rect.bounds(-r.floor_thickness, 0.));
+    let floors: Vec<_> = p
+        .floors()
+        .map(|rect| rect.bounds(-r.floor_thickness, 0.))
+        .collect();
     let foundations: Vec<_> = super::foundation_footprints(r)
         .into_iter()
         .map(|mut bounds| {
@@ -120,7 +136,7 @@ fn slabs(
     if level == 0 {
         crate::geometry::slabs::joined_boxes(b, MaterialSlot::Floor, &floors);
         colliders.extend(foundations);
-        colliders.extend(floors);
+        colliders.extend_from_slice(&floors);
         supports.extend(floors);
     }
 }
@@ -130,7 +146,7 @@ fn roofs(b: &mut Builder, p: &Plan<'_>, level: u8) {
     let peak = z + p.r.roof.rise;
     let y0 = p.y - p.t;
     let y1 = p.y + p.t;
-    for (a, c) in [(-p.d, y0), (y1, p.d)] {
+    for (a, c) in [(p.nave_front(), y0), (y1, p.d)] {
         roof(
             b,
             level,
@@ -170,10 +186,10 @@ fn roofs(b: &mut Builder, p: &Plan<'_>, level: u8) {
             }
         }
     }
-    for wall in [
+    for (index, wall) in [
         Wall {
-            a: [-p.n, -p.d],
-            b: [p.n, -p.d],
+            a: [-p.n, p.nave_front()],
+            b: [p.n, p.nave_front()],
         },
         Wall {
             a: [p.n, p.d],
@@ -187,7 +203,14 @@ fn roofs(b: &mut Builder, p: &Plan<'_>, level: u8) {
             a: [-p.w, y1],
             b: [-p.w, y0],
         },
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if p.c.tower_style == ChurchTowerStyle::SingleFront && index == 0 {
+            front_gable_shoulders(b, p, level);
+            continue;
+        }
         let a = wall.point(0., z, 0.);
         let c = wall.point(wall.length(), z, 0.);
         let top = wall.point(wall.length() * 0.5, peak, 0.);
@@ -219,6 +242,48 @@ fn roofs(b: &mut Builder, p: &Plan<'_>, level: u8) {
         }
     }
 }
+fn front_gable_shoulders(b: &mut Builder, p: &Plan<'_>, level: u8) {
+    let z = p.r.wall_height;
+    // The tower's rear wall owns the centre of the south gable.
+    // Keep only the two shoulders so coplanar masonry cannot flicker.
+    let half = p.c.tower_width * 0.5;
+    for side in [-1., 1.] {
+        let tip = [side * p.n, p.nave_front(), z];
+        let base = [side * half, p.nave_front(), z];
+        let top = [
+            side * half,
+            p.nave_front(),
+            nave_ceiling_height(p, half) + CEILING_DROP,
+        ];
+        let points = if side < 0. {
+            [tip, base, top]
+        } else {
+            [base, tip, top]
+        };
+        if level == 2 {
+            atlas::triangle(b, 0, points);
+        } else {
+            b.triangle(
+                MaterialSlot::Wall,
+                points,
+                points.map(|v| [v[0] * 0.5, v[2] * 0.5]),
+            );
+            if level == 0 {
+                let mut inner = points.map(|mut v| {
+                    v[1] += p.r.wall_thickness;
+                    v
+                });
+                inner.swap(1, 2);
+                b.triangle(
+                    MaterialSlot::Interior,
+                    inner,
+                    inner.map(|v| [v[0] * 0.5, v[2] * 0.5]),
+                );
+            }
+        }
+    }
+}
+
 fn roof(b: &mut Builder, level: u8, points: [[f32; 3]; 4]) {
     if level == 2 {
         atlas::face(b, 1, points);

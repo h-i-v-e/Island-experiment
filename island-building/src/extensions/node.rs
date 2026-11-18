@@ -1,9 +1,12 @@
 use super::index::Volumes;
 use super::{
     ExtensionKind, ExtensionRecipe,
-    clip::{self, Volume},
+    clip::{self, Vertex, Volume},
 };
-use crate::{BuildingRecipe, Facade, OpeningKind, OpeningRecipe, RoofKind, collision::BoxCollider};
+use crate::{
+    BuildingLod, BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofKind,
+    collision::BoxCollider,
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct Placement {
@@ -119,6 +122,7 @@ pub(super) struct Node {
     pub foundation: Volume,
     pub wall_volume: Volume,
     pub rooms: Vec<Volume>,
+    pub interior_span: Volume,
     pub floors: Vec<Volume>,
     pub timber_rooms: Vec<Volume>,
     pub below_header: Vec<Volume>,
@@ -155,6 +159,13 @@ impl Node {
             }));
         }
         let rooms = room_bounds.iter().copied().map(Volume::bounds).collect();
+        // Attachment framing must stop at the interior wall even where a
+        // stairwell exposes the space between a ceiling and the floor above.
+        let mut interior_span = room_bounds[0];
+        interior_span.min[2] -= recipe.floor_thickness;
+        interior_span.max[2] = placement.centre[2]
+            + recipe.floor_height(recipe.storeys - 1)
+            + crate::geometry::top_storey_ceiling_top(&recipe);
         // Floorboards occupy the complete footprint, including the wall thickness.
         // Room bounds alone would leave two coincident floors at the connection.
         let floors = (0..recipe.storeys)
@@ -195,43 +206,30 @@ impl Node {
             foundation,
             wall_volume,
             rooms,
+            interior_span: Volume::bounds(interior_span),
             floors,
             timber_rooms,
             below_header,
             room_bounds,
         }
     }
-    pub fn set_surfaces(&mut self, lods: &[crate::BuildingLod; 3], bottom: f32) {
+    pub fn set_surfaces(&mut self, lods: &[BuildingLod; 3], bottom: f32) {
         let bounds = self.placement.transform_box(BoxCollider {
             min: [-self.recipe.width * 0.5, -self.recipe.depth * 0.5, bottom],
             max: [self.recipe.width * 0.5, self.recipe.depth * 0.5, 1000.],
         });
         for (level, lod) in lods.iter().enumerate() {
-            for part in &lod.parts {
-                if !matches!(
-                    part.material,
-                    crate::MaterialSlot::Roof
-                        | crate::MaterialSlot::ThatchEnd
-                        | crate::MaterialSlot::Atlas
-                ) {
-                    continue;
+            let soffits = overhang_soffits(lod, &self.recipe, bounds);
+            for points in roof_faces(lod, &self.recipe) {
+                if let Some(volume) = clip::roof_volume(points, bottom, Some(bounds)) {
+                    self.outer[level].items.push(volume);
                 }
-                for tri in part.mesh.indices.chunks_exact(3) {
-                    let points = [tri[0], tri[1], tri[2]].map(|i| part.mesh.positions[i as usize]);
-                    if points
-                        .iter()
-                        .map(|p| p[2])
-                        .fold(f32::NEG_INFINITY, f32::max)
-                        < self.recipe.eaves_height() * 0.9
-                    {
-                        continue;
-                    }
-                    if let Some(volume) = clip::roof_volume(points, bottom, None) {
-                        self.roof[level].items.push(volume);
-                    }
-                    if let Some(volume) = clip::roof_volume(points, bottom, Some(bounds)) {
-                        self.outer[level].items.push(volume);
-                    }
+                if let Some(upper) = clip::roof_volume(points, bottom, None) {
+                    self.roof[level].items.extend(
+                        soffits
+                            .query(upper.bounds)
+                            .filter_map(|soffit| upper.intersect(soffit)),
+                    );
                 }
             }
             self.roof[level].build();
@@ -246,6 +244,55 @@ impl Node {
             (p[i].abs() - half).abs() < 0.0001 && p[i] * n[i] < -0.1
         })
     }
+}
+
+// Only the roof skin beyond the walls needs an underside limit. Inside, the
+// occupied wall envelope extends all the way down to the foundations.
+fn overhang_soffits(lod: &BuildingLod, recipe: &BuildingRecipe, walls: BoxCollider) -> Volumes {
+    let mut soffits = Volumes::default();
+    soffits.items.extend(
+        roof_faces(lod, recipe)
+            .filter_map(|points| clip::soffit_volume(points, walls.max[2]))
+            .filter(|soffit| {
+                (0..2).any(|i| {
+                    soffit.bounds.min[i] < walls.min[i] || soffit.bounds.max[i] > walls.max[i]
+                })
+            }),
+    );
+    soffits.build();
+    soffits
+}
+
+fn roof_faces<'a>(
+    lod: &'a BuildingLod,
+    recipe: &'a BuildingRecipe,
+) -> impl Iterator<Item = [[f32; 3]; 3]> + 'a {
+    lod.parts
+        .iter()
+        .filter(|part| {
+            matches!(
+                part.material,
+                MaterialSlot::Roof
+                    | MaterialSlot::ThatchEnd
+                    | MaterialSlot::Atlas
+                    | MaterialSlot::Interior
+            )
+        })
+        .flat_map(move |part| {
+            let mesh = &part.mesh;
+            mesh.indices.chunks_exact(3).filter_map(move |tri| {
+                let vertices = [tri[0], tri[1], tri[2]].map(|index| {
+                    let index = index as usize;
+                    Vertex {
+                        point: mesh.positions[index],
+                        normal: mesh.normals[index],
+                        uv: mesh.uvs[index],
+                    }
+                });
+                super::junction::roof_surface(part.material, &vertices, recipe)
+                    .then(|| vertices.map(|v| v.point))
+            })
+        })
 }
 
 pub(super) fn child(

@@ -9,7 +9,6 @@ pub(crate) fn footprints(recipe: &BuildingRecipe) -> Vec<BoxCollider> {
     let plan = Plan::new(recipe);
     let floor_top = -recipe.floor_thickness - 0.002;
     plan.floors()
-        .into_iter()
         .map(|floor| floor.bounds(floor_top, floor_top))
         .chain(plan.buttresses().map(|layout| BoxCollider {
             min: layout.pier.min,

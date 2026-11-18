@@ -153,3 +153,73 @@ fn overlapping_eaves_have_a_closed_visible_underside() {
         }
     }
 }
+
+#[test]
+fn low_attachments_reach_the_wall_without_cutting_the_host_soffit() {
+    for covering in [
+        RoofCovering::Thatch,
+        RoofCovering::Slate,
+        RoofCovering::StandingSeam,
+    ] {
+        for facade in Facade::ALL {
+            for kind in [ExtensionKind::Wing, ExtensionKind::LeanTo] {
+                let mut recipe = house(facade, covering);
+                recipe.storeys = 2;
+                let extension = &mut recipe.extensions[0];
+                extension.kind = kind;
+                extension.roof_rise = 0.75;
+                let prototype = generate(&recipe).unwrap();
+                for (level, lod) in prototype.lods.iter().enumerate() {
+                    for along in [-0.9, 0., 0.9] {
+                        for gap in [0.015, 0.12, 0.23] {
+                            let low = facade.point(&recipe, along, 5., -gap);
+                            assert!(
+                                ray_distance(lod, low, false, true)
+                                    .is_some_and(|distance| distance < 2.5),
+                                "extension roof stops short of wall: {facade:?} {kind:?} {covering:?} LOD{level} at {low:?}"
+                            );
+                            let high = facade.point(&recipe, along, 5., -gap);
+                            assert!(
+                                ray_distance(lod, high, true, false).is_some(),
+                                "missing host soffit above extension: {facade:?} {kind:?} {covering:?} LOD{level} at {high:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn high_thatched_wing_keeps_roof_surface_immediately_below_the_soffit() {
+    let mut recipe = house(Facade::East, RoofCovering::Thatch);
+    recipe.width = 6.;
+    recipe.depth = 8.;
+    recipe.storeys = 2;
+    recipe.wall_height = 2.9;
+    recipe.roof.rise = 3.;
+    recipe.roof.thickness = 0.12;
+    let wing = &mut recipe.extensions[0];
+    wing.width = 4.;
+    wing.depth = 6.;
+    wing.wall_height = 2.9;
+    wing.roof_rise = 3.;
+    let prototype = generate(&recipe).unwrap();
+    for (level, lod) in prototype.lods.iter().enumerate() {
+        let outside = Facade::East.point(&recipe, 0.24, 6.055, -0.5);
+        let reference = ray_distance(lod, outside, false, true).expect("wing below eave level");
+        assert!(
+            reference < 0.07,
+            "sample misses the upper wing slope at LOD{level}"
+        );
+        for gap in [0.05, 0.12, 0.21] {
+            let under_eave = Facade::East.point(&recipe, 0.24, 6.055, -gap);
+            let distance = ray_distance(lod, under_eave, false, true);
+            assert!(
+                distance.is_some_and(|distance| (distance - reference).abs() < 0.015),
+                "wing slope was cut away below the soffit at LOD{level}: {distance:?} vs {reference}"
+            );
+        }
+    }
+}

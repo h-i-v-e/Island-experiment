@@ -732,17 +732,15 @@ fn partition(
             max: [p.offset + r.wall_thickness * 0.5, half, ceiling_top(r)],
         },
     };
-    interior_wall::generate(
-        b,
-        r,
-        bounds,
-        Some(interior_wall::Doorway {
-            centre: p.door_offset,
-            width: p.door_width,
-            height: p.door_height,
-        }),
-        colliders,
-    );
+    let door = Some(interior_wall::Doorway {
+        centre: p.door_offset,
+        width: p.door_width,
+        height: p.door_height,
+    });
+    interior_wall::generate(b, r, bounds, door, colliders);
+    let mut post_bounds = bounds;
+    post_bounds.max[2] = post_bounds.max[2].min(ceiling_height(r));
+    interior_wall::end_posts(b, r, post_bounds, door, [true; 2]);
 }
 fn gable(b: &mut Builder, r: &BuildingRecipe, f: Facade) {
     if r.roof.rise <= 0. {

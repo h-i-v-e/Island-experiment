@@ -153,3 +153,89 @@ fn remaining_walls_join_the_reused_facade_without_a_second_wall_or_lost_glass() 
         );
     }
 }
+
+fn covers_plane_point(
+    prototype: &island_building::BuildingPrototype,
+    slot: MaterialSlot,
+    axis: usize,
+    point: [f32; 3],
+) -> bool {
+    let along = 1 - axis;
+    prototype.lods[0]
+        .parts
+        .iter()
+        .filter(|part| part.material == slot)
+        .any(|part| {
+            let mesh = &part.mesh;
+            mesh.indices.chunks_exact(3).any(|tri| {
+                let points = [tri[0], tri[1], tri[2]].map(|i| mesh.positions[i as usize]);
+                if points
+                    .iter()
+                    .any(|p| (p[axis] - point[axis]).abs() > 0.00001)
+                {
+                    return false;
+                }
+                let [origin, first, second] = points;
+                let area = |end: [f32; 3], other: [f32; 3]| {
+                    (end[along] - origin[along]) * (other[2] - origin[2])
+                        - (end[2] - origin[2]) * (other[along] - origin[along])
+                };
+                let total = area(first, second);
+                if total.abs() < 0.000_001 {
+                    return false;
+                }
+                let u = area(point, second) / total;
+                let v = area(first, point) / total;
+                u >= -0.00001 && v >= -0.00001 && u + v <= 1.00001
+            })
+        })
+}
+
+#[test]
+fn stairwell_returns_share_a_timber_corner_without_overlapping_the_daub() {
+    for axis in [StairAxis::X, StairAxis::Y] {
+        let mut recipe = BuildingRecipe::procedural(12., 12.);
+        recipe.chimney = None;
+        recipe.storeys = 2;
+        recipe.atlas_size = 128;
+        recipe.staircase.axis = axis;
+        recipe.staircase.position = Some([0.; 2]);
+        recipe.walls.style = island_building::WallStyle::WattleAndDaub;
+        let prototype = island_building::generate(&recipe).unwrap();
+        let stairs = prototype.layout.staircase.as_ref().unwrap();
+        let room = stairs.stairwell.as_ref().unwrap();
+        let plan = room.enclosure.unwrap();
+        assert_eq!(plan.shared_sides, [false; 4]);
+        let t = room.wall_thickness;
+        let p = recipe.walls.frame_projection;
+        let origin = stairs.point(0., 0., 0.);
+        let across = usize::from((stairs.point(1., 0., 0.)[1] - origin[1]).abs() > 0.5);
+        for (side, x) in [(-1., plan.min[0]), (1., plan.max[0])] {
+            for (end, y) in [(-1., plan.min[1]), (1., plan.max[1])] {
+                let clash = stairs.point(x + side * t, y + end * t * 0.5, 1.17);
+                assert!(covers_plane_point(
+                    &prototype,
+                    MaterialSlot::Interior,
+                    across,
+                    clash
+                ));
+                assert!(
+                    !covers_plane_point(&prototype, MaterialSlot::Timber, across, clash),
+                    "timber cap is coplanar with the plaster at {clash:?}"
+                );
+                for step in [-1.5, 0.5, 2.] {
+                    let outer = stairs.point(x + side * (t + p), y + end * step * p, 1.17);
+                    assert!(
+                        covers_plane_point(&prototype, MaterialSlot::Timber, across, outer),
+                        "missing outer timber at {outer:?}"
+                    );
+                }
+                let hidden_end = stairs.point(x + side * t * 0.5, y, 1.17);
+                assert!(
+                    !covers_plane_point(&prototype, MaterialSlot::Interior, 1 - across, hidden_end),
+                    "hidden plaster cap at {hidden_end:?}"
+                );
+            }
+        }
+    }
+}

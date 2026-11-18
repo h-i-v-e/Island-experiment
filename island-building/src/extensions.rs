@@ -5,6 +5,7 @@ mod clip;
 mod index;
 mod junction;
 mod node;
+mod posts;
 mod rooms;
 mod validation;
 
