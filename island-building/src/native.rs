@@ -17,6 +17,7 @@ struct TownHandle {
 #[serde(deny_unknown_fields)]
 struct Request {
     recipe: serde_json::Value,
+    village: Option<serde_json::Value>,
     input: TownInput,
 }
 
@@ -27,9 +28,26 @@ fn error(message: &str) {
 }
 
 fn generate(request: &str, base: &Path) -> Result<CString, String> {
-    let mut request: Request = serde_json::from_str(request).map_err(|e| e.to_string())?;
-    if let Some(entries) = request
-        .recipe
+    let request: Request = serde_json::from_str(request).map_err(|e| e.to_string())?;
+    let capital = parse_recipe(request.recipe)?;
+    let output = if let Some(village) = request.village {
+        let village = parse_recipe(village).map_err(|error| format!("village recipe: {error}"))?;
+        crate::town::generate_settlements_with_base(
+            &capital,
+            &village,
+            &request.input,
+            base,
+            &|| false,
+        )
+    } else {
+        crate::town::generate_town_with_base(&capital, &request.input, base, &|| false)
+    }
+    .map_err(|e| e.to_string())?;
+    CString::new(export::encode(&output)?).map_err(|e| e.to_string())
+}
+
+fn parse_recipe(mut recipe: serde_json::Value) -> Result<TownRecipe, String> {
+    if let Some(entries) = recipe
         .get_mut("catalogue")
         .and_then(serde_json::Value::as_array_mut)
     {
@@ -48,10 +66,7 @@ fn generate(request: &str, base: &Path) -> Result<CString, String> {
             }
         }
     }
-    let recipe: TownRecipe = serde_json::from_value(request.recipe).map_err(|e| e.to_string())?;
-    let output = crate::town::generate_town_with_base(&recipe, &request.input, base, &|| false)
-        .map_err(|e| e.to_string())?;
-    CString::new(export::encode(&output)?).map_err(|e| e.to_string())
+    serde_json::from_value(recipe).map_err(|e| e.to_string())
 }
 
 #[unsafe(no_mangle)]
@@ -164,7 +179,12 @@ mod tests {
         assert_eq!(exported["schema_version"], 2);
         assert_eq!(exported["roads_json"], "");
         assert_eq!(exported["road_count"], 0);
+        assert_eq!(exported["road_exits"], serde_json::json!([]));
         assert_eq!(exported["instances"].as_array().unwrap().len(), 1);
+        assert_eq!(exported["instances"][0]["entry_id"], "hut");
+        assert_eq!(exported["instances"][0]["settlement_index"], 0);
+        assert_eq!(exported["settlements"][0]["kind"], "capital");
+        assert_eq!(exported["settlements"][0]["mouth"], exported["mouth"]);
         let supports = &exported["supports"];
         assert_eq!(
             supports["positions"].as_array().unwrap().len(),
@@ -195,8 +215,50 @@ mod tests {
         let areas: Vec<crate::town::ClearanceRect> =
             serde_json::from_str(exported["clearance_json"].as_str().unwrap()).unwrap();
         assert!(!areas.is_empty());
+        let blockers: Vec<crate::town::ClearanceRect> =
+            serde::Deserialize::deserialize(&exported["routing_blockers"]).unwrap();
+        assert_eq!(blockers, areas);
         unsafe {
             DestroyMotuTown(town);
         }
+    }
+
+    #[test]
+    fn native_village_request_returns_all_sites_and_emits_empty_arrays() {
+        let mut building = crate::BuildingRecipe::hut();
+        building.atlas_size = 128;
+        let mut request = serde_json::json!({
+            "recipe": {"schema_version":1, "catalogue":[]},
+            "village": {"schema_version":1, "catalogue":[{
+                "id":"cottage", "building_json":serde_json::to_string(&building).unwrap(),
+                "min_count":1, "max_count":1, "placement":"centre"
+            }], "settings":{"min_dry_height": 5}},
+            "input":{"tile_seed":33,"sea_level":0,"terrain":{
+                "origin":[0,0],"spacing":10,"width":5,"height":3,
+                "heights":[-2,-2,-2,-2,-2,4,4,4,4,4,4,4,4,4,4]
+            }, "rivers":[{"points":[[30,20],[30,0]]},{"points":[[10,20],[10,0]]}]}
+        });
+        let package = |request: &serde_json::Value| -> serde_json::Value {
+            let json = generate(&request.to_string(), Path::new(".")).unwrap();
+            serde_json::from_slice(json.as_bytes()).unwrap()
+        };
+        let output = package(&request);
+        let sites = output["settlements"].as_array().unwrap();
+        assert_eq!(sites.len(), 2);
+        assert_eq!(sites[0]["kind"], "capital");
+        assert_eq!(
+            sites[0]["river_index"], 1,
+            "a midpoint tie uses the lower X outlet"
+        );
+        assert_eq!(sites[0]["mouth"], output["mouth"]);
+        assert_eq!(sites[0]["centre"], serde_json::json!([]));
+        assert_eq!(sites[1]["kind"], "village");
+        assert_eq!(sites[1]["building_count"], 0);
+        assert_eq!(sites[1]["skipped_count"], 1);
+        assert_eq!(sites[1]["centre"], serde_json::json!([]));
+        request["input"]["rivers"] = serde_json::json!([]);
+        let dry = package(&request);
+        assert_eq!(dry["settlements"], serde_json::json!([]));
+        assert_eq!(dry["mouth"], serde_json::json!([]));
     }
 }

@@ -1,11 +1,13 @@
 //! Deterministic, terrain-aware coastal settlements in native Z-up coordinates.
 //!
-//! Inputs are borrowed throughout placement. Every catalogue entry owns at most one
-//! generated shell, shared by all its instances; fitted supports are combined once.
+//! Inputs are borrowed throughout placement. Settlements share generated shells
+//! for equal building recipes; terrain-fitted supports stay with each instance.
 mod input;
 mod placement;
+mod prototypes;
 mod rivers;
 mod roads;
+mod settlements;
 
 pub use input::*;
 
@@ -22,6 +24,10 @@ pub struct TownPrototype {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TownInstance {
     pub prototype_index: usize,
+    #[serde(default)]
+    pub entry_id: String,
+    #[serde(default)]
+    pub settlement_index: usize,
     /// World floor origin, native Z-up metres.
     pub position: [f32; 3],
     /// Radians about native +Z.
@@ -43,6 +49,17 @@ pub struct BridgeCandidate {
     pub from: [f32; 3],
     pub to: [f32; 3],
     pub width: f32,
+}
+
+/// Outward cart-track attachment on a graded street end or the outer ring curb.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TownRoadExit {
+    pub settlement_index: usize,
+    /// Point on the paved surface, native Z-up metres.
+    pub position: [f32; 3],
+    /// Unit vector pointing out of the settlement in native XY.
+    pub direction: [f32; 2],
+    pub half_width: f32,
 }
 
 /// Horizontal rectangle for removal of trees, rocks and other terrain decorations.
@@ -77,11 +94,29 @@ impl ClearanceRect {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TownMouth {
-    /// The source branch of the longest head-to-sea route. Shared tails count once.
+    /// The terminal line for a distinct outlet, or the source of the longest
+    /// head-to-sea route in legacy single-town mode.
     pub river_index: usize,
     pub position: [f32; 2],
     pub upstream: [f32; 2],
     pub river_length: f32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TownSettlementKind {
+    Capital,
+    Village,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TownSettlement {
+    pub kind: TownSettlementKind,
+    pub river_index: usize,
+    pub mouth: [f32; 2],
+    pub centre: Option<[f32; 2]>,
+    pub building_count: usize,
+    pub skipped_count: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -89,6 +124,8 @@ pub struct TownOutput {
     pub tile_seed: u64,
     pub mouth: Option<TownMouth>,
     pub centre: Option<[f32; 2]>,
+    #[serde(default)]
+    pub settlements: Vec<TownSettlement>,
     pub prototypes: Vec<TownPrototype>,
     pub instances: Vec<TownInstance>,
     /// Combined world-space, Z-up mesh, all using the shared foundation material.
@@ -99,8 +136,13 @@ pub struct TownOutput {
     pub support_colliders: Vec<BoxCollider>,
     pub stair_colliders: Vec<BoxCollider>,
     pub clearance: Vec<ClearanceRect>,
+    /// Accepted building, support and entrance reservations for cart-track routing.
+    #[serde(default)]
+    pub routing_blockers: Vec<ClearanceRect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roads: Option<motu::roads::RoadNetwork>,
+    #[serde(default)]
+    pub road_exits: Vec<TownRoadExit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bridge_candidates: Vec<BridgeCandidate>,
     /// Requested copies can be skipped when no safe placement exists.
@@ -141,15 +183,25 @@ pub fn generate_town_with_base(
     base: &Path,
     cancelled: &impl Fn() -> bool,
 ) -> Result<TownOutput, TownError> {
-    input::validate(recipe, input)?;
-    if cancelled() {
-        return Err(TownError::Cancelled);
-    }
-    let Some(mouth) = rivers::longest_mouth(input) else {
-        return Ok(TownOutput {
-            tile_seed: input.tile_seed,
-            ..TownOutput::default()
-        });
-    };
-    placement::generate(recipe, input, mouth, base, cancelled)
+    settlements::generate(recipe, None, input, base, cancelled)
+}
+
+/// Plan a capital at the middlemost distinct sea outlet and a village at every other outlet.
+pub fn generate_settlements(
+    capital: &TownRecipe,
+    village: &TownRecipe,
+    input: &TownInput,
+) -> Result<TownOutput, TownError> {
+    generate_settlements_with_base(capital, village, input, Path::new("."), &|| false)
+}
+
+/// Resolve both catalogues using the same material base and cancellation callback.
+pub fn generate_settlements_with_base(
+    capital: &TownRecipe,
+    village: &TownRecipe,
+    input: &TownInput,
+    base: &Path,
+    cancelled: &impl Fn() -> bool,
+) -> Result<TownOutput, TownError> {
+    settlements::generate(capital, Some(village), input, base, cancelled)
 }

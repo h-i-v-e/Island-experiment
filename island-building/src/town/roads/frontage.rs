@@ -10,10 +10,14 @@ use motu::{
     Vec2,
     roads::{RoadNetwork, RoadStrip},
 };
+use std::collections::VecDeque;
 
 const EDGE_INSET: f32 = 0.02;
 pub(in crate::town) const PAVED_TREAD_OVERLAP: f32 = 0.15;
 const TOE_PAST_EDGE: f32 = PAVED_TREAD_OVERLAP - EDGE_INSET;
+const FRONTAGE_STEP: f32 = 0.4;
+// The NavMesh allows 45° slopes, or one metre of rise per metre of run.
+const MAX_WALKABLE_GRADIENT: f32 = 1.0;
 
 pub(in crate::town) struct Access {
     pub frontage: TownFrontage,
@@ -26,6 +30,46 @@ pub(in crate::town) struct Lot {
     pub yaw: f32,
     pub street_edge: Vec2,
     pub road_steps: Option<u16>,
+}
+
+#[derive(Default)]
+pub(in crate::town) struct Lots {
+    blocks: Vec<VecDeque<Lot>>,
+    cursor: usize,
+}
+
+impl Lots {
+    pub fn start_at(&mut self, seed: u64) {
+        self.blocks.retain(|block| !block.is_empty());
+        if !self.blocks.is_empty() {
+            let index = seed % self.blocks.len() as u64;
+            self.cursor = usize::try_from(index).expect("block index fits usize");
+        }
+    }
+}
+
+impl Iterator for Lots {
+    type Item = Lot;
+
+    fn next(&mut self) -> Option<Lot> {
+        for _ in 0..self.blocks.len() {
+            let block = &mut self.blocks[self.cursor];
+            let lot = block.pop_front();
+            // Test each setback at the current station before advancing. On
+            // the next circuit, slide within each block to recover tight gaps.
+            if lot.is_none_or(|lot| {
+                block
+                    .front()
+                    .is_none_or(|next| next.street_edge != lot.street_edge)
+            }) {
+                self.cursor = (self.cursor + 1) % self.blocks.len();
+            }
+            if lot.is_some() {
+                return lot;
+            }
+        }
+        None
+    }
 }
 
 pub(in crate::town) fn entrance(building: &BuildingRecipe) -> Option<&OpeningRecipe> {
@@ -47,7 +91,11 @@ pub(in crate::town) struct Row {
 }
 
 /// Join adjacent straight strips so one footprint can span several grading sections.
-pub(in crate::town) fn rows(roads: &RoadNetwork) -> Vec<Row> {
+pub(in crate::town) fn rows(
+    roads: &RoadNetwork,
+    ring_count: usize,
+    ring_index: &impl Fn(&RoadStrip) -> usize,
+) -> Vec<Vec<Row>> {
     use std::collections::HashMap;
     let mut adjacent = HashMap::<usize, Vec<usize>>::new();
     for (index, strip) in roads.strips.iter().enumerate() {
@@ -55,12 +103,13 @@ pub(in crate::town) fn rows(roads: &RoadNetwork) -> Vec<Row> {
         adjacent.entry(strip.end).or_default().push(index);
     }
     let mut used = vec![false; roads.strips.len()];
-    let mut rows = Vec::new();
+    let mut rows = vec![Vec::new(); ring_count];
     for (index, strip) in roads.strips.iter().enumerate() {
         if std::mem::replace(&mut used[index], true) {
             continue;
         }
         let (start, end) = strip_ends(strip);
+        let ring = ring_index(strip);
         let direction = (end - start).normalize();
         let mut row = Row {
             start,
@@ -81,6 +130,7 @@ pub(in crate::town) fn rows(roads: &RoadNetwork) -> Vec<Row> {
                     (b, a, next_strip.start)
                 };
                 if used[next]
+                    || ring_index(next_strip) != ring
                     || (next_strip.half_width - row.half_width).abs() > 0.001
                     || near.distance(*point) > 0.004
                     || (far - near).normalize().dot(outward) < 0.9999
@@ -92,21 +142,21 @@ pub(in crate::town) fn rows(roads: &RoadNetwork) -> Vec<Row> {
                 node = far_node;
             }
         }
-        rows.push(row);
+        rows[ring].push(row);
     }
     rows
 }
 
-/// Sweep frontage from one end, leaving the end of the row for narrower recipes.
+/// Divide both sides of a street into footprint-wide blocks with setback alternatives.
 pub(in crate::town) fn lots(
     rows: &[Row],
     building: &BuildingRecipe,
     door: &OpeningRecipe,
     footprint: BoxCollider,
     settings: &TownSettings,
-) -> Vec<Lot> {
+) -> Lots {
     let Some(config) = settings.roads else {
-        return Vec::new();
+        return Lots::default();
     };
     let local_door = Vec2::from_slice(&door.facade.point(building, door.offset, 0., 0.)[..2]);
     let normal = Vec2::from_slice(&door.facade.normal()[..2]);
@@ -136,9 +186,17 @@ pub(in crate::town) fn lots(
                 .filter(|(distance, _)| (min_setback..=max_setback).contains(distance)),
         )
         .collect();
-    let mut lots = Vec::new();
+    let mut lots = Lots::default();
     for row in rows {
-        row_lots(*row, local_door, normal, footprint, &offsets, &mut lots);
+        row_lots(
+            *row,
+            local_door,
+            normal,
+            footprint,
+            settings.building_gap,
+            &offsets,
+            &mut lots.blocks,
+        );
     }
     lots
 }
@@ -148,8 +206,9 @@ fn row_lots(
     door: Vec2,
     normal: Vec2,
     footprint: BoxCollider,
+    gap: f32,
     offsets: &[(f32, Option<u16>)],
-    lots: &mut Vec<Lot>,
+    blocks: &mut Vec<VecDeque<Lot>>,
 ) {
     let tangent = (row.end - row.start).normalize();
     let length = row.start.distance(row.end);
@@ -159,17 +218,24 @@ fn row_lots(
         let rotation = Vec2::from_angle(yaw);
         let along_local = Vec2::from_angle(-yaw).rotate(tangent);
         let [lo, hi] = along_bounds(footprint, door, along_local);
-        let mut along = (0.25 - lo).max(0.05);
+        let pitch = hi - lo + gap;
+        let mut start = (0.25 - lo).max(0.05);
         let last = (length - hi - 0.25).min(length - 0.05);
-        while along <= last + 0.001 {
-            let edge = row.start + tangent * along + outward * (row.half_width - EDGE_INSET);
-            lots.extend(offsets.iter().map(|&(setback, road_steps)| Lot {
-                position: (edge + outward * setback - rotation.rotate(door)).to_array(),
-                yaw,
-                street_edge: edge,
-                road_steps,
-            }));
-            along += 0.4;
+        while start <= last + 0.001 {
+            let mut candidates = VecDeque::new();
+            let mut along = start;
+            while along < start + pitch - 0.001 && along <= last + 0.001 {
+                let edge = row.start + tangent * along + outward * (row.half_width - EDGE_INSET);
+                candidates.extend(offsets.iter().map(|&(setback, road_steps)| Lot {
+                    position: (edge + outward * setback - rotation.rotate(door)).to_array(),
+                    yaw,
+                    street_edge: edge,
+                    road_steps,
+                }));
+                along += FRONTAGE_STEP;
+            }
+            blocks.push(candidates);
+            start += pitch;
         }
     }
 }
@@ -212,13 +278,13 @@ pub(in crate::town) fn stair_access(
     lot: Lot,
     input: &TownInput,
     settings: &TownSettings,
-    occupied: &[ClearanceRect],
+    blocked: &impl Fn(&ClearanceRect) -> bool,
 ) -> Option<Access> {
     let facing = door_facing(door, lot.yaw);
     let height = roads.surface_height(lot.street_edge)?;
     let landing = lot.street_edge + facing * (TOE_PAST_EDGE + 0.35);
     let access = corridor(lot.street_edge, landing, door.width * 0.5 + 0.15, 0.05);
-    available(&access, input, settings, occupied).then(|| Access {
+    available(&access, input, settings, blocked).then(|| Access {
         frontage: TownFrontage {
             door_id: door.id.clone(),
             street_edge: [lot.street_edge.x, lot.street_edge.y, height],
@@ -240,7 +306,7 @@ pub(in crate::town) fn central_approach(
     pose: PlacementPose,
     input: &TownInput,
     settings: &TownSettings,
-    occupied: &[ClearanceRect],
+    blocked: &impl Fn(&ClearanceRect) -> bool,
 ) -> Option<(usize, Access)> {
     let limit = settings.roads?.max_frontage_distance + 12.;
     let mut best = None;
@@ -263,7 +329,7 @@ pub(in crate::town) fn central_approach(
                     target,
                     input,
                     settings,
-                    occupied,
+                    blocked,
                     limit,
                 ) {
                     if alignment > 0.999 {
@@ -309,7 +375,7 @@ pub(in crate::town) fn approach(
     target: Vec2,
     input: &TownInput,
     settings: &TownSettings,
-    occupied: &[ClearanceRect],
+    blocked: &impl Fn(&ClearanceRect) -> bool,
     max_distance: f32,
 ) -> Option<Access> {
     let door_world = world_door(building, door, pose);
@@ -326,7 +392,7 @@ pub(in crate::town) fn approach(
     }
     let half_width = (door.width * 0.5).clamp(0.45, 0.75);
     let access = corridor(toe, target, half_width, 0.05);
-    if !available(&access, input, settings, occupied)
+    if !available(&access, input, settings, blocked)
         || !walkable(
             roads,
             input,
@@ -353,13 +419,11 @@ fn available(
     access: &ClearanceRect,
     input: &TownInput,
     settings: &TownSettings,
-    occupied: &[ClearanceRect],
+    blocked: &impl Fn(&ClearanceRect) -> bool,
 ) -> bool {
     !placement::touches_river(access, input, settings.river_margin)
         && !placement::protected(access, input)
-        && !occupied
-            .iter()
-            .any(|block| placement::overlaps(block, access, 0.))
+        && !blocked(access)
 }
 
 fn world_door(building: &BuildingRecipe, door: &OpeningRecipe, pose: PlacementPose) -> Vec2 {
@@ -412,35 +476,136 @@ fn walkable(
     let samples = (length / settings.sample_spacing.min(0.2)).ceil() as u16;
     let step = length / f32::from(samples);
     let sideways = (target - toe).normalize().perp() * half_width;
-    let max_gradient = settings.max_slope_degrees.to_radians().tan().min(0.33);
-    let mut previous = [step_height; 3];
+    let mut previous = None;
     for index in 0..=samples {
         let centre = toe.lerp(target, f32::from(index) / f32::from(samples));
-        let tolerance = if index == 0 {
-            0.23
-        } else {
-            max_gradient * step + 0.015
+        let [Some(left), Some(middle), Some(right)] =
+            [-sideways, Vec2::ZERO, sideways].map(|offset| {
+                let point = centre + offset;
+                let natural = input.terrain.sample(point.x, point.y)?;
+                Some(roads.graded_height(point, natural))
+            })
+        else {
+            return false;
         };
-        for (track, offset) in [-sideways, Vec2::ZERO, sideways].into_iter().enumerate() {
-            let point = centre + offset;
-            let Some(natural) = input.terrain.sample(point.x, point.y) else {
-                return false;
-            };
-            let height = roads.graded_height(point, natural);
-            if height <= input.sea_level + settings.min_dry_height
-                || (height - previous[track]).abs() > tolerance
-            {
-                return false;
-            }
-            if index == samples && track == 1 && (height - street_height).abs() > 0.05 {
-                return false;
-            }
-            if track > 0 && (height - previous[track - 1]).abs() > max_gradient * half_width + 0.02
-            {
-                return false;
-            }
-            previous[track] = height;
+        let row = [left, middle, right];
+        if row
+            .iter()
+            .any(|height| *height <= input.sea_level + settings.min_dry_height)
+            || (index == samples && (middle - street_height).abs() > 0.05)
+        {
+            return false;
         }
+        if let Some(prior) = previous {
+            if !walkable_strip(prior, row, step, half_width) {
+                return false;
+            }
+        } else if row
+            .iter()
+            .any(|height| (*height - step_height).abs() > 0.23)
+        {
+            return false;
+        }
+        previous = Some(row);
     }
     true
+}
+
+fn walkable_strip(prior: [f32; 3], row: [f32; 3], step: f32, half_width: f32) -> bool {
+    // Use both triangles of each sampled quad to check the full slope.
+    // The tolerance covers interpolation and floating-point rounding at 45°.
+    let limit = MAX_WALKABLE_GRADIENT + 0.001;
+    (0..2).all(|side| {
+        let forward_left = (row[side] - prior[side]) / step;
+        let forward_right = (row[side + 1] - prior[side + 1]) / step;
+        let across_near = (prior[side + 1] - prior[side]) / half_width;
+        let across_far = (row[side + 1] - row[side]) / half_width;
+        forward_left.hypot(across_far) <= limit && forward_right.hypot(across_near) <= limit
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn door_approach_uses_the_navmesh_slope_limit() {
+        use crate::town::HeightGrid;
+
+        let settings = TownSettings {
+            max_slope_degrees: 14.,
+            ..TownSettings::default()
+        };
+        let roads = RoadNetwork::default();
+        for (along, across, expected) in [
+            (0.7, 0., true),
+            (1., 0., true),
+            (1.04, 0., false),
+            (0.7, 0.7, true),
+            (0.8, 0.8, false),
+        ] {
+            let heights = (0_u16..3).flat_map(|y| {
+                (0_u16..4).map(move |x| 3. + f32::from(x) * along + (f32::from(y) - 1.) * across)
+            });
+            let input = TownInput {
+                tile_seed: 0,
+                sea_level: 0.,
+                terrain: HeightGrid {
+                    origin: [0., -1.],
+                    spacing: 1.,
+                    width: 4,
+                    height: 3,
+                    heights: heights.collect(),
+                },
+                rivers: vec![],
+                protected_terrain: vec![],
+            };
+            assert_eq!(
+                walkable(
+                    &roads,
+                    &input,
+                    &settings,
+                    Vec2::ZERO,
+                    Vec2::new(3., 0.),
+                    3.,
+                    3. + 3. * along,
+                    0.25,
+                ),
+                expected,
+                "along={along}, across={across}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // Candidate positions are copied directly from the blocks.
+    fn seeded_frontage_search_wraps_before_trying_offset_positions() {
+        let lot = |along, setback| Lot {
+            position: [along, setback],
+            yaw: 0.,
+            street_edge: Vec2::new(along, 0.),
+            road_steps: None,
+        };
+        let mut candidates = Lots {
+            blocks: vec![
+                [lot(0., 1.), lot(0.4, 1.)].into(),
+                [lot(6., 1.), lot(6., 2.), lot(6.4, 1.)].into(),
+                [lot(12., 1.)].into(),
+            ],
+            ..Lots::default()
+        };
+        candidates.start_at(1);
+        let positions: Vec<_> = candidates.map(|lot| lot.position).collect();
+        assert_eq!(
+            positions,
+            [
+                [6., 1.],
+                [6., 2.],
+                [12., 1.],
+                [0., 1.],
+                [6.4, 1.],
+                [0.4, 1.]
+            ]
+        );
+    }
 }

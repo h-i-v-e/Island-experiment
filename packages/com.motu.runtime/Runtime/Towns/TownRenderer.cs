@@ -11,59 +11,135 @@ namespace Motu.Towns
     public sealed class TownRenderer : MonoBehaviour
     {
         private readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
+        private readonly List<TownBuildingLod> buildingLods = new List<TownBuildingLod>();
         private MeshRenderer roads;
         private TownBridgeCandidate[] bridgeCandidates = Array.Empty<TownBridgeCandidate>();
+        private TownCartTrackBridge[] cartTrackBridges = Array.Empty<TownCartTrackBridge>();
         private const float NativeWorldSizeMetres = 2000f;
         internal GameObject[] SharedPrototypes { get; private set; } = Array.Empty<GameObject>();
+        internal IReadOnlyList<TownBuildingLod> BuildingLods => buildingLods;
+        /// <summary>Capital and villages with at least one placed building.</summary>
+        public int SettlementCount { get; private set; }
         public int BuildingCount { get; private set; }
         public int RoadCount { get; private set; }
         public int RoadFrontageCount { get; private set; }
         public int BridgeCandidateCount => bridgeCandidates.Length;
+        public int CartTrackRunCount { get; private set; }
+        public int CartTrackLinkCount { get; private set; }
+        public int CartTrackBridgeCandidateCount => cartTrackBridges.Length;
         public Vector3 MouthLocalPosition { get; private set; }
         public Vector3 InspectionLocalPosition { get; private set; }
 
         internal static TownRenderer Install(Transform parent, TownPreparedData data, float worldSize,
             bool includeUnplacedPrototypes = false, Material roadMaterial = null,
-            TerrainMaterialTextureArrays terrainTextures = null)
+            TerrainMaterialTextureArrays terrainTextures = null, bool roadsOnTerrain = false,
+            bool useBuildingLodBudget = false)
         {
             if (data == null || (!includeUnplacedPrototypes && (data.instances?.Length ?? 0) == 0
-                && (data.road_mesh?.indices?.Length ?? 0) == 0 && (data.bridge_candidates?.Length ?? 0) == 0)) return null;
-            var root = new GameObject("River-mouth town");
+                && (data.settlements?.Length ?? 0) == 0
+                && (data.road_mesh?.indices?.Length ?? 0) == 0 && (data.bridge_candidates?.Length ?? 0) == 0
+                && (data.cartTracks?.run_count ?? 0) == 0)) return null;
+            var root = new GameObject((data.settlements?.Length ?? 0) > 0 ? "River-mouth settlements" : "River-mouth town");
             root.transform.SetParent(parent, false);
             root.transform.localScale = Vector3.one * (worldSize / NativeWorldSizeMetres);
             var renderer = root.AddComponent<TownRenderer>();
-            try { renderer.Build(data, roadMaterial, terrainTextures); return renderer; }
+            try { renderer.Build(data, roadMaterial, terrainTextures, roadsOnTerrain, useBuildingLodBudget); return renderer; }
             catch { DestroyUnityObject(root); throw; }
         }
 
-        private void Build(TownPreparedData data, Material roadMaterial, TerrainMaterialTextureArrays terrainTextures)
+        private void Build(TownPreparedData data, Material roadMaterial, TerrainMaterialTextureArrays terrainTextures,
+            bool roadsOnTerrain, bool useBuildingLodBudget)
         {
-            const float worldSize = NativeWorldSizeMetres;
             var templatesRoot = new GameObject("Shared building prototypes");
             templatesRoot.transform.SetParent(transform, false);
             templatesRoot.SetActive(false);
-            var prototypes = new GameObject[data.prototypes.Length];
-            SharedPrototypes = prototypes;
-            var instances = data.instances ?? Array.Empty<TownInstance>();
-            InspectionLocalPosition = instances.Length > 0 ? Position(instances[0].position, worldSize) : Vector3.zero;
-            for (var index = 0; index < prototypes.Length; index++)
-                prototypes[index] = BuildPrototype(templatesRoot.transform, data.prototypes[index]);
-            foreach (var instance in instances)
+            var settlements = data.settlements ?? Array.Empty<TownSettlement>();
+            var capitalIndex = Array.FindIndex(settlements, settlement => settlement.kind == "capital");
+            MouthLocalPosition = GroundPosition(data.mouth, Vector3.zero);
+            InspectionLocalPosition = capitalIndex >= 0
+                ? GroundPosition(settlements[capitalIndex].centre, MouthLocalPosition)
+                : MouthLocalPosition;
+            BuildBuildings(data, templatesRoot.transform, BuildSettlementRoots(settlements), capitalIndex, useBuildingLodBudget);
+            if (settlements.Length == 0 && BuildingCount > 0) SettlementCount = 1;
+            BuildSupports(data);
+            RoadCount = data.road_count;
+            bridgeCandidates = data.bridge_candidates ?? Array.Empty<TownBridgeCandidate>();
+            CartTrackRunCount = data.cartTracks?.run_count ?? 0;
+            CartTrackLinkCount = data.cartTracks?.links?.Length ?? 0;
+            cartTrackBridges = data.cartTracks?.bridges ?? Array.Empty<TownCartTrackBridge>();
+            if (!roadsOnTerrain && data.road_mesh?.indices?.Length > 0)
             {
-                if (instance.prototype_index < 0 || instance.prototype_index >= prototypes.Length)
+                BuildRoads(data.road_mesh, roadMaterial, terrainTextures);
+                if (settlements.Length == 0 && BuildingCount == 0)
+                    InspectionLocalPosition = roads.localBounds.center + roads.transform.localPosition;
+            }
+        }
+
+        private Transform[] BuildSettlementRoots(TownSettlement[] settlements)
+        {
+            var roots = new Transform[settlements.Length];
+            for (var index = 0; index < roots.Length; index++)
+            {
+                var settlement = settlements[index];
+                var label = settlement.kind == "capital" ? "Capital" : "Village";
+                var root = new GameObject($"{label} (river {settlement.river_index})");
+                root.transform.SetParent(transform, false);
+                root.transform.localPosition = GroundPosition(settlement.centre, GroundPosition(settlement.mouth, Vector3.zero));
+                roots[index] = root.transform;
+                if (settlement.building_count > 0) SettlementCount++;
+            }
+            return roots;
+        }
+
+        private void BuildBuildings(TownPreparedData data, Transform templatesRoot, Transform[] settlementRoots,
+            int capitalIndex, bool useBuildingLodBudget)
+        {
+            var prototypes = new GameObject[data.prototypes.Length];
+            var prototypeBounds = new Bounds[prototypes.Length];
+            SharedPrototypes = prototypes;
+            for (var index = 0; index < prototypes.Length; index++)
+                prototypes[index] = BuildPrototype(templatesRoot, data.prototypes[index], out prototypeBounds[index]);
+            var grouped = settlementRoots.Length > 0;
+            var sawInspectionBuilding = false;
+            var sawInspectionFrontage = false;
+            foreach (var instance in data.instances ?? Array.Empty<TownInstance>())
+            {
+                if ((uint)instance.prototype_index >= (uint)prototypes.Length)
                     throw new InvalidOperationException("The native town refers to an invalid building prototype.");
-                var building = Instantiate(prototypes[instance.prototype_index], transform, false);
-                building.name = data.prototypes[instance.prototype_index].entry_id;
-                building.transform.localPosition = Position(instance.position, worldSize);
+                if (grouped && (uint)instance.settlement_index >= (uint)settlementRoots.Length)
+                    throw new InvalidOperationException("The native building refers to an invalid coastal settlement.");
+                var parent = grouped ? settlementRoots[instance.settlement_index] : transform;
+                var building = Instantiate(prototypes[instance.prototype_index], parent, false);
+                building.name = string.IsNullOrEmpty(instance.entry_id)
+                    ? data.prototypes[instance.prototype_index].entry_id : instance.entry_id;
+                var position = Position(instance.position, NativeWorldSizeMetres);
+                building.transform.localPosition = grouped ? position - parent.localPosition : position;
                 building.transform.localRotation = Quaternion.Euler(0f, -instance.yaw_radians * Mathf.Rad2Deg, 0f);
                 building.SetActive(true);
+                if (useBuildingLodBudget)
+                    buildingLods.Add(new TownBuildingLod(building.GetComponent<LODGroup>(), prototypeBounds[instance.prototype_index]));
                 BuildingCount++;
+
+                var inspect = !grouped || instance.settlement_index == capitalIndex;
+                if (inspect && !sawInspectionBuilding)
+                {
+                    InspectionLocalPosition = position;
+                    sawInspectionBuilding = true;
+                }
                 if (instance.frontage?.street_edge?.Length == 3)
                 {
-                    if (RoadFrontageCount == 0) InspectionLocalPosition = Position(instance.frontage.street_edge, worldSize);
                     RoadFrontageCount++;
+                    if (inspect && !sawInspectionFrontage)
+                    {
+                        InspectionLocalPosition = Position(instance.frontage.street_edge, NativeWorldSizeMetres);
+                        sawInspectionFrontage = true;
+                    }
                 }
             }
+        }
+
+        private void BuildSupports(TownPreparedData data)
+        {
             if (data.supports?.indices != null && data.supports.indices.Length > 0)
             {
                 var mesh = CreateMesh(data.supports, "Combined terrain-fitted foundations and stairs");
@@ -77,17 +153,14 @@ namespace Motu.Towns
                     supportMaterial.SetFloat("_UseGrubCoordinates", 1f);
                 }
                 var support = AddMesh(transform, mesh, supportMaterial, mesh.name);
-                support.transform.localPosition = new Vector3(-worldSize * 0.5f, 0f, -worldSize * 0.5f);
+                support.transform.localPosition = new Vector3(-NativeWorldSizeMetres * 0.5f, 0f, -NativeWorldSizeMetres * 0.5f);
                 support.AddComponent<MeshCollider>().sharedMesh = mesh;
             }
-            if (data.mouth != null && data.mouth.Length >= 2)
-                MouthLocalPosition = new Vector3(data.mouth[0] - worldSize * 0.5f, 0f, data.mouth[1] - worldSize * 0.5f);
-            RoadCount = data.road_count;
-            bridgeCandidates = data.bridge_candidates ?? Array.Empty<TownBridgeCandidate>();
-            if (data.road_mesh?.indices?.Length > 0)
-                BuildRoads(data.road_mesh, roadMaterial, terrainTextures);
-            else if (instances.Length == 0) InspectionLocalPosition = MouthLocalPosition;
         }
+
+        private static Vector3 GroundPosition(float[] position, Vector3 fallback) => position?.Length == 2
+            ? new Vector3(position[0] - NativeWorldSizeMetres * 0.5f, 0f, position[1] - NativeWorldSizeMetres * 0.5f)
+            : fallback;
 
         private void BuildRoads(TownMesh data, Material material, TerrainMaterialTextureArrays terrainTextures)
         {
@@ -105,7 +178,6 @@ namespace Motu.Towns
             root.transform.localPosition = new Vector3(-NativeWorldSizeMetres * 0.5f, 0.04f, -NativeWorldSizeMetres * 0.5f);
             roads = root.GetComponent<MeshRenderer>();
             roads.shadowCastingMode = ShadowCastingMode.Off;
-            if (BuildingCount == 0) InspectionLocalPosition = mesh.bounds.center + root.transform.localPosition;
         }
 
         internal void SetRoadVisibility(bool visible)
@@ -126,7 +198,20 @@ namespace Motu.Towns
             return true;
         }
 
-        private GameObject BuildPrototype(Transform parent, TownPrototype source)
+        public bool TryGetCartTrackBridgeCandidate(int index, out Vector3 from, out Vector3 to, out string kind)
+        {
+            from = to = default;
+            kind = null;
+            if ((uint)index >= (uint)cartTrackBridges.Length) return false;
+            var candidate = cartTrackBridges[index];
+            if (candidate?.start?.Length != 3 || candidate.end?.Length != 3) return false;
+            from = transform.TransformPoint(Position(candidate.start, NativeWorldSizeMetres));
+            to = transform.TransformPoint(Position(candidate.end, NativeWorldSizeMetres));
+            kind = candidate.kind;
+            return true;
+        }
+
+        private GameObject BuildPrototype(Transform parent, TownPrototype source, out Bounds shellBounds)
         {
             var root = new GameObject(source.entry_id + " [" + source.hash + "]");
             root.transform.SetParent(parent, false);
@@ -146,26 +231,31 @@ namespace Motu.Towns
                 return atlas;
             }
             var lods = new LOD[source.lods.Length];
+            shellBounds = default;
             for (var level = 0; level < source.lods.Length; level++)
             {
                 var renderers = new List<Renderer>();
                 foreach (var part in source.lods[level].parts)
                 {
                     var mesh = CreateMesh(part.mesh, source.entry_id + " LOD" + level + " " + part.material);
+                    if (level == lods.Length - 1)
+                    {
+                        if (renderers.Count == 0) shellBounds = mesh.bounds;
+                        else shellBounds.Encapsulate(mesh.bounds);
+                    }
                     renderers.Add(AddMesh(root.transform, mesh, Resolve(part.material), mesh.name).GetComponent<Renderer>());
                 }
-                lods[level] = new LOD(level == 0 ? 0.3f : level == 1 ? 0.08f : 0.008f, renderers.ToArray());
+                lods[level] = new LOD(level == 0 ? 0.3f : level == 1 ? 0.08f : 0f, renderers.ToArray());
             }
             AddBoxes(root, source.colliders);
             AddBoxes(root, source.support_colliders);
             foreach (var door in source.doors ?? Array.Empty<TownDoorData>())
                 AddDoor(root.transform, door, Resolve("door"), Resolve("hardware"));
-            var doors = new List<Renderer>();
-            foreach (var door in root.GetComponentsInChildren<TownDoor>())
-                doors.AddRange(door.GetComponentsInChildren<Renderer>());
             // Native coarse LODs already contain their closed-door appearance.
+            // The shared prototype is inactive while its renderers are assigned.
             var nearRenderers = new List<Renderer>(lods[0].renderers);
-            nearRenderers.AddRange(doors);
+            foreach (var door in root.GetComponentsInChildren<TownDoor>(true))
+                nearRenderers.AddRange(door.GetComponentsInChildren<Renderer>(true));
             lods[0].renderers = nearRenderers.ToArray();
             var group = root.AddComponent<LODGroup>();
             group.SetLODs(lods);
@@ -245,6 +335,12 @@ namespace Motu.Towns
             var shader = Resources.Load<Shader>("Towns/TownBuilding");
             if (shader == null) throw new InvalidOperationException("The Motu town building shader is missing.");
             var material = Own(new Material(shader) { name = "Town " + slot, enableInstancing = true });
+            if (slot == "atlas")
+            {
+                // Native atlas charts address PNG rows from the top. Unity samples from the bottom.
+                material.SetTextureScale("_BaseMap", new Vector2(1f, -1f));
+                material.SetTextureOffset("_BaseMap", new Vector2(0f, 1f));
+            }
             if (source != null)
             {
                 if (source.colour != null && source.colour.Length == 4)

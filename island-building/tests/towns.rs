@@ -102,6 +102,7 @@ fn working_streets_face_the_resolved_ground_floor_doors() {
     input.terrain = terrain(|x, y| if x.abs() < 2. && y < 0. { -1. } else { 6. });
     let mut recipe = recipe();
     recipe.settings.roads = Some(TownRoadSettings::default());
+    recipe.catalogue[1].building.width += 2.;
     let mut cottage = recipe.catalogue[0].building.clone();
     cottage
         .openings
@@ -167,6 +168,58 @@ fn working_streets_face_the_resolved_ground_floor_doors() {
                 "the bottom tread enters the paved surface at the door"
             );
         }
+    }
+}
+
+#[test]
+fn the_largest_building_anchors_the_ring_and_leaves_room_inside() {
+    use motu::Vec2;
+
+    let mut input = input();
+    input.terrain = terrain(|x, y| if x.abs() < 2. && y < 0. { -1. } else { 6. });
+    input.rivers[0].points[0] = [0., 10.];
+    let mut hall = entry("hall", 1, TownPlacement::Other);
+    hall.building.width = 15.;
+    hall.building.depth = 30.;
+    let recipe = TownRecipe {
+        schema_version: 1,
+        catalogue: vec![entry("house", 32, TownPlacement::Centre), hall],
+        settings: TownSettings {
+            roads: Some(TownRoadSettings::default()),
+            ..TownSettings::default()
+        },
+    };
+    let town = generate_town(&recipe, &input).unwrap();
+    assert_eq!(town.instances.len(), 33);
+    let centre = &town.instances[0];
+    assert_eq!(town.prototypes[centre.prototype_index].entry_id, "hall");
+    let origin = Vec2::from_slice(&centre.position[..2]);
+    let rotation = Vec2::from_angle(-centre.yaw);
+    let local = |point: &[f32; 3]| rotation.rotate(Vec2::from_slice(&point[..2]) - origin);
+    let inner = town
+        .roads
+        .as_ref()
+        .unwrap()
+        .junctions
+        .iter()
+        .map(|junction| rotation.rotate(junction.point - origin).abs())
+        .filter(|point| (point.x - point.y).abs() < 0.002)
+        .map(|point| point.x)
+        .min_by(f32::total_cmp)
+        .unwrap();
+    let square_houses: Vec<_> = town.instances[1..]
+        .iter()
+        .filter(|house| local(&house.position).abs().max_element() < inner - 2.)
+        .collect();
+    assert!(
+        !square_houses.is_empty(),
+        "the inside of the ring has room for houses"
+    );
+    for house in square_houses {
+        let frontage = house.frontage.as_ref().unwrap();
+        let inside = local(&house.position).abs().max_element();
+        let street = local(&frontage.street_edge).abs().max_element();
+        assert!(street > inside);
     }
 }
 

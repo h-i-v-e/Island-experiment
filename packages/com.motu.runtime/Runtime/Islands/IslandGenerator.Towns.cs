@@ -6,10 +6,14 @@ namespace Motu.Islands
     public sealed partial class IslandGenerator
     {
         private TownRenderer Town => islandRuntime != null ? islandRuntime.Town : null;
+        public int GeneratedTownSettlementCount => Town != null ? Town.SettlementCount : 0;
         public int GeneratedTownBuildingCount => Town != null ? Town.BuildingCount : 0;
         public int GeneratedTownRoadCount => Town != null ? Town.RoadCount : 0;
         public int GeneratedTownFrontageCount => Town != null ? Town.RoadFrontageCount : 0;
         public int GeneratedTownBridgeCandidateCount => Town != null ? Town.BridgeCandidateCount : 0;
+        public int GeneratedCartTrackRunCount => Town != null ? Town.CartTrackRunCount : 0;
+        public int GeneratedCartTrackLinkCount => Town != null ? Town.CartTrackLinkCount : 0;
+        public int GeneratedCartTrackBridgeCandidateCount => Town != null ? Town.CartTrackBridgeCandidateCount : 0;
 
         public bool TryGetTownBridgeCandidate(int index, out Vector3 from, out Vector3 to, out float width)
         {
@@ -24,6 +28,14 @@ namespace Motu.Islands
             var town = Town;
             point = town != null ? town.transform.TransformPoint(town.InspectionLocalPosition) : default;
             return town != null;
+        }
+
+        public bool TryGetCartTrackBridgeCandidate(int index, out Vector3 from, out Vector3 to, out string kind)
+        {
+            if (Town != null) return Town.TryGetCartTrackBridgeCandidate(index, out from, out to, out kind);
+            from = to = default;
+            kind = null;
+            return false;
         }
     }
 }

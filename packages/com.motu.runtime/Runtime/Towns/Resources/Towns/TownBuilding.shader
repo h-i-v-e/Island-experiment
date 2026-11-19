@@ -104,7 +104,9 @@ Shader "Motu/TownBuilding"
                 half3 masks = lerp(half3(1, _Roughness, _Metallic), SAMPLE_TEXTURE2D(_Masks, sampler_Masks, input.uv).rgb, _UseMasks);
                 float3 normal = normalize(input.normalWS) * (frontFace ? 1 : -1);
                 float3 dp1 = ddx(input.positionWS), dp2 = ddy(input.positionWS);
-                float2 duv1 = ddx(input.uv), duv2 = ddy(input.uv);
+                // The atlas V flip selects the right image row. Its normals still use the native UV basis.
+                float2 uvOrientation = sign(_BaseMap_ST.xy);
+                float2 duv1 = ddx(input.uv) * uvOrientation, duv2 = ddy(input.uv) * uvOrientation;
                 float3 t = cross(dp2, normal) * duv1.x + cross(normal, dp1) * duv2.x;
                 float3 b = cross(dp2, normal) * duv1.y + cross(normal, dp1) * duv2.y;
                 float inverseScale = rsqrt(max(max(dot(t,t), dot(b,b)), 1e-10));

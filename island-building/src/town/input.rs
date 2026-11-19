@@ -1,6 +1,7 @@
 use super::TownError;
 use crate::BuildingRecipe;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 pub const TOWN_SCHEMA_VERSION: u32 = 1;
 
@@ -161,6 +162,7 @@ pub struct TownRoadSettings {
     pub ring_spacing: f32,
     pub half_width: f32,
     pub access_half_width: f32,
+    /// A combined network uses the capital's shoulder when its roads are enabled.
     pub shoulder: f32,
     /// Rise over horizontal run.
     pub max_grade: f32,
@@ -201,11 +203,8 @@ impl TownRoadSettings {
     }
 }
 
-pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), TownError> {
+pub(super) fn validate_terrain(input: &TownInput) -> Result<(), TownError> {
     let fail = |message: &str| Err(TownError::InvalidInput(message.into()));
-    if recipe.schema_version != TOWN_SCHEMA_VERSION {
-        return fail("schema_version must be 1");
-    }
     let grid = &input.terrain;
     if grid.width < 2
         || grid.height < 2
@@ -229,6 +228,16 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
     {
         return fail("protected terrain requires up to 64 finite, ordered rectangles");
     }
+    validate_rivers(input)
+}
+
+pub(super) fn validate_recipe(
+    recipe: &TownRecipe,
+) -> Result<Vec<Cow<'_, BuildingRecipe>>, TownError> {
+    let fail = |message: &str| Err(TownError::InvalidInput(message.into()));
+    if recipe.schema_version != TOWN_SCHEMA_VERSION {
+        return fail("schema_version must be 1");
+    }
     if recipe.catalogue.len() > 64
         || recipe
             .catalogue
@@ -239,6 +248,7 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
     {
         return fail("catalogue is limited to 64 entries and 256 total maximum copies");
     }
+    let mut buildings = Vec::with_capacity(recipe.catalogue.len());
     for (index, entry) in recipe.catalogue.iter().enumerate() {
         if entry.id.trim().is_empty()
             || recipe.catalogue[..index]
@@ -261,8 +271,8 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
                 reason: error.to_string(),
             }
         })?;
+        buildings.push(resolved);
     }
-    validate_rivers(input)?;
     let s = &recipe.settings;
     let bounded = [
         (s.site_search_radius, 1., 1000.),
@@ -291,7 +301,7 @@ pub(super) fn validate(recipe: &TownRecipe, input: &TownInput) -> Result<(), Tow
     if s.roads.is_some_and(|roads| !roads.valid()) {
         return fail("road settings outside supported bounds");
     }
-    Ok(())
+    Ok(buildings)
 }
 
 fn validate_rivers(input: &TownInput) -> Result<(), TownError> {

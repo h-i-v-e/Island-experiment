@@ -2,7 +2,9 @@
 use crate::{
     BakedAtlas, BuildingMesh, BuildingPrototype, MaterialSlot, MaterialTexture,
     collision::BoxCollider,
-    town::{BridgeCandidate, TownFrontage, TownOutput},
+    town::{
+        BridgeCandidate, ClearanceRect, TownFrontage, TownOutput, TownRoadExit, TownSettlementKind,
+    },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Serialize, Serializer};
@@ -80,15 +82,27 @@ struct Prototype<'a> {
 #[derive(Serialize)]
 struct Instance<'a> {
     prototype_index: usize,
+    entry_id: &'a str,
+    settlement_index: usize,
     position: [f32; 3],
     yaw_radians: f32,
     frontage: Option<&'a TownFrontage>,
+}
+#[derive(Serialize)]
+struct Settlement<'a> {
+    kind: TownSettlementKind,
+    river_index: usize,
+    mouth: [f32; 2],
+    centre: &'a [f32],
+    building_count: usize,
+    skipped_count: u32,
 }
 #[derive(Serialize)]
 struct Package<'a> {
     schema_version: u32,
     seed: String,
     mouth: Vec<f32>,
+    settlements: Vec<Settlement<'a>>,
     diagnostics: Vec<String>,
     prototypes: Vec<Prototype<'a>>,
     instances: Vec<Instance<'a>>,
@@ -97,7 +111,9 @@ struct Package<'a> {
     support_colliders: &'a [BoxCollider],
     stair_colliders: &'a [BoxCollider],
     clearance_json: String,
+    routing_blockers: &'a [ClearanceRect],
     roads_json: String,
+    road_exits: &'a [TownRoadExit],
     road_mesh: Mesh<'a>,
     road_count: usize,
     bridge_candidates: &'a [BridgeCandidate],
@@ -144,8 +160,20 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
         mouth: output
             .mouth
             .map_or_else(Vec::new, |mouth| mouth.position.to_vec()),
+        settlements: output
+            .settlements
+            .iter()
+            .map(|site| Settlement {
+                kind: site.kind,
+                river_index: site.river_index,
+                mouth: site.mouth,
+                centre: site.centre.as_ref().map_or(&[], |centre| centre.as_slice()),
+                building_count: site.building_count,
+                skipped_count: site.skipped_count,
+            })
+            .collect(),
         diagnostics: vec![format!(
-            "Placed {} buildings and {} road sections. Skipped {} copies without suitable terrain or frontage.",
+            "Placed {} buildings and {} road sections. Skipped {} requested copies.",
             output.instances.len(),
             road_count,
             output.skipped_count
@@ -156,6 +184,8 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
             .iter()
             .map(|p| Instance {
                 prototype_index: p.prototype_index,
+                entry_id: &p.entry_id,
+                settlement_index: p.settlement_index,
                 position: p.position,
                 yaw_radians: p.yaw,
                 frontage: p.frontage.as_ref(),
@@ -166,7 +196,9 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
         support_colliders: &output.support_colliders,
         stair_colliders: &output.stair_colliders,
         clearance_json: serde_json::to_string(&output.clearance).map_err(|e| e.to_string())?,
+        routing_blockers: &output.routing_blockers,
         roads_json,
+        road_exits: &output.road_exits,
         road_mesh: Mesh {
             positions: Flat(&road_mesh.positions),
             normals: Flat(&road_mesh.normals),

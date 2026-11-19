@@ -35,7 +35,7 @@ Shader "Motu/Planar Reflection Simplified"
         float4 vertex : POSITION;
         float3 normal : NORMAL;
         float4 material : COLOR;
-        float2 environment : TEXCOORD1;
+        float4 environment : TEXCOORD1;
         UNITY_VERTEX_INPUT_INSTANCE_ID
     };
 
@@ -46,7 +46,7 @@ Shader "Motu/Planar Reflection Simplified"
         float3 worldPosition : TEXCOORD1;
         float3 localPosition : TEXCOORD2;
         half4 material : TEXCOORD3;
-        half2 environment : TEXCOORD4;
+        half4 environment : TEXCOORD4;
         UNITY_VERTEX_INPUT_INSTANCE_ID
         UNITY_VERTEX_OUTPUT_STEREO
     };
@@ -57,6 +57,12 @@ Shader "Motu/Planar Reflection Simplified"
     fixed4 _SandColor;
     fixed4 _GrassColorA;
     fixed4 _GrassColorB;
+    fixed4 _StonesColor;
+    float4 _TerrainLayerWorldSizesB;
+    fixed4 _PackedRoadTint;
+    float4 _PackedRoadTileMetres;
+    float4 _MotuTerrainFieldOffset;
+    UNITY_DECLARE_TEX2DARRAY(_TerrainAlbedoArray);
     fixed4 _BaseColor;
     fixed4 _LightColor;
     fixed4 _EndGrainColor;
@@ -142,6 +148,27 @@ Shader "Motu/Planar Reflection Simplified"
             * (1.0h - rockWeight);
         albedo = lerp(albedo, _SandColor.rgb, sandWeight);
         albedo = lerp(albedo, _RockColor.rgb, rockWeight);
+        half shoulder = smoothstep(0.0h, 0.5h, input.environment.z);
+        half roadWeight = smoothstep(0.5h, 1.0h, input.environment.z);
+        half cartTrack = saturate(1.0h - input.environment.w) * (1.0h - shoulder);
+        float2 fieldXZ = input.localPosition.xz + _MotuTerrainFieldOffset.xz;
+        albedo = lerp(albedo, lerp(_GroundDirtColor.rgb, _RockColor.rgb, 0.35h), shoulder);
+        UNITY_BRANCH
+        if (cartTrack > 0.0h)
+        {
+            float2 stonesUv = fieldXZ / max(_TerrainLayerWorldSizesB.y, 0.01);
+            // Fallen Stones layer from the terrain texture arrays.
+            fixed3 gravel = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray, float3(stonesUv, 5)).rgb;
+            albedo = lerp(albedo, gravel * _StonesColor.rgb, cartTrack);
+        }
+        UNITY_BRANCH
+        if (roadWeight > 0.0h)
+        {
+            float2 roadUv = fieldXZ / max(_PackedRoadTileMetres.xy, 0.01);
+            // Road layer from the terrain texture arrays.
+            fixed3 road = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray, float3(roadUv, 6)).rgb;
+            albedo = lerp(albedo, road * _PackedRoadTint.rgb, roadWeight);
+        }
         half snowWeight = smoothstep(
             _SnowLine,
             _SnowLine + 8.0,
@@ -196,7 +223,7 @@ Shader "Motu/Planar Reflection Simplified"
             HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment TerrainFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_instancing
             #pragma multi_compile _ _ADDITIONAL_LIGHTS
             #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS

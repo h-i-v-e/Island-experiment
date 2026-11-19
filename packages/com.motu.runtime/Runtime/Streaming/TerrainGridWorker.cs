@@ -43,13 +43,14 @@ namespace Motu.Streaming
                     || export.length != divisions * divisions)
                     throw new InvalidOperationException("The Rust grid slicer returned an invalid tile batch.");
                 var meshes = new IslandPreparedMesh[export.length];
+                var coverageSources = IslandMeshInterop.GetTerrainCoverageSources(handle);
                 var stride = Marshal.SizeOf<MotuNative.ExportMesh>();
                 for (var index = 0; index < meshes.Length; index++)
                 {
                     cancellation.ThrowIfCancellationRequested();
                     var source = Marshal.PtrToStructure<MotuNative.ExportMesh>(IntPtr.Add(export.data, index * stride));
                     if (source.handle != IntPtr.Zero && source.triangles.length != 0)
-                        meshes[index] = IslandMeshInterop.CopyTerrainMeshData(source, lod, worldSize);
+                        meshes[index] = IslandMeshInterop.CopyTerrainMeshData(source, lod, worldSize, coverageSources);
                 }
                 cancellation.ThrowIfCancellationRequested();
                 return meshes;

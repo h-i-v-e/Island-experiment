@@ -17,6 +17,39 @@ pub const MAX_RECIPE_PARAMETERS: usize = 32;
 /// Maximum UTF-8 byte length of one parameter name.
 pub const MAX_PARAMETER_NAME_LEN: usize = 64;
 
+/// Parameter keys start with a lowercase ASCII letter and may then contain
+/// lowercase letters, digits, or underscores.
+#[must_use]
+pub fn is_valid_parameter_name(name: &str) -> bool {
+    name.len() <= MAX_PARAMETER_NAME_LEN
+        && name.as_bytes().split_first().is_some_and(|(first, rest)| {
+            first.is_ascii_lowercase()
+                && rest
+                    .iter()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+        })
+}
+
+/// Rename a parameter and its colour bindings. Returns false if the name is
+/// unchanged, invalid, occupied, or the original parameter is missing.
+pub fn rename_recipe_parameter(recipe: &mut TextureRecipe, old: &str, new: &str) -> bool {
+    if !is_valid_parameter_name(new) || recipe.parameters.contains_key(new) {
+        return false;
+    }
+    let Some(definition) = recipe.parameters.remove(old) else {
+        return false;
+    };
+    recipe.parameters.insert(new.to_owned(), definition);
+    visit_recipe_colours_mut(recipe, |colour, _| {
+        if let ColourValue::Parameter(reference) = colour
+            && reference.parameter == old
+        {
+            new.clone_into(&mut reference.parameter);
+        }
+    });
+    true
+}
+
 /// A finite linear-RGB colour. Range validation is performed at recipe and
 /// request boundaries so deserialization can retain precise diagnostics.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -299,63 +332,9 @@ pub(crate) fn resolve_validated_recipe(
     }
 
     let mut resolved = recipe.clone();
-    resolve_colour(
-        &mut resolved.albedo.base_color,
-        "albedo.base_color",
-        recipe,
-        overrides,
-        &mut errors,
-    );
-    resolve_colour(
-        &mut resolved.albedo.warm_color,
-        "albedo.warm_color",
-        recipe,
-        overrides,
-        &mut errors,
-    );
-    for (index, colour) in resolved.albedo.palette.iter_mut().enumerate() {
-        resolve_colour(
-            colour,
-            &format!("albedo.palette[{index}]"),
-            recipe,
-            overrides,
-            &mut errors,
-        );
-    }
-    for (layer_index, layer) in resolved.layers.iter_mut().enumerate() {
-        match &mut layer.outputs.albedo.colour_map {
-            ColourMap::Ramp { first, second } => {
-                resolve_colour(
-                    first,
-                    &format!("layers[{layer_index}].outputs.albedo.colour_map.first"),
-                    recipe,
-                    overrides,
-                    &mut errors,
-                );
-                resolve_colour(
-                    second,
-                    &format!("layers[{layer_index}].outputs.albedo.colour_map.second"),
-                    recipe,
-                    overrides,
-                    &mut errors,
-                );
-            }
-            ColourMap::Gradient { stops } => {
-                for (stop_index, stop) in stops.iter_mut().enumerate() {
-                    resolve_colour(
-                        &mut stop.colour,
-                        &format!(
-                            "layers[{layer_index}].outputs.albedo.colour_map.stops[{stop_index}].colour"
-                        ),
-                        recipe,
-                        overrides,
-                        &mut errors,
-                    );
-                }
-            }
-        }
-    }
-
+    visit_recipe_colours_mut(&mut resolved, |colour, path| {
+        resolve_colour(colour, path, recipe, overrides, &mut errors);
+    });
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -367,6 +346,41 @@ pub(crate) fn resolve_validated_recipe(
         parameters,
         parameter_hash,
     })
+}
+
+fn visit_recipe_colours_mut(
+    recipe: &mut TextureRecipe,
+    mut visit: impl FnMut(&mut ColourValue, &str),
+) {
+    visit(&mut recipe.albedo.base_color, "albedo.base_color");
+    visit(&mut recipe.albedo.warm_color, "albedo.warm_color");
+    for (index, colour) in recipe.albedo.palette.iter_mut().enumerate() {
+        visit(colour, &format!("albedo.palette[{index}]"));
+    }
+    for (layer_index, layer) in recipe.layers.iter_mut().enumerate() {
+        match &mut layer.outputs.albedo.colour_map {
+            ColourMap::Ramp { first, second } => {
+                visit(
+                    first,
+                    &format!("layers[{layer_index}].outputs.albedo.colour_map.first"),
+                );
+                visit(
+                    second,
+                    &format!("layers[{layer_index}].outputs.albedo.colour_map.second"),
+                );
+            }
+            ColourMap::Gradient { stops } => {
+                for (stop_index, stop) in stops.iter_mut().enumerate() {
+                    visit(
+                        &mut stop.colour,
+                        &format!(
+                            "layers[{layer_index}].outputs.albedo.colour_map.stops[{stop_index}].colour"
+                        ),
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn resolve_colour(
@@ -439,6 +453,49 @@ fn hash_parameters(parameters: &RecipeParameterValues) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::procedural_textures::{MaterialLayer, validate_recipe};
+
+    #[test]
+    fn rename_keeps_defaults_and_retargets_all_colour_fields() {
+        let mut recipe: TextureRecipe =
+            serde_json::from_str(include_str!("../../texture-recipes/Dirt.json")).unwrap();
+        let mut ramp = MaterialLayer {
+            id: "parameter_rename_ramp".into(),
+            ..Default::default()
+        };
+        ramp.outputs.albedo.colour_map = ColourMap::Ramp {
+            first: recipe.albedo.base_color.clone(),
+            second: recipe.albedo.warm_color.clone(),
+        };
+        recipe.layers.push(ramp);
+        let dirt = recipe.parameters["dirt_colour"].clone();
+        recipe
+            .parameters
+            .insert("stone_colour".into(), dirt.clone());
+        assert!(!rename_recipe_parameter(
+            &mut recipe,
+            "dirt_colour",
+            "stone_colour"
+        ));
+        assert!(!rename_recipe_parameter(
+            &mut recipe,
+            "dirt_colour",
+            "Invalid Name"
+        ));
+        let old = resolve_validated_recipe(&recipe, &RecipeParameterValues::default()).unwrap();
+
+        assert!(rename_recipe_parameter(
+            &mut recipe,
+            "dirt_colour",
+            "soil_colour"
+        ));
+        assert_eq!(recipe.parameters["soil_colour"], dirt);
+        assert!(!recipe.parameters.contains_key("dirt_colour"));
+        validate_recipe(&recipe).unwrap();
+        let renamed = resolve_validated_recipe(&recipe, &RecipeParameterValues::default()).unwrap();
+        assert_eq!(renamed.recipe.albedo, old.recipe.albedo);
+        assert_eq!(renamed.recipe.layers, old.recipe.layers);
+    }
 
     #[test]
     fn relative_tint_preserves_authored_default_exactly() {

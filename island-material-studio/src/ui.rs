@@ -122,6 +122,7 @@ pub struct UiState {
     pending_destructive: Option<DeferredAction>,
     external_conflict: bool,
     recipe_gesture_active: bool,
+    parameter_name_edit: Option<inspector::ParameterNameEdit>,
     file_dialog: Option<PendingFileDialog>,
 }
 
@@ -142,6 +143,7 @@ impl Default for UiState {
             pending_destructive: None,
             external_conflict: false,
             recipe_gesture_active: false,
+            parameter_name_edit: None,
             file_dialog: None,
         }
     }
@@ -304,7 +306,12 @@ fn draw_studio(
         });
     egui::CentralPanel::default().show(&mut viewport_ui, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            recipe_changed |= inspector::draw(ui, &mut edited_recipe, selected_layer.as_deref());
+            recipe_changed |= inspector::draw(
+                ui,
+                &mut edited_recipe,
+                selected_layer.as_deref(),
+                &mut state.parameter_name_edit,
+            );
         });
     });
 
@@ -548,7 +555,10 @@ fn draw_conflict_prompt(
             ui.horizontal(|ui| {
                 if ui.button("Reload").clicked() {
                     match document.revert() {
-                        Ok(()) => state.status = "Reloaded external recipe".into(),
+                        Ok(()) => {
+                            state.parameter_name_edit = None;
+                            state.status = "Reloaded external recipe".into();
+                        }
                         Err(error) => state.status = error.to_string(),
                     }
                     state.external_conflict = false;
@@ -746,6 +756,7 @@ fn execute_deferred(
             return Ok(());
         }
     }
+    state.parameter_name_edit = None;
     refresh_diagnostics(document, diagnostics);
     queue_preview(document, preview, true);
     state.status = "Document loaded".into();

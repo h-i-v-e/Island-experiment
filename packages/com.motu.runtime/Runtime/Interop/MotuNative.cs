@@ -493,6 +493,18 @@ namespace Motu.Interop
             byte clampSides, out ExportMeshGrid output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int HasTerrainRoadCoverage(IntPtr handle);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyTerrainRoadCoverage(IntPtr handle, Vector3Array vertices, [Out] float[] weights);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int HasTerrainCartTracks(IntPtr handle);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyTerrainCartTrackCoverage(IntPtr handle, Vector3Array vertices, [Out] float[] weights);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateSeaMask(
             IntPtr handle,
             int dimension,
@@ -506,6 +518,11 @@ namespace Motu.Interop
             ref MaterialInputs inputs,
             ref MaterialBakeOptions options,
             out ExportMaterialTextureSet output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern byte GetMotuRoadMaterialTexture(
+            IntPtr handle,
+            out ExportMaterialTexture output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern MaterialRevision GetMotuRuntimeMaterialRevision();

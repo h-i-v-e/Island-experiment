@@ -10,7 +10,7 @@ namespace Motu.Editor
         private int previewSeed = 42;
         public override void OnInspectorGUI()
         {
-            EditorGUILayout.HelpBox("Each coastal section uses one deterministic prototype per recipe. Centre entries occupy the town centre; Other entries fill nearby dry sites. Native slope, river and foundation limits can reduce requested counts.", MessageType.Info);
+            EditorGUILayout.HelpBox("Assign this asset as the capital or village catalogue under Coastal Towns. Centre and Other guide placement when roads are disabled. Slope, river and foundation limits can reduce requested counts.", MessageType.Info);
             DrawDefaultInspector();
             previewSeed = EditorGUILayout.IntField("Prefab Preview Seed", previewSeed);
             if (GUILayout.Button("Bake Preview Building Prefabs"))

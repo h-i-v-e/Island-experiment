@@ -30,6 +30,7 @@ namespace Motu.Islands
         internal MotuNative.Options Options { get; }
         internal CoastalStripNative.Options? CoastalStripOptions { get; }
         internal string TownRecipeJson { get; }
+        internal string VillageRecipeJson { get; }
         internal bool TownRoadsRequested { get; }
         internal TownDependencyData[] TownDependencies { get; }
         internal ulong TownSeed { get; }
@@ -169,7 +170,8 @@ namespace Motu.Islands
             TownDependencies = Array.Empty<TownDependencyData>();
             if (CoastalStripOptions.HasValue)
             {
-                TownRecipeJson = Profile.Towns.CaptureJson(out var dependencies);
+                TownRecipeJson = Profile.Towns.CaptureJson(out var dependencies, out var villageRecipe);
+                VillageRecipeJson = villageRecipe;
                 TownDependencies = dependencies;
             }
             TownSeed = CoastalStripOptions.HasValue
@@ -188,7 +190,7 @@ namespace Motu.Islands
                 : null;
             TownRoadsRequested = TownRecipeJson != null && Profile.Towns.roadsEnabled;
             if (TownRoadsRequested)
-                TownRoadHorizonPath = IslandHorizonCache.TownRoadPathFor(SnapshotPath, TownRecipeJson, TownSeed);
+                TownRoadHorizonPath = IslandHorizonCache.TownRoadPathFor(SnapshotPath, TownRecipeJson, TownSeed, VillageRecipeJson);
         }
 
         internal void ApplyProfileTo(IslandGenerator generator)

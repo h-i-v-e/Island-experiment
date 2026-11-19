@@ -1,4 +1,6 @@
 using System;
+using Motu.Interop;
+using Motu.Islands;
 using Motu.Rendering;
 using Motu.World;
 using NUnit.Framework;
@@ -74,6 +76,75 @@ namespace Motu.Editor
                 Assert.IsTrue(map.TryGetSample(Vector3.zero, out var sample));
                 Assert.That(sample.Kind, Is.EqualTo(kind)); Assert.That(sample.GroundHeight, Is.EqualTo(height).Within(.01f));
                 Assert.IsFalse(ShaderUtil.ShaderHasError(Resources.Load<Shader>("TerrainSurfaceQuery")));
+            }
+            finally { Object.DestroyImmediate(mesh); }
+        }
+
+        [Test]
+        public void TerrainRoadProfileClassifiesTheGravelShoulderAndPavedCore()
+        {
+            using var ground = new Ground();
+            var mesh = Ground.Quad(10, new Color(0, 1, 0, 0), Vector2.zero);
+            try
+            {
+                mesh.SetUVs(1, new[] { Vector3.zero, Vector3.zero, Vector3.forward, Vector3.forward });
+                using var map = new TerrainSurfaceMap(ground.Root.transform, 2000, ground.Material);
+                map.Bake(() => Graphics.DrawMeshNow(mesh, Matrix4x4.identity));
+                AsyncGPUReadback.WaitAllRequests();
+                Assert.That(map.TryGetSample(Vector3.left * 750f, out var grass), Is.True);
+                Assert.That(map.TryGetSample(Vector3.zero, out var shoulder), Is.True);
+                Assert.That(map.TryGetSample(Vector3.right * 750f, out var road), Is.True);
+                Assert.That(grass.Kind, Is.EqualTo(TerrainSurfaceKind.Grass));
+                Assert.That(shoulder.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
+                Assert.That(road.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
+            }
+            finally { Object.DestroyImmediate(mesh); }
+        }
+
+        [Test]
+        public void VillageCartTrackClassifiesTwoRutsWithGrassBetweenAndOutside()
+        {
+            using var ground = new Ground();
+            var offsets = new[] { -4f, -1.4f, -1f, -.6f, .6f, 1f, 1.4f, 4f };
+            var vertices = new Vector3[offsets.Length * 2];
+            var normals = new Vector3[vertices.Length];
+            var materials = new Color[vertices.Length];
+            var environment = new Vector2[vertices.Length];
+            var rutCoverage = new float[vertices.Length];
+            var triangles = new int[(offsets.Length - 1) * 6];
+            for (var index = 0; index < offsets.Length; index++)
+            {
+                var vertex = index * 2;
+                vertices[vertex] = new Vector3(offsets[index], 10, -4);
+                vertices[vertex + 1] = new Vector3(offsets[index], 10, 4);
+                normals[vertex] = normals[vertex + 1] = Vector3.up;
+                materials[vertex] = materials[vertex + 1] = new Color(0, 1, 0, 0);
+                rutCoverage[vertex] = rutCoverage[vertex + 1] = Mathf.Abs(offsets[index]) == 1f ? 1f : 0f;
+                if (index == offsets.Length - 1) break;
+                var triangle = index * 6;
+                triangles[triangle] = vertex;
+                triangles[triangle + 1] = vertex + 1;
+                triangles[triangle + 2] = vertex + 3;
+                triangles[triangle + 3] = vertex;
+                triangles[triangle + 4] = vertex + 3;
+                triangles[triangle + 5] = vertex + 2;
+            }
+
+            var prepared = new IslandPreparedMesh(vertices, normals, triangles, Array.Empty<Vector2>(),
+                materials, environment, cartTrackCoverage: rutCoverage);
+            var mesh = IslandMeshInterop.CreateTerrainMesh(prepared, 0);
+            try
+            {
+                using var map = new TerrainSurfaceMap(ground.Root.transform, 8, ground.Material);
+                map.Bake(() => Graphics.DrawMeshNow(mesh, Matrix4x4.identity));
+                AsyncGPUReadback.WaitAllRequests();
+                foreach (var x in new[] { -2f, -1f, 0f, 1f, 2f })
+                {
+                    Assert.That(map.TryGetSample(Vector3.right * x, out var sample), Is.True);
+                    Assert.That(sample.Kind, Is.EqualTo(Mathf.Abs(x) == 1f
+                        ? TerrainSurfaceKind.Gravel
+                        : TerrainSurfaceKind.Grass), $"Surface at {x} m");
+                }
             }
             finally { Object.DestroyImmediate(mesh); }
         }

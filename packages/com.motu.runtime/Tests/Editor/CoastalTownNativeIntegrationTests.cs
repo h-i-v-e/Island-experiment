@@ -1,12 +1,15 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Motu.Towns;
 using Motu.Interop;
 using Motu.Islands;
+using Motu.Rendering;
 using Motu.Settings;
+using Motu.Streaming;
 using Motu.Editor;
 using NUnit.Framework;
 using UnityEditor;
@@ -64,7 +67,12 @@ namespace Motu.Tests
             Assert.That(result.schema_version, Is.EqualTo(2));
             Assert.That(result.clearance_json, Is.Not.Null.And.Not.Empty);
             Assert.That(result.instances.Length, Is.GreaterThan(0), "The fixed seed-42 coast must exercise actual building/support export and clearance.");
-            TestContext.Progress.WriteLine($"Real coast town roundtrip: {result.instances.Length} buildings, {result.supports.indices.Length / 3} support triangles.");
+            Assert.That(result.settlements.Length, Is.GreaterThan(1));
+            Assert.That(result.settlements.Count(site => site.kind == "capital"), Is.EqualTo(1));
+            Assert.That(result.settlements.Select(site => site.river_index).Distinct().Count(), Is.EqualTo(result.settlements.Length));
+            Assert.That(result.settlements.Sum(site => site.building_count), Is.EqualTo(result.instances.Length));
+            Assert.That(result.mouth, Is.EqualTo(result.settlements.Single(site => site.kind == "capital").mouth));
+            TestContext.Progress.WriteLine($"Real coast settlements: {result.settlements.Length} sites, {result.instances.Length} buildings, {result.supports.indices.Length / 3} support triangles.");
         }
 
         private sealed class RealTownScene
@@ -72,6 +80,8 @@ namespace Motu.Tests
             internal TownPreparedData town;
             internal IslandPreparedMesh terrain;
             internal float roadHeightMapError;
+            internal bool overviewHasRoadCore;
+            internal bool overviewHasCartRuts;
         }
 
         private static RealTownScene GenerateRealCoast()
@@ -86,7 +96,7 @@ namespace Motu.Tests
             };
             var profile = new IslandGenerationProfile(generation, rivers, new IslandForestSettings(),
                 new IslandReedSettings(), new IslandFernSettings(), new IslandRenderingSettings(), new IslandDebugSettings(),
-                new IslandCaveSettings { Enabled = false }, towns: new CoastalTownSettings { enabled = false });
+                new IslandCaveSettings { Enabled = false });
             var request = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
             var snapshot = Environment.GetEnvironmentVariable("MOTU_TOWN_RENDER_SNAPSHOT");
             var handle = !string.IsNullOrEmpty(snapshot) && File.Exists(snapshot)
@@ -98,18 +108,44 @@ namespace Motu.Tests
             Assert.That(handle, Is.Not.EqualTo(IntPtr.Zero));
             try
             {
-                var recipe = new CoastalTownSettings().CaptureJson(out var dependencies);
-                var result = TownNative.Prepare(handle, recipe, request.TownSeed, dependencies);
+                var result = TownNative.Prepare(handle, request.TownRecipeJson, request.TownSeed, request.TownDependencies,
+                    request.VillageRecipeJson, connectCoastalSeams: true);
                 Assert.That(result.schema_version, Is.EqualTo(2));
                 Assert.That(result.seed, Is.EqualTo(request.TownSeed.ToString()));
                 Assert.That(result.clearance_json, Is.Not.Null.And.Not.Empty);
                 Assert.That(result.instances.Length, Is.GreaterThan(0), "The fixed seed-42 coast must exercise actual building/support export and clearance.");
+                var overview = TerrainTileStreamer.PrepareOverviewTiles(handle, 2000f);
                 return new RealTownScene {
                     town = result, terrain = TerrainCrop(handle, result),
-                    roadHeightMapError = RoadHeightMapError(handle, result.road_mesh)
+                    roadHeightMapError = RoadHeightMapError(handle, result.road_mesh),
+                    overviewHasRoadCore = overview
+                        .Any(tile => tile != null && Array.Exists(tile.roadCoverage, weight => weight >= 0.98f)),
+                    overviewHasCartRuts = overview
+                        .Any(tile => tile != null && Array.Exists(tile.cartTrackCoverage, weight => weight >= 0.60f)),
                 };
             }
             finally { MotuNative.ReleaseMotu(handle); }
+        }
+
+        [Test, Category("NativeIntegration"), Timeout(300000)]
+        public void RealCoastRoutesCartTracksAndMarksStreamedTerrain()
+        {
+            var fixture = RealFixture.Value;
+            var plan = fixture.town.cartTracks;
+            Assert.That(fixture.town.road_exits.Length, Is.GreaterThan(1));
+            Assert.That(plan, Is.Not.Null);
+            Assert.That(plan.links.Any(link => link.from_settlement < fixture.town.settlements.Length
+                && link.to_settlement < fixture.town.settlements.Length), Is.True);
+            Assert.That(plan.run_count, Is.GreaterThanOrEqualTo(plan.links.Length));
+            Assert.That(fixture.overviewHasCartRuts, Is.True, "Atlas tiles retain the fine cart-rut mask.");
+            foreach (var crossing in plan.bridges)
+            {
+                Assert.That(crossing.start.Length, Is.EqualTo(3));
+                Assert.That(crossing.end.Length, Is.EqualTo(3));
+                Assert.That(crossing.kind, Is.EqualTo("river").Or.EqualTo("ravine"));
+            }
+            TestContext.Progress.WriteLine($"Seed-42 cart tracks: {plan.links.Length} links, "
+                + $"{plan.run_count} dry runs, {plan.bridges.Length} pending bridges, {plan.portals.Length} seam approaches.");
         }
 
         [Test, Category("NativeIntegration"), Timeout(300000)]
@@ -123,27 +159,37 @@ namespace Motu.Tests
             Assert.That(fixture.town.instances.All(instance => instance.frontage?.street_edge?.Length == 3), Is.True);
             Assert.That(fixture.roadHeightMapError, Is.LessThan(0.15f),
                 "The streamed player collision height map should follow the finished grade.");
+            Assert.That(fixture.overviewHasRoadCore, Is.True, "Roads stay marked on the streamed overview terrain.");
             var ground = new GameObject("Carved town terrain collision");
             var terrainMesh = IslandMeshInterop.CreateTerrainMesh(fixture.terrain, 0);
             try
             {
+                var environment = new List<Vector3>();
+                terrainMesh.GetUVs(1, environment);
+                Assert.That(environment.Exists(weights => weights.z >= 0.98f), Is.True, "Packed road core");
+                Assert.That(environment.Exists(weights => Mathf.Abs(weights.z - 0.5f) < 0.05f), Is.True, "Gravel road edge");
+                Assert.That(environment.Exists(weights => weights.z == 0f), Is.True, "Ground clear of roads");
                 var collider = ground.AddComponent<MeshCollider>();
                 collider.sharedMesh = terrainMesh;
                 Physics.SyncTransforms();
                 float maximumError = 0;
                 int samples = 0;
-                int stride = Math.Max(1, roads.indices.Length / (3 * 160));
+                var bounds = terrainMesh.bounds;
+                int stride = Math.Max(1, roads.indices.Length / (3 * 320));
                 for (var index = 0; index < roads.indices.Length; index += 3 * stride)
                 {
                     var centre = (RoadPosition(roads, roads.indices[index])
                         + RoadPosition(roads, roads.indices[index + 1])
                         + RoadPosition(roads, roads.indices[index + 2])) / 3f;
+                    if (centre.x <= bounds.min.x + 0.5f || centre.x >= bounds.max.x - 0.5f
+                        || centre.z <= bounds.min.z + 0.5f || centre.z >= bounds.max.z - 0.5f) continue;
                     Assert.That(collider.Raycast(new Ray(centre + Vector3.up * 5f, Vector3.down),
                         out var hit, 10f), Is.True, $"No native terrain collision at {centre}");
                     maximumError = Mathf.Max(maximumError, Mathf.Abs(hit.point.y - centre.y));
                     samples++;
                 }
-            TestContext.Progress.WriteLine($"Carved road collision. {fixture.town.road_count} road sections, {samples} samples, maximum error {maximumError:F3} m.");
+                TestContext.Progress.WriteLine($"Carved road collision. {fixture.town.road_count} road sections, {samples} samples, maximum error {maximumError:F3} m.");
+                Assert.That(samples, Is.GreaterThan(0));
                 Assert.That(maximumError, Is.LessThan(0.12f), "Roads and native collision should share the finished grade.");
             }
             finally
@@ -184,7 +230,8 @@ namespace Motu.Tests
 
         private static IslandPreparedMesh TerrainCrop(IntPtr handle, TownPreparedData town)
         {
-            var position = town.instances[0].position;
+            var capital = Array.FindIndex(town.settlements, site => site.kind == "capital");
+            var position = town.instances.First(instance => instance.settlement_index == capital).position;
             var area = new MotuNative.ExportArea(Mathf.Clamp01((position[0] - 170f) / 2000f),
                 Mathf.Clamp01((position[1] - 170f) / 2000f), Mathf.Clamp01((position[0] + 170f) / 2000f),
                 Mathf.Clamp01((position[1] + 170f) / 2000f));
@@ -193,7 +240,7 @@ namespace Motu.Tests
             {
                 Marshal.StructureToPtr(area, memory, false);
                 MotuNative.CreateMesh(handle, memory, 0, 0, out var export);
-                try { return IslandMeshInterop.CopyTerrainMeshData(export, 0, 2000f); }
+                try { return IslandMeshInterop.CopyTerrainMeshData(export, 0, 2000f, handle); }
                 finally { MotuNative.ReleaseMesh(ref export); }
             }
             finally { Marshal.FreeHGlobal(memory); }
@@ -215,6 +262,18 @@ namespace Motu.Tests
                 var town = TownRenderer.Install(owner.transform, data, 2000f);
                 Assert.That(town.BuildingCount, Is.EqualTo(2));
                 Assert.That(town.GetComponentsInChildren<TownDoor>().Length, Is.GreaterThanOrEqualTo(2));
+                foreach (var group in town.GetComponentsInChildren<LODGroup>())
+                {
+                    var lods = group.GetLODs();
+                    Assert.That(lods[2].screenRelativeTransitionHeight, Is.Zero);
+                    var doors = group.GetComponentsInChildren<TownDoor>().SelectMany(door => door.GetComponentsInChildren<Renderer>());
+                    Assert.That(doors, Is.SubsetOf(lods[0].renderers));
+                    Assert.That(doors.Intersect(lods[1].renderers.Concat(lods[2].renderers)), Is.Empty);
+                    var atlas = lods[2].renderers.Select(renderer => renderer.sharedMaterial)
+                        .Single(material => material.name.EndsWith(" atlas", StringComparison.Ordinal));
+                    Assert.That(atlas.GetTextureScale("_BaseMap"), Is.EqualTo(new Vector2(1f, -1f)));
+                    Assert.That(atlas.GetTextureOffset("_BaseMap"), Is.EqualTo(Vector2.up));
+                }
                 Assert.That(town.GetComponentsInChildren<MeshCollider>().Length, Is.EqualTo(1));
                 var supports = town.GetComponentInChildren<MeshCollider>();
                 Assert.That(supports.GetComponent<MeshRenderer>().sharedMaterials.Length, Is.EqualTo(1));
@@ -234,6 +293,50 @@ namespace Motu.Tests
                 Assert.That(foundSupport, Is.True, "The imported native support mesh must provide a physical upward-facing walking surface.");
                 Assert.That(town.GetComponentsInChildren<MeshRenderer>().SelectMany(r => r.sharedMaterials)
                     .Any(m => m.mainTexture != null), Is.True);
+            }
+            finally { Object.DestroyImmediate(owner); }
+        }
+
+        [Test, Category("NativeIntegration")]
+        public void BuildingLodBudgetPromotesTheClosestBuildingsAcrossTowns()
+        {
+            var owner = new GameObject("Shared town LOD budget fixture");
+            try
+            {
+                TownRenderer PlaceTown(int first)
+                {
+                    var data = new TownPreparedData {
+                        prototypes = Fixture.Value.prototypes,
+                        instances = Enumerable.Range(first, 15)
+                            .Select(index => new TownInstance { position = new[] { 1000f + index * 2.5f, 1000f, 0f } })
+                            .ToArray()
+                    };
+                    return TownRenderer.Install(owner.transform, data, 2000f, useBuildingLodBudget: true);
+                }
+
+                var west = PlaceTown(0);
+                var east = PlaceTown(15);
+                var buildings = west.BuildingLods.Concat(east.BuildingLods).ToArray();
+                var budget = new TownBuildingLodBudget();
+                void MoveViewer(float x)
+                {
+                    var viewer = Vector3.right * x;
+                    budget.Consider(west, viewer);
+                    budget.Consider(east, viewer);
+                    budget.Apply();
+                }
+
+                Assert.That(buildings.All(building => building.Level == 2), Is.True);
+                MoveViewer(0f);
+                Assert.That(buildings.Count(building => building.Level == 0), Is.EqualTo(TownBuildingLodBudget.InteriorLimit));
+                Assert.That(buildings.Count(building => building.Level == 1), Is.EqualTo(TownBuildingLodBudget.ExteriorLimit));
+                Assert.That(buildings.First().Level, Is.Zero);
+                Assert.That(buildings.Last().Level, Is.EqualTo(2));
+                MoveViewer(72.5f);
+                Assert.That(buildings.First().Level, Is.EqualTo(2));
+                Assert.That(buildings.Last().Level, Is.Zero);
+                MoveViewer(500f);
+                Assert.That(buildings.All(building => building.Level == 2), Is.True);
             }
             finally { Object.DestroyImmediate(owner); }
         }
@@ -271,24 +374,41 @@ namespace Motu.Tests
             var target = new RenderTexture(1024, 768, 24);
             var image = new Texture2D(1024, 768, TextureFormat.RGB24, false);
             Material groundMaterial = null;
+            TerrainMaterialTextureArrays terrainTextures = null;
             Mesh groundMesh = null;
             try
             {
                 GraphicsSettings.defaultRenderPipeline = pipeline;
                 QualitySettings.renderPipeline = pipeline;
-                var town = TownRenderer.Install(root.transform, data, 2000f);
-                if (data.road_count > 0)
-                    Assert.That(town.transform.Find("Town roads").GetComponent<MeshFilter>().sharedMesh.vertexCount,
-                        Is.EqualTo(data.road_mesh.positions.Length / 3));
+                var town = TownRenderer.Install(root.transform, data, 2000f, roadsOnTerrain: terrain != null);
+                if (terrain != null)
+                    Assert.That(town.transform.Find("Town roads"), Is.Null, "Roads are part of the terrain mesh.");
+                else if (data.road_count > 0)
+                    Assert.That(town.transform.Find("Town roads"), Is.Not.Null, "Standalone town previews show roads.");
                 var bounds = town.GetComponentsInChildren<MeshRenderer>().Select(r => r.bounds)
                     .Aggregate((a, b) => { a.Encapsulate(b); return a; });
                 var ground = new GameObject("Native terrain beneath town");
                 ground.transform.SetParent(root.transform, false);
-                groundMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                groundMaterial.SetColor("_BaseColor", new Color(0.16f, 0.23f, 0.09f));
-                if (terrain != null) groundMesh = IslandMeshInterop.CreateTerrainMesh(terrain, 0);
+                if (terrain != null)
+                {
+                    var colours = new IslandMaterialColours(
+                        new Color(0.30f, 0.21f, 0.12f), new Color(0.34f, 0.36f, 0.32f),
+                        new Color(0.62f, 0.57f, 0.34f));
+                    var bakedMaterials = MaterialPreparation.PrepareMaterialTextures(colours, 128);
+                    terrainTextures = new TerrainMaterialTextureArrays(bakedMaterials);
+                    groundMaterial = new Material(Shader.Find("Motu/Terrain Unified"));
+                    groundMaterial.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
+                    groundMaterial.SetFloat("_WorldNormalWeight", 0f);
+                    terrainTextures.BindTerrain(groundMaterial);
+                    Assert.That(groundMaterial.GetFloat("_RoadHeightRange"), Is.EqualTo(
+                        bakedMaterials.road.maximumHeight - bakedMaterials.road.minimumHeight));
+                    Assert.That(((Texture2DArray)groundMaterial.GetTexture("_TerrainAlbedoArray")).depth, Is.EqualTo(7));
+                    groundMesh = IslandMeshInterop.CreateTerrainMesh(terrain, 0);
+                }
                 else
                 {
+                    groundMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    groundMaterial.SetColor("_BaseColor", new Color(0.16f, 0.23f, 0.09f));
                     groundMesh = new Mesh {
                         vertices = new[] { new Vector3(bounds.min.x - 10, 2, bounds.min.z - 10), new Vector3(bounds.max.x + 10, 2, bounds.min.z - 10),
                             new Vector3(bounds.min.x - 10, 2, bounds.max.z + 10), new Vector3(bounds.max.x + 10, 2, bounds.max.z + 10) },
@@ -305,10 +425,10 @@ namespace Motu.Tests
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.08f, 0.14f, 0.22f);
                 camera.orthographic = true;
-                camera.orthographicSize = bounds.extents.magnitude * 1.1f;
+                camera.orthographicSize = terrain == null ? bounds.extents.magnitude * 1.1f : 110f;
                 camera.nearClipPlane = 0.1f;
                 camera.farClipPlane = 2000f;
-                var focus = bounds.center;
+                var focus = terrain == null ? bounds.center : town.InspectionLocalPosition;
                 camera.transform.position = focus + new Vector3(18f, 15f, -22f).normalized * bounds.extents.magnitude * 3f;
                 camera.transform.LookAt(focus);
                 var sunRoot = new GameObject("Town review sun");
@@ -329,12 +449,29 @@ namespace Motu.Tests
                     camera.transform.position = focus + Vector3.up * bounds.size.magnitude;
                     camera.transform.LookAt(focus, Vector3.forward);
                     CaptureFrame(camera, target, image, fileName + "-road-plan.png");
+                    if (terrain != null)
+                    {
+                        groundMaterial.EnableKeyword("MOTU_TERRAIN_LOD2");
+                        CaptureFrame(camera, target, image, fileName + "-road-lod2.png");
+                        groundMaterial.DisableKeyword("MOTU_TERRAIN_LOD2");
+                    }
                 }
                 camera.orthographicSize = 13f;
                 focus = town.InspectionLocalPosition + Vector3.up * 2f;
                 camera.transform.position = focus + new Vector3(18f, 15f, -22f);
                 camera.transform.LookAt(focus);
                 CaptureFrame(camera, target, image, fileName + "-supports.png");
+                if (terrain != null)
+                {
+                    CaptureRoadRelief(terrain, town.InspectionLocalPosition, groundMaterial, camera, target, image);
+                    CaptureCartTrack(terrain, town.InspectionLocalPosition, camera, target, image);
+                }
+                else
+                {
+                    foreach (var group in town.GetComponentsInChildren<LODGroup>())
+                        group.ForceLOD(2);
+                    CaptureFrame(camera, target, image, fileName + "-painted-shells.png");
+                }
             }
             finally
             {
@@ -350,8 +487,42 @@ namespace Motu.Tests
                 Object.DestroyImmediate(pipeline);
                 Object.DestroyImmediate(renderer);
                 if (groundMaterial != null) Object.DestroyImmediate(groundMaterial);
+                terrainTextures?.Dispose();
                 if (groundMesh != null) Object.DestroyImmediate(groundMesh);
             }
+        }
+
+        private static void CaptureRoadRelief(IslandPreparedMesh terrain, Vector3 inspection, Material ground,
+            Camera camera, RenderTexture target, Texture2D image)
+        {
+            var focus = terrain.vertices.Where((_, index) => terrain.roadCoverage[index] >= 0.999f)
+                .OrderBy(vertex => (vertex - inspection).sqrMagnitude).First();
+            camera.orthographicSize = 1.55f;
+            camera.transform.position = focus + new Vector3(5f, 1.8f, -4f);
+            camera.transform.LookAt(focus);
+            CaptureFrame(camera, target, image, "road-relief.png");
+            var relief = image.GetPixels32();
+            ground.SetFloat("_RoadParallaxStrength", 0f);
+            CaptureFrame(camera, target, image, "road-no-parallax.png");
+            var flat = image.GetPixels32();
+            var changed = relief.Where((pixel, index) => !pixel.Equals(flat[index])).Count();
+            Assert.That(changed, Is.GreaterThan(100), "Road relief must affect the close terrain render.");
+        }
+
+        private static void CaptureCartTrack(IslandPreparedMesh terrain, Vector3 inspection,
+            Camera camera, RenderTexture target, Texture2D image)
+        {
+            if (terrain.cartTrackCoverage.Length != terrain.vertices.Length) return;
+            var hasPaving = terrain.roadCoverage.Length == terrain.vertices.Length;
+            var ruts = terrain.vertices.Where((_, i) => terrain.cartTrackCoverage[i] > 0.85f
+                && (!hasPaving || terrain.roadCoverage[i] < 0.01f));
+            var focus = ruts.OrderBy(point => Mathf.Abs(Vector3.Distance(point, inspection) - 110f))
+                .FirstOrDefault();
+            if (focus == default) return;
+            camera.orthographicSize = 3.5f;
+            camera.transform.position = focus + new Vector3(4f, 7f, -5f);
+            camera.transform.LookAt(focus);
+            CaptureFrame(camera, target, image, "cart-track-ruts.png");
         }
 
         private static void CaptureFrame(Camera camera, RenderTexture target, Texture2D image, string fileName)

@@ -22,9 +22,79 @@ struct Route {
     length: f32,
     position: [f32; 2],
     upstream: [f32; 2],
+    outlet: usize,
 }
 
 pub(super) fn longest_mouth(input: &TownInput) -> Option<TownMouth> {
+    routes_to_sea(input)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, route)| route.map(|route| mouth(index, route)))
+        .max_by(|a, b| {
+            a.river_length
+                .total_cmp(&b.river_length)
+                .then_with(|| b.river_index.cmp(&a.river_index))
+        })
+}
+
+/// Put the outlet nearest the midpoint of the occupied coastline first.
+/// Villages follow in geographic order for stable priority.
+pub(super) fn settlement_mouths(input: &TownInput) -> Vec<TownMouth> {
+    let routes = routes_to_sea(input);
+    let mut outlets = Vec::<TownMouth>::new();
+    for (index, route) in routes.iter().enumerate() {
+        let Some(route) = route.filter(|route| route.outlet == index) else {
+            continue;
+        };
+        if outlets
+            .iter()
+            .all(|outlet| distance(outlet.position, route.position) > JOIN_TOLERANCE)
+        {
+            outlets.push(mouth(index, route));
+        }
+    }
+    outlets.sort_by(|a, b| {
+        a.position[0]
+            .total_cmp(&b.position[0])
+            .then_with(|| a.position[1].total_cmp(&b.position[1]))
+            .then_with(|| a.river_index.cmp(&b.river_index))
+    });
+    if let [first, .., last] = outlets.as_slice() {
+        let (min_y, max_y) = outlets
+            .iter()
+            .map(|mouth| mouth.position[1])
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), y| {
+                (lo.min(y), hi.max(y))
+            });
+        let (min_x, max_x) = (first.position[0], last.position[0]);
+        let (axis, midpoint) = if max_y - min_y > (max_x - min_x) * 2. {
+            (1, f32::midpoint(min_y, max_y))
+        } else {
+            (0, f32::midpoint(min_x, max_x))
+        };
+        let (capital, _) = outlets
+            .iter()
+            .map(|candidate| (candidate.position[axis] - midpoint).abs())
+            .enumerate()
+            .min_by(|(a, dist_a), (b, dist_b)| dist_a.total_cmp(dist_b).then(a.cmp(b)))
+            .expect("two or more outlets");
+        outlets[..=capital].rotate_right(1);
+    }
+    outlets
+}
+
+const JOIN_TOLERANCE: f32 = 0.25;
+
+fn mouth(river_index: usize, route: Route) -> TownMouth {
+    TownMouth {
+        river_index,
+        position: route.position,
+        upstream: route.upstream,
+        river_length: route.length,
+    }
+}
+
+fn routes_to_sea(input: &TownInput) -> Vec<Option<Route>> {
     let mut routes = vec![None; input.rivers.len()];
     let mut visiting = vec![false; input.rivers.len()];
     let mut evaluated = vec![false; input.rivers.len()];
@@ -32,21 +102,6 @@ pub(super) fn longest_mouth(input: &TownInput) -> Option<TownMouth> {
         trace(input, index, &mut routes, &mut visiting, &mut evaluated);
     }
     routes
-        .into_iter()
-        .enumerate()
-        .filter_map(|(river_index, route)| {
-            route.map(|route| TownMouth {
-                river_index,
-                position: route.position,
-                upstream: route.upstream,
-                river_length: route.length,
-            })
-        })
-        .max_by(|a, b| {
-            a.river_length
-                .total_cmp(&b.river_length)
-                .then_with(|| b.river_index.cmp(&a.river_index))
-        })
 }
 
 fn trace(
@@ -98,6 +153,7 @@ fn trace(
                 length: length + distance(a, mouth),
                 position: mouth,
                 upstream: a,
+                outlet: index,
             };
             routes[index] = Some(route);
             visiting[index] = false;
@@ -133,7 +189,8 @@ fn trace(
         for (segment_index, pair) in other.points.windows(2).enumerate() {
             let segment_length = distance(pair[0], pair[1]);
             let (t, separation) = projection(endpoint, pair[0], pair[1]);
-            if (nearest == Some(segment_index) || (river.join.is_none() && separation <= 0.25))
+            if (nearest == Some(segment_index)
+                || (river.join.is_none() && separation <= JOIN_TOLERANCE))
                 && let Some(downstream) = trace(input, other_index, routes, visiting, evaluated)
             {
                 let remaining = downstream.length - before - segment_length * t;

@@ -5,50 +5,110 @@
   "width": 6.0,
   "depth": 5.0,
   "wall_height": 2.8,
+  "storeys": 1,
+  "staircase": {
+    "enclosed": true,
+    "door_style": "frame_and_panel",
+    "axis": "auto",
+    "position": null,
+    "width": 1.0,
+    "going": 0.24,
+    "target_riser": 0.19,
+    "landing_depth": 1.0
+  },
   "wall_thickness": 0.2,
   "floor_thickness": 0.16,
+  "foundation": {
+    "outset": 0.08,
+    "burial_depth": 0.15,
+    "stairs": true,
+    "stair_run": "outward"
+  },
+  "walls": {
+    "style": "plain",
+    "beam_width": 0.14,
+    "frame_projection": 0.025,
+    "bay_width": 1.5
+  },
   "roof": {
     "kind": "gable",
+    "covering": "standing_seam",
     "rise": 1.4,
     "overhang": 0.35,
     "thickness": 0.12
   },
+  "opening_defaults": {
+    "window": {
+      "width": 1.4,
+      "height": 1.1,
+      "sill": 0.95
+    },
+    "window_panes": {
+      "columns": 2,
+      "rows": 2
+    },
+    "door": {
+      "width": 1.15,
+      "height": 2.2,
+      "sill": 0.0
+    }
+  },
   "openings": [
     {
       "id": "entrance",
+      "storey": 0,
       "facade": "south",
       "kind": "door",
       "offset": 0.0,
       "width": 1.15,
       "height": 2.2,
       "sill": 0.0,
+      "use_default_dimensions": false,
       "hinge": "left",
       "swing_degrees": 105.0
     },
     {
       "id": "window-east",
+      "storey": 0,
       "facade": "east",
       "kind": "window",
       "offset": 0.0,
       "width": 1.4,
       "height": 1.1,
       "sill": 0.95,
+      "use_default_dimensions": false,
       "hinge": "left",
       "swing_degrees": 90.0
     },
     {
       "id": "window-west",
+      "storey": 0,
       "facade": "west",
       "kind": "window",
       "offset": 0.0,
       "width": 1.4,
       "height": 1.1,
       "sill": 0.95,
+      "use_default_dimensions": false,
       "hinge": "left",
       "swing_degrees": 90.0
     }
   ],
   "partitions": [],
+  "chimney": {
+    "facade": "north",
+    "offset": 0.0,
+    "width": 1.6,
+    "depth": 0.6,
+    "firebox_width": 1.0,
+    "firebox_height": 0.85,
+    "firebox_depth": 0.42,
+    "hearth_depth": 0.3,
+    "hearth_height": 0.12,
+    "stack_width": 0.65,
+    "stack_depth": 0.5,
+    "height_above_roof": 0.8
+  },
   "materials": {
     "wall": [
       0.62,
@@ -61,6 +121,21 @@
       0.29
     ],
     "floor": [
+      0.38,
+      0.27,
+      0.17
+    ],
+    "foundation": [
+      0.255,
+      0.25,
+      0.23
+    ],
+    "stone_slab": [
+      0.24,
+      0.25,
+      0.245
+    ],
+    "ceiling": [
       0.38,
       0.27,
       0.17
@@ -86,28 +161,44 @@
       0.88,
       0.16
     ],
-    "wall_recipe": null,
-    "roof_recipe": null,
     "chimney": [
       0.255,
       0.25,
       0.23
     ],
-    "chimney_recipe": null
+    "timber": [
+      0.09,
+      0.045,
+      0.022
+    ],
+    "wall_recipe": null,
+    "roof_recipe": null,
+    "door_recipe": null,
+    "chimney_recipe": null,
+    "timber_recipe": null,
+    "floor_recipe": null,
+    "foundation_recipe": null,
+    "stone_slab_recipe": null,
+    "ceiling_recipe": null
   },
-  "atlas_size": 1024,
-  "chimney": {
-    "facade": "north",
-    "offset": 0.0,
-    "width": 1.6,
-    "depth": 0.6,
-    "firebox_width": 1.0,
-    "firebox_height": 0.85,
-    "firebox_depth": 0.42,
-    "hearth_depth": 0.3,
-    "hearth_height": 0.12,
-    "stack_width": 0.65,
-    "stack_depth": 0.5,
-    "height_above_roof": 0.8
-  }
+  "grub_filter": {
+    "enabled": false,
+    "grime": 1.0,
+    "moss": 0.7,
+    "height_falloff": 1.5,
+    "patch_size": 1.25,
+    "fine_patch_size": 0.18,
+    "fine_mix": 0.35,
+    "dirt_colour": [
+      0.075,
+      0.055,
+      0.035
+    ],
+    "moss_colour": [
+      0.07,
+      0.115,
+      0.025
+    ]
+  },
+  "atlas_size": 1024
 }

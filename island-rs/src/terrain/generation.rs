@@ -1165,7 +1165,7 @@ impl Island {
     #[must_use]
     pub fn render_mesh_in(&self, lod: usize, bounds: BoundingBox, clamp_sides: u8) -> Option<Mesh> {
         let mesh = match lod {
-            0 => MeshClipper::new(self.terrain.mesh()).sliced(
+            0 => MeshClipper::new(self.terrain.cart_track_detail_mesh()).sliced(
                 bounds,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),
                 clamp_sides,
@@ -1199,7 +1199,7 @@ impl Island {
         clamp_sides: u8,
     ) -> Option<Vec<Mesh>> {
         let mut tiles = match lod {
-            0 => MeshClipper::new(self.terrain.mesh()).sliced_grid(
+            0 => MeshClipper::new(self.terrain.cart_track_detail_mesh()).sliced_grid(
                 bounds,
                 divisions,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),

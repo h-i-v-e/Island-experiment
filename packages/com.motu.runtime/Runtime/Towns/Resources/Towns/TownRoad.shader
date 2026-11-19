@@ -2,9 +2,9 @@ Shader "Motu/TownRoad"
 {
     Properties
     {
-        [MainColor] _BaseColor("Packed Dirt Tint", Color) = (0.40, 0.29, 0.18, 1)
+        [MainColor] _BaseColor("Fallback Road Colour", Color) = (0.40, 0.29, 0.18, 1)
         [NoScaleOffset] _TerrainAlbedoArray("Island Terrain Albedos", 2DArray) = "" {}
-        [HideInInspector] _RoadTileMetres("Dirt and Stone Tile Sizes", Vector) = (4, 4, 5, 5)
+        [HideInInspector] _RoadTileMetres("Road Repeat (metres)", Vector) = (1, 1, 0, 0)
         [HideInInspector] _UseTerrainAlbedo("Use Island Terrain Albedos", Float) = 0
     }
 
@@ -76,12 +76,9 @@ Shader "Motu/TownRoad"
                 half3 albedo = _BaseColor.rgb;
                 if (_UseTerrainAlbedo > 0.5)
                 {
-                    // These indices match the shared terrain array's DirtLayer and RockLayer.
-                    half3 dirt = SAMPLE_TEXTURE2D_ARRAY(_TerrainAlbedoArray, sampler_TerrainAlbedoArray,
-                        input.metres / _RoadTileMetres.xy, 0).rgb;
-                    half3 stone = SAMPLE_TEXTURE2D_ARRAY(_TerrainAlbedoArray, sampler_TerrainAlbedoArray,
-                        input.metres / (_RoadTileMetres.zw * 0.65), 2).rgb;
-                    albedo = lerp(dirt, stone, 0.35) * 0.8 + _BaseColor.rgb * 0.2;
+                    // Road layer from the terrain texture arrays.
+                    albedo = SAMPLE_TEXTURE2D_ARRAY(_TerrainAlbedoArray, sampler_TerrainAlbedoArray,
+                        input.metres / _RoadTileMetres.xy, 6).rgb;
                 }
 
                 InputData lighting = (InputData)0;

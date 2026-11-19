@@ -13,13 +13,13 @@ namespace Motu.Islands
         internal const string Extension = ".motuhorizon";
         private const int Magic = 0x4D484F52;
         private const int Version = 1;
-        private const int TownRoadRevision = 6;
+        private const int TownRoadRevision = 10;
         private const int MaximumBytes = 32 * 1024 * 1024;
 
         internal static string PathFor(string snapshotPath) => string.IsNullOrEmpty(snapshotPath)
             ? null : Path.ChangeExtension(snapshotPath, Extension);
 
-        internal static string TownRoadPathFor(string snapshotPath, string townRecipe, ulong townSeed)
+        internal static string TownRoadPathFor(string snapshotPath, string townRecipe, ulong townSeed, string villageRecipe = null)
         {
             if (string.IsNullOrEmpty(snapshotPath) || string.IsNullOrEmpty(townRecipe)) return null;
             using var bytes = new MemoryStream();
@@ -30,6 +30,7 @@ namespace Motu.Islands
                 writer.Write(Path.GetFileNameWithoutExtension(snapshotPath));
                 writer.Write(townSeed);
                 writer.Write(townRecipe);
+                writer.Write(villageRecipe ?? string.Empty);
             }
             using var sha = SHA256.Create();
             var key = BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").ToLowerInvariant();

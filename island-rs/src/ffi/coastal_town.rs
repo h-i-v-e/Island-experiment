@@ -195,6 +195,160 @@ pub unsafe extern "C" fn FreeCoastalTownJson(json: *mut c_char) {
     }
 }
 
+/// Return whether this terrain has graded road material weights.
+///
+/// # Safety
+/// A non-null handle must reference a live, shared island.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn HasTerrainRoadCoverage(handle: *const c_void) -> i32 {
+    i32::from(
+        unsafe { super::island_ref(handle) }
+            .is_some_and(|island| island.terrain().has_road_coverage()),
+    )
+}
+
+/// Mark exported terrain vertices with the road material profile at their XY.
+/// The profile ranges from 0 (natural terrain) through 0.5 (gravel edge)
+/// to 1 (paved road).
+///
+/// # Safety
+/// A non-null handle must reference a live island. The vertex and weight
+/// buffers must be valid and disjoint for `vertices.length` elements.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CopyTerrainRoadCoverage(
+    handle: *const c_void,
+    vertices: super::Vector3ExportArray,
+    weights: *mut f32,
+) -> i32 {
+    let Some(island) = (unsafe { super::island_ref(handle) }) else {
+        return 0;
+    };
+    if vertices.length <= 0 || vertices.data.is_null() || weights.is_null() {
+        return 0;
+    }
+    let length = usize::try_from(vertices.length).expect("positive vertex count");
+    let vertices = unsafe { std::slice::from_raw_parts(vertices.data, length) };
+    let weights = unsafe { std::slice::from_raw_parts_mut(weights, length) };
+    let terrain = island.terrain();
+    for (weight, vertex) in weights.iter_mut().zip(vertices) {
+        *weight = terrain.road_coverage_at(vertex.truncate());
+    }
+    1
+}
+
+#[derive(serde::Deserialize)]
+struct CartTrackRequest {
+    exits: Vec<crate::terrain::cart_tracks::CartTrackExit>,
+    blockers: Vec<crate::terrain::cart_tracks::CartTrackBlocker>,
+    coast_seams: bool,
+    #[serde(default)]
+    settlement_count: usize,
+}
+
+/// Plan tracks after town grading and before terrain and decoration exports.
+/// Release the returned report with `FreeCoastalTownJson`.
+///
+/// # Safety
+/// The caller must own a live, exclusively borrowed island and provide a
+/// readable NUL-terminated request.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PrepareCoastalCartTracks(
+    handle: *mut c_void,
+    json: *const c_char,
+) -> *mut c_char {
+    let (Some(island), false) = (unsafe { handle.cast::<Island>().as_mut() }, json.is_null())
+    else {
+        error("cart-track preparation requires a live island and a request");
+        return ptr::null_mut();
+    };
+    let bytes = unsafe { CStr::from_ptr(json) }.to_bytes();
+    let request = (bytes.len() <= 4 * 1024 * 1024)
+        .then(|| serde_json::from_slice::<CartTrackRequest>(bytes).ok())
+        .flatten();
+    let Some(request) = request else {
+        error("invalid cart-track JSON request");
+        return ptr::null_mut();
+    };
+    if request.settlement_count > 512
+        || request.exits.len() > 512
+        || request.blockers.len() > 4096
+        || request.exits.iter().any(|exit| {
+            exit.settlement_index > 512
+                || !exit
+                    .position
+                    .iter()
+                    .chain(&exit.direction)
+                    .all(|value| value.is_finite())
+                || exit.position[..2]
+                    .iter()
+                    .any(|v| !(0.0..=ISLAND_WORLD_METRES).contains(v))
+                || !(0.1..=50.).contains(&exit.half_width)
+                || (Vec2::from_array(exit.direction).length_squared() - 1.).abs() > 0.01
+        })
+        || request
+            .blockers
+            .iter()
+            .any(|blocker| blocker.validate().is_err())
+    {
+        error("cart-track exits or blockers exceed routing limits");
+        return ptr::null_mut();
+    }
+    let report = island
+        .prepare_cart_tracks(
+            &request.exits,
+            &request.blockers,
+            request.coast_seams,
+            request.settlement_count,
+        )
+        .and_then(|report| serde_json::to_string(&report).map_err(|err| err.to_string()))
+        .and_then(|json| CString::new(json).map_err(|err| err.to_string()));
+    match report {
+        Ok(json) => {
+            error("");
+            json.into_raw()
+        }
+        Err(reason) => {
+            error(&reason);
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn HasTerrainCartTracks(handle: *const c_void) -> i32 {
+    i32::from(
+        unsafe { super::island_ref(handle) }
+            .is_some_and(|island| island.terrain().has_cart_tracks()),
+    )
+}
+
+/// Sample the two wheel ruts for exported terrain vertices.
+///
+/// # Safety
+/// The live island and vertex array are shared. The caller gives writable
+/// output storage for every vertex, disjoint from the vertex array.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CopyTerrainCartTrackCoverage(
+    handle: *const c_void,
+    vertices: super::Vector3ExportArray,
+    weights: *mut f32,
+) -> i32 {
+    let Some(island) = (unsafe { super::island_ref(handle) }) else {
+        return 0;
+    };
+    if vertices.length <= 0 || vertices.data.is_null() || weights.is_null() {
+        return 0;
+    }
+    let length = usize::try_from(vertices.length).expect("positive vertex count");
+    let positions = unsafe { std::slice::from_raw_parts(vertices.data, length) };
+    let weights = unsafe { std::slice::from_raw_parts_mut(weights, length) };
+    let terrain = island.terrain();
+    for (weight, vertex) in weights.iter_mut().zip(positions) {
+        *weight = terrain.cart_track_coverage(vertex.truncate());
+    }
+    1
+}
+
 /// Applies clearance once to a fresh or cached pre-clearance island. Returns
 /// one on success; invalid JSON never partially modifies the island.
 #[unsafe(no_mangle)]

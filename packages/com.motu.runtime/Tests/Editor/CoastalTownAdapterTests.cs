@@ -32,6 +32,21 @@ namespace Motu.Tests
         }
 
         [Test]
+        public void CoastalSettingsUseDistinctDefaultCatalogues()
+        {
+            var settings = new CoastalTownSettings();
+            var villages = Resources.Load<TownRecipeCatalogue>("Towns/DefaultVillageCatalogue");
+            Assert.That(villages, Is.Not.Null);
+            Assert.That(villages.Entries, Is.Not.Empty);
+            var capital = settings.CaptureJson(out _, out var village);
+            Assert.That(capital, Does.Contain("\"id\":\"cathedral\""));
+            Assert.That(village, Does.Contain("\"id\":\"cottage\"").And.Not.Contain("\"id\":\"cathedral\""));
+            Assert.That(village, Does.Contain("\"town_radius\":50"));
+            settings.catalogue = villages;
+            Assert.That(settings.CaptureJson(out _, out _), Is.EqualTo(village));
+        }
+
+        [Test]
         public void MaterialDependenciesAreCapturedPortablyAndMissingBindingsAreRejected()
         {
             var catalogue = ScriptableObject.CreateInstance<TownRecipeCatalogue>();
@@ -61,6 +76,54 @@ namespace Motu.Tests
         }
 
         [Test]
+        public void SettlementCataloguesShareIdenticalMaterialFilesAndKeepDistinctContentForTheSamePath()
+        {
+            var capital = ScriptableObject.CreateInstance<TownRecipeCatalogue>();
+            var village = ScriptableObject.CreateInstance<TownRecipeCatalogue>();
+            var building = new TextAsset("{\"materials\":{\"wall_recipe\":\"wall.json\"}}");
+            var material = new TextAsset("{\"recipe\":\"stone\"}");
+            var otherMaterial = new TextAsset("{\"recipe\":\"wood\"}");
+            try
+            {
+                SetMaterialBinding(capital, building, material);
+                SetMaterialBinding(village, building, material);
+                var settings = new CoastalTownSettings { capitalCatalogue = capital, villageCatalogue = village };
+                var capitalJson = settings.CaptureJson(out var dependencies, out var villageJson);
+                Assert.That(dependencies.Length, Is.EqualTo(1));
+                Assert.That(capitalJson, Is.EqualTo(villageJson));
+
+                SetMaterialBinding(village, building, otherMaterial);
+                capitalJson = settings.CaptureJson(out dependencies, out villageJson);
+                Assert.That(dependencies.Length, Is.EqualTo(2));
+                Assert.That(capitalJson, Is.Not.EqualTo(villageJson));
+                Assert.That(dependencies[0].fileName, Is.Not.EqualTo(dependencies[1].fileName));
+            }
+            finally
+            {
+                Object.DestroyImmediate(capital);
+                Object.DestroyImmediate(village);
+                Object.DestroyImmediate(building);
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(otherMaterial);
+            }
+        }
+
+        private static void SetMaterialBinding(TownRecipeCatalogue catalogue, TextAsset building, TextAsset material)
+        {
+            var serialized = new SerializedObject(catalogue);
+            var entries = serialized.FindProperty("entries");
+            entries.arraySize = 1;
+            var entry = entries.GetArrayElementAtIndex(0);
+            entry.FindPropertyRelative("id").stringValue = "house";
+            entry.FindPropertyRelative("buildingRecipe").objectReferenceValue = building;
+            var dependencies = serialized.FindProperty("materialDependencies");
+            dependencies.arraySize = 1;
+            dependencies.GetArrayElementAtIndex(0).FindPropertyRelative("referencePath").stringValue = "wall.json";
+            dependencies.GetArrayElementAtIndex(0).FindPropertyRelative("recipe").objectReferenceValue = material;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        [Test]
         public void CanonicalCoastalSectionsShareTownSeedAndRecipe()
         {
             var factoryRoot = new GameObject("Town request test");
@@ -72,9 +135,12 @@ namespace Motu.Tests
                 var second = new IslandGenerationRequest(first.RandomSeed,
                     new Vector2Int(first.Generation.CoastalSectionCount, 0), first.Profile, first.MaterialColours);
                 Assert.That(first.TownRecipeJson, Is.EqualTo(second.TownRecipeJson));
+                Assert.That(first.VillageRecipeJson, Is.EqualTo(second.VillageRecipeJson).And.Not.Null);
                 Assert.That(first.TownSeed, Is.EqualTo(second.TownSeed));
                 island.TownSettings.enabled = false;
-                Assert.That(island.CreateIslandGenerationRequest(Vector2Int.zero).TownRecipeJson, Is.Null);
+                var disabled = island.CreateIslandGenerationRequest(Vector2Int.zero);
+                Assert.That(disabled.TownRecipeJson, Is.Null);
+                Assert.That(disabled.VillageRecipeJson, Is.Null);
             }
             finally { Object.DestroyImmediate(factoryRoot); }
         }
@@ -83,6 +149,7 @@ namespace Motu.Tests
         public void TownRoadHorizonPrefersItsOwnRecipeAndKeepsTheBaseCache()
         {
             var root = new GameObject("Town road horizon test");
+            var villages = Object.Instantiate(Resources.Load<TownRecipeCatalogue>("Towns/DefaultVillageCatalogue"));
             var cache = Path.Combine(Path.GetTempPath(), "motu-town-horizon-" + Guid.NewGuid().ToString("N"));
             try
             {
@@ -108,15 +175,24 @@ namespace Motu.Tests
                 Assert.That(wider.SnapshotPath, Is.EqualTo(roads.SnapshotPath));
                 Assert.That(IslandPreparationPipeline.PrepareHorizon(wider, default).vertices[0].y, Is.EqualTo(2));
 
+                factory.TownSettings.villageCatalogue = villages;
+                villages.Settings.building_gap += 1f;
+                var villageChange = factory.CreateIslandGenerationRequest(Vector2Int.zero);
+                Assert.That(villageChange.TownRecipeJson, Is.EqualTo(wider.TownRecipeJson));
+                Assert.That(villageChange.TownRoadHorizonPath, Is.Not.EqualTo(wider.TownRoadHorizonPath));
+                Assert.That(villageChange.SnapshotPath, Is.EqualTo(wider.SnapshotPath));
+
                 factory.TownSettings.roadsEnabled = false;
                 var disabled = factory.CreateIslandGenerationRequest(Vector2Int.zero);
                 Assert.That(disabled.TownRecipeJson, Does.Not.Contain("\"roads\":"));
+                Assert.That(disabled.VillageRecipeJson, Does.Not.Contain("\"roads\":"));
                 Assert.That(disabled.TownRoadHorizonPath, Is.Null);
                 Assert.That(IslandPreparationPipeline.PrepareHorizon(disabled, default).vertices[0].y, Is.EqualTo(2));
             }
             finally
             {
                 Object.DestroyImmediate(root);
+                Object.DestroyImmediate(villages);
                 if (Directory.Exists(cache)) Directory.Delete(cache, true);
             }
         }
@@ -169,6 +245,45 @@ namespace Motu.Tests
                 Assert.That(door.DoorId, Is.EqualTo("entrance"));
                 Assert.That(Quaternion.Angle(door.transform.localRotation,
                     Quaternion.Euler(0f, -1.75f * Mathf.Rad2Deg, 0f)), Is.LessThan(0.001f));
+            }
+            finally { Object.DestroyImmediate(owner); }
+        }
+
+        [Test]
+        public void CapitalInspectionUsesItsOwnFrontageWhenVillageIsFirst()
+        {
+            var owner = new GameObject("Settlement adapter test");
+            try
+            {
+                var data = new TownPreparedData {
+                    prototypes = new[] { new TownPrototype { entry_id = "test",
+                        lods = new[] { new TownLod { parts = Array.Empty<TownPart>() } } } },
+                    mouth = new[] { 1050f, 1000f },
+                    settlements = new[] {
+                        new TownSettlement { kind = "village", river_index = 2, building_count = 1,
+                            centre = new[] { 300f, 400f } },
+                        new TownSettlement { kind = "capital", river_index = 1, building_count = 1,
+                            centre = new[] { 1050f, 1040f } },
+                        new TownSettlement { kind = "village", river_index = 3, skipped_count = 2,
+                            mouth = new[] { 1300f, 1000f } }
+                    },
+                    instances = new[] {
+                        new TownInstance { position = new[] { 300f, 400f, 5f }, settlement_index = 0, entry_id = "village-test",
+                            frontage = new TownFrontage { street_edge = new[] { 310f, 410f, 5f } } },
+                        new TownInstance { position = new[] { 1050f, 1040f, 6f }, settlement_index = 1,
+                            frontage = new TownFrontage { street_edge = new[] { 1060f, 1040f, 6f } } }
+                    }
+                };
+                var town = TownRenderer.Install(owner.transform, data, 2000f);
+                Assert.That(town.SettlementCount, Is.EqualTo(2));
+                Assert.That(town.RoadFrontageCount, Is.EqualTo(2));
+                Assert.That(town.transform.Find("Village (river 2)/village-test").position,
+                    Is.EqualTo(new Vector3(-700f, 5f, -600f)));
+                Assert.That(town.transform.Find("Capital (river 1)/test").position,
+                    Is.EqualTo(new Vector3(50f, 6f, 40f)));
+                Assert.That(town.transform.Find("Village (river 3)").position,
+                    Is.EqualTo(new Vector3(300f, 0f, 0f)));
+                Assert.That(town.InspectionLocalPosition, Is.EqualTo(new Vector3(60f, 6f, 40f)));
             }
             finally { Object.DestroyImmediate(owner); }
         }

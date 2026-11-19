@@ -2,7 +2,10 @@ use super::{corridor, strip_ends};
 use crate::{
     collision::BoxCollider,
     terrain_support::PlacementPose,
-    town::{BridgeCandidate, TownError, TownInput, TownRoadSettings, TownSettings, placement},
+    town::{
+        BridgeCandidate, TownError, TownInput, TownRoadExit, TownRoadSettings, TownSettings,
+        placement,
+    },
 };
 use motu::{
     Vec2,
@@ -15,7 +18,6 @@ const EDGE_LENGTH: f32 = 8.;
 
 pub(in crate::town) struct StreetLayout {
     pub roads: RoadNetwork,
-    pub plaza: super::ClearanceRect,
     plan: Plan,
     components: Vec<Option<usize>>,
     edge_to_section: Vec<usize>,
@@ -24,10 +26,12 @@ pub(in crate::town) struct StreetLayout {
 
 pub(in crate::town) struct Streets {
     pub network: RoadNetwork,
+    pub exits: Vec<TownRoadExit>,
+    pub curb_exits: Vec<TownRoadExit>,
     pub bridges: Vec<BridgeCandidate>,
     pub ring_length: f32,
     pub ring_count: usize,
-    pub plaza: super::ClearanceRect,
+    pub rows: Vec<Vec<super::frontage::Row>>,
 }
 
 impl StreetLayout {
@@ -51,6 +55,7 @@ impl StreetLayout {
             settings,
         );
         self.roads.retain_strips(|strip| on_street(strip.start));
+        let exits = self.road_exits();
         let ring_strips = self.roads.strips.iter().filter_map(|strip| {
             self.plan.sections[self.edge_to_section[strip.source]]
                 .ring
@@ -63,13 +68,77 @@ impl StreetLayout {
                     length + self.plan.nodes[strip.start].distance(self.plan.nodes[strip.end]),
                 )
             });
+        let rows = super::frontage::rows(&self.roads, ring_count, &|strip| {
+            self.plan.sections[self.edge_to_section[strip.source]].frontage_ring
+        });
+        let curb_exits = if exits.is_empty() {
+            self.outer_curb_exits(ring_count)
+        } else {
+            Vec::new()
+        };
         Streets {
             network: self.roads,
+            exits,
+            curb_exits,
             bridges,
             ring_length,
             ring_count,
-            plaza: self.plaza,
+            rows,
         }
+    }
+
+    fn outer_curb_exits(&self, ring_count: usize) -> Vec<TownRoadExit> {
+        let outer = ring_count.checked_sub(1);
+        self.roads
+            .strips
+            .iter()
+            .filter_map(|strip| {
+                let section = &self.plan.sections[self.edge_to_section[strip.source]];
+                if section.ring.is_none() || section.ring != outer {
+                    return None;
+                }
+                let (from, to) = strip_ends(strip);
+                // Rings are authored anticlockwise. The right curb always faces away from town.
+                let outward = -(to - from).try_normalize()?.perp();
+                let middle = (from + to) * 0.5;
+                let curb = middle + outward * strip.half_width;
+                let height = strip.surface_height(middle)?;
+                Some(TownRoadExit {
+                    settlement_index: 0,
+                    position: [curb.x, curb.y, height],
+                    direction: outward.to_array(),
+                    half_width: strip.half_width,
+                })
+            })
+            .collect()
+    }
+
+    fn road_exits(&self) -> Vec<TownRoadExit> {
+        self.plan
+            .routes
+            .iter()
+            .filter_map(|route| {
+                if !matches!(route.kind, RouteKind::Exit(_)) {
+                    return None;
+                }
+                // Grading removes incomplete exits as a whole. Their terminal
+                // section survives only on a connected, fully graded outward route.
+                let terminal = route.sections.end - 1;
+                let strip = self
+                    .roads
+                    .strips
+                    .iter()
+                    .find(|strip| self.edge_to_section[strip.source] == terminal)?;
+                let end = strip.stations.last()?;
+                let direction = (end.point - strip.stations.first()?.point).try_normalize()?;
+                Some(TownRoadExit {
+                    settlement_index: 0,
+                    position: [end.point.x, end.point.y, end.height],
+                    direction: direction.to_array(),
+                    half_width: strip.half_width,
+                })
+            })
+            .collect()
     }
 }
 
@@ -77,13 +146,14 @@ impl StreetLayout {
 struct Section {
     edge: RoadEdge,
     ring: Option<usize>,
+    frontage_ring: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RouteKind {
     Ring(usize),
-    Cross,
-    Exit,
+    Cross(usize),
+    Exit(usize),
 }
 
 struct Route {
@@ -115,11 +185,7 @@ impl Plan {
     fn route<const N: usize>(&mut self, points: [Vec2; N], half_width: f32, kind: RouteKind) {
         let start = self.sections.len();
         for pair in points.windows(2) {
-            let ring = match kind {
-                RouteKind::Ring(index) => Some(index),
-                _ => None,
-            };
-            self.sections(pair[0], pair[1], half_width, ring);
+            self.sections(pair[0], pair[1], half_width, kind);
         }
         self.routes.push(Route {
             sections: start..self.sections.len(),
@@ -129,7 +195,7 @@ impl Plan {
 
     // Each ring is added in order and the plan is limited by the shared road edge budget.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn sections(&mut self, from: Vec2, to: Vec2, half_width: f32, ring: Option<usize>) {
+    fn sections(&mut self, from: Vec2, to: Vec2, half_width: f32, kind: RouteKind) {
         let length = (to - from).length();
         // A short strip between two junctions must reserve both seam offsets.
         let count = (length / EDGE_LENGTH)
@@ -149,7 +215,15 @@ impl Plan {
                     end,
                     half_width,
                 },
-                ring,
+                ring: match kind {
+                    RouteKind::Ring(index) => Some(index),
+                    _ => None,
+                },
+                frontage_ring: match kind {
+                    RouteKind::Ring(index) | RouteKind::Cross(index) | RouteKind::Exit(index) => {
+                        index
+                    }
+                },
             });
             start = end;
         }
@@ -186,7 +260,7 @@ fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Opti
                 plan.route(
                     [direction * prior, direction * radius],
                     roads.access_half_width,
-                    RouteKind::Cross,
+                    RouteKind::Cross(index),
                 );
             }
         } else {
@@ -204,7 +278,7 @@ fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Opti
         plan.route(
             [direction * last, direction * exit],
             roads.access_half_width,
-            RouteKind::Exit,
+            RouteKind::Exit(ring_count - 1),
         );
     }
     (plan.sections.len() <= MAX_ROAD_EDGES).then_some((plan, inner))
@@ -215,13 +289,14 @@ pub(in crate::town) fn layout(
     pose: PlacementPose,
     settings: &TownSettings,
     input: &TownInput,
+    reservations: &[super::ClearanceRect],
     ring_count: usize,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Option<StreetLayout>, TownError> {
     let Some(config) = settings.roads else {
         return Ok(None);
     };
-    let Some((mut plan, inner)) = plan(bounds, config, ring_count) else {
+    let Some((mut plan, _)) = plan(bounds, config, ring_count) else {
         return Ok(None);
     };
     for point in &mut plan.nodes {
@@ -239,7 +314,9 @@ pub(in crate::town) fn layout(
         let (from, to) = (plan.nodes[edge.start], plan.nodes[edge.end]);
         let radius = config.half_width.max(config.access_half_width) * std::f32::consts::SQRT_2;
         let corridor = corridor(from, to, radius + config.shoulder, radius + config.shoulder);
-        if placement::protected(&corridor, input) {
+        if placement::protected(&corridor, input)
+            || placement::overlaps_any(&corridor, reservations)
+        {
             continue;
         }
         if placement::touches_river(&corridor, input, settings.river_margin) {
@@ -279,11 +356,6 @@ pub(in crate::town) fn layout(
         .any(Option::is_some)
         .then_some(StreetLayout {
             roads,
-            plaza: super::ClearanceRect {
-                centre: [pose.origin[0], pose.origin[1]],
-                half_extents: [inner - config.half_width; 2],
-                yaw: pose.yaw,
-            },
             plan,
             components,
             edge_to_section,
@@ -344,7 +416,7 @@ fn disable_incomplete_access(plan: &Plan, surviving: &[bool], eligible: &mut [bo
         let from = plan.sections[sections.start].edge.start;
         let to = plan.sections[sections.end - 1].edge.end;
         let complete = on_ring[from]
-            && (route.kind == RouteKind::Exit || on_ring[to])
+            && (matches!(route.kind, RouteKind::Exit(_)) || on_ring[to])
             && surviving[sections.clone()].iter().all(|&kept| kept);
         if !complete {
             let requested = &mut eligible[sections];
@@ -555,6 +627,7 @@ mod tests {
             PlacementPose::default(),
             &settings,
             &input,
+            &[],
             2,
             &|| false,
         )
@@ -562,10 +635,11 @@ mod tests {
         .unwrap();
         let initial_sections = streets.roads.strips.len();
         let root = streets.inner_strips().next().unwrap().start;
-        let inner = streets.plaza.half_extents[0] + 4.;
+        let (_, inner) = plan(bounds(), settings.roads.unwrap(), 2).unwrap();
         let Streets {
             network: roads,
             bridges,
+            exits,
             ..
         } = streets.finish(root, &input, &settings);
         assert_eq!(roads.strips.len(), initial_sections);
@@ -580,7 +654,14 @@ mod tests {
             intersections, 16,
             "four corners and four junctions per square"
         );
-        for axis in DIRECTIONS {
+        let config = settings.roads.unwrap();
+        assert_eq!(exits.len(), DIRECTIONS.len());
+        for (axis, exit) in DIRECTIONS.into_iter().zip(exits) {
+            let [x, y, height] = exit.position;
+            assert!(Vec2::from_array(exit.direction).distance(axis) < 0.001);
+            assert!(Vec2::new(x, y).distance(axis * (inner + config.ring_spacing * 1.60)) < 0.001);
+            assert!((exit.half_width - config.access_half_width).abs() < 0.001);
+            assert!((roads.surface_height(Vec2::new(x, y)).unwrap() - height).abs() < 0.001);
             assert!(
                 roads.surface_height(axis * (inner - 4.05)).is_none(),
                 "junctions stay outside the cathedral square"
@@ -589,6 +670,61 @@ mod tests {
                 roads.surface_height(axis * (inner + 36.)).is_some(),
                 "street continues beyond the squares"
             );
+        }
+    }
+
+    #[test]
+    fn missing_exits_offer_only_clear_departures_from_the_graded_outer_curb() {
+        let mut input = dry_land();
+        let settings = settings();
+        let config = settings.roads.unwrap();
+        let (_, inner) = plan(bounds(), config, 2).unwrap();
+        let outer = inner + config.ring_spacing;
+        for axis in DIRECTIONS {
+            let tip = axis * (outer + config.ring_spacing * 0.6);
+            input.protected_terrain.push(TownProtectedTerrain {
+                min: (tip - 0.1).to_array(),
+                max: (tip + 0.1).to_array(),
+            });
+        }
+        let layout = layout(
+            bounds(),
+            PlacementPose::default(),
+            &settings,
+            &input,
+            &[],
+            2,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
+        let root = layout.inner_strips().next().unwrap().start;
+        let streets = layout.finish(root, &input, &settings);
+        assert!(streets.exits.is_empty());
+        let curb_radius = outer + config.half_width;
+        let occupied = crate::town::ClearanceRect {
+            centre: [-curb_radius - 2., 0.],
+            half_extents: [2., outer + 1.],
+            yaw: 0.,
+        };
+        let exits = super::super::clear_curb_exits(
+            streets.curb_exits,
+            [0.; 2],
+            &streets.network,
+            &[occupied],
+            &[],
+            &input,
+            &settings,
+        );
+        assert_eq!(exits.len(), 3);
+        for exit in exits {
+            let [x, y, height] = exit.position;
+            let point = Vec2::new(x, y);
+            let outward = Vec2::from_array(exit.direction);
+            assert!(outward.dot(Vec2::NEG_X) < 0.01);
+            assert!((outward.dot(point) - curb_radius).abs() < 0.001);
+            assert!((streets.network.surface_height(point).unwrap() - height).abs() < 0.001);
+            assert!(streets.network.surface_height(point + outward).is_none());
         }
     }
 
@@ -639,6 +775,7 @@ mod tests {
                 PlacementPose::default(),
                 &settings,
                 &input,
+                &[],
                 2,
                 &|| false,
             )
@@ -681,6 +818,7 @@ mod tests {
             PlacementPose::default(),
             &settings,
             &input,
+            &[],
             2,
             &|| false,
         )
@@ -694,8 +832,16 @@ mod tests {
         let Streets {
             network: roads,
             bridges,
+            exits,
             ..
         } = streets.finish(root, &input, &settings);
+        assert_eq!(
+            exits
+                .into_iter()
+                .map(|exit| Vec2::from_array(exit.direction))
+                .collect::<Vec<_>>(),
+            [Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y]
+        );
         assert!(
             roads
                 .strips

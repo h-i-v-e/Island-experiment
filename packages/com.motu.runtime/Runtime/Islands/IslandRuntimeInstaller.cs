@@ -105,8 +105,7 @@ namespace Motu.Islands
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.InstallBirdPerches(prepared.landBirdPerches, generator.Forest.ShowForests, prepared.colliderHeightMap.maximumHeight);
                 generator.islandRuntime.SetTownRenderer(TownRenderer.Install(generator.runtimeRoot.transform,
-                    prepared.town, worldSize, roadMaterial: request.Profile.Towns.roadMaterial,
-                    terrainTextures: generator.terrainMaterialTextures));
+                    prepared.town, worldSize, roadsOnTerrain: true, useBuildingLodBudget: true));
                 generator.islandRuntime.Activate();
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime.SetViewPosition(viewer.position);

@@ -391,6 +391,7 @@ namespace Motu.Streaming
                 }
 
                 var result = new IslandPreparedMesh[export.length];
+                var coverageSources = IslandMeshInterop.GetTerrainCoverageSources(handle);
                 var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
                 for (var index = 0; index < export.length; index++)
                 {
@@ -401,7 +402,8 @@ namespace Motu.Streaming
                         result[index] = IslandMeshInterop.CopyTerrainMeshData(
                             nativeMesh,
                             2,
-                            terrainWorldSize);
+                            terrainWorldSize,
+                            coverageSources);
                     }
                 }
                 return result;

@@ -41,7 +41,8 @@ namespace Motu.Islands
                 request.SnapshotCacheBudgetBytes,
                 request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
                 prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable,
-                request.CoastalStripOptions, request.TownRecipeJson, request.TownSeed, request.TownDependencies);
+                request.CoastalStripOptions, request.TownRecipeJson, request.TownSeed, request.TownDependencies,
+                request.VillageRecipeJson, request.Profile.Towns.roadsEnabled && request.Profile.Towns.connectSettlements);
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -61,7 +62,8 @@ namespace Motu.Islands
             CaveNative.NetworkOptions? networkOptions = null,
             CaveNative.WalkOptions? walkOptions = null, bool prepareNavigation = true,
             CoastalStripNative.Options? coastalStripOptions = null,
-            string townRecipeJson = null, ulong townSeed = 0UL, TownDependencyData[] townDependencies = null)
+            string townRecipeJson = null, ulong townSeed = 0UL, TownDependencyData[] townDependencies = null,
+            string villageRecipeJson = null, bool connectSettlements = true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = LoadOrGenerateNative(islandSeed, options, forestOptions, reedOptions,
@@ -71,7 +73,8 @@ namespace Motu.Islands
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 // Snapshots hold base terrain. Finish town grading and clearance before deriving terrain or decorations.
-                var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies);
+                var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies, villageRecipeJson,
+                    connectSettlements, coastalStripOptions.HasValue);
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -96,7 +99,7 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 var lod3 = PrepareLod3(handle, worldSize);
                 var horizonPath = !string.IsNullOrEmpty(town?.roads_json)
-                    ? IslandHorizonCache.TownRoadPathFor(snapshotPath, townRecipeJson, townSeed)
+                    ? IslandHorizonCache.TownRoadPathFor(snapshotPath, townRecipeJson, townSeed, villageRecipeJson)
                     : snapshotPath;
                 IslandHorizonCache.TrySave(horizonPath, lod3, snapshotCacheBudgetBytes, snapshotPath);
                 cancellationToken.ThrowIfCancellationRequested();

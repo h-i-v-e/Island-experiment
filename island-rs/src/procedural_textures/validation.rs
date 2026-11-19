@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use super::{
     image::{ImageError, TextureDimensions},
     parameters::{
-        ColourValue, LinearRgb, MAX_PARAMETER_NAME_LEN, MAX_RECIPE_PARAMETERS, ParameterDefinition,
+        ColourValue, LinearRgb, MAX_RECIPE_PARAMETERS, ParameterDefinition, is_valid_parameter_name,
     },
     recipe::{
         AlbedoSettings, CRACKED_STONE_MAX_WARP_AMPLITUDE, ColourMap, DisplacementSettings,
@@ -566,14 +566,7 @@ fn validate_parameters(
         });
     }
     for (name, definition) in parameters {
-        if name.is_empty()
-            || name.len() > MAX_PARAMETER_NAME_LEN
-            || !name.chars().enumerate().all(|(index, character)| {
-                character.is_ascii_lowercase()
-                    || character.is_ascii_digit() && index > 0
-                    || character == '_' && index > 0
-            })
-        {
+        if !is_valid_parameter_name(name) {
             errors.push(RecipeValidationError::InvalidParameterName { name: name.clone() });
         }
         match definition {

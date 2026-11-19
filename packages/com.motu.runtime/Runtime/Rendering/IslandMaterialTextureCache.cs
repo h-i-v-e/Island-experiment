@@ -10,7 +10,7 @@ namespace Motu.Rendering
 {
     internal static class IslandMaterialTextureCache
     {
-        private const int FormatVersion = 2;
+        private const int FormatVersion = 3;
         private const int ChecksumBytes = 32;
         private const string Extension = ".motumaterials";
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("MOTUMAT1");
@@ -149,6 +149,7 @@ namespace Motu.Rendering
                 ReadTexture(reader, resolution),
                 ReadTexture(reader, resolution),
                 ReadTexture(reader, resolution),
+                ReadTexture(reader, resolution),
                 true);
             if (source.Position != payloadLength)
             {
@@ -181,6 +182,7 @@ namespace Motu.Rendering
                 WriteTexture(writer, textures.beach);
                 WriteTexture(writer, textures.fallenStones);
                 WriteTexture(writer, textures.treeBark);
+                WriteTexture(writer, textures.road);
                 writer.Flush();
                 destination.Flush(true);
             }

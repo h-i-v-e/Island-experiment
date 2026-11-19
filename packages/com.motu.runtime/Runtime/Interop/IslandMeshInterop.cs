@@ -17,8 +17,47 @@ namespace Motu.Interop
         internal static IslandPreparedMesh CopyTerrainMeshData(
             MotuNative.ExportMesh source,
             int lod,
-            float worldSize)
+            float worldSize,
+            IntPtr terrain = default)
         {
+            return CopyTerrainMeshData(source, lod, worldSize, GetTerrainCoverageSources(terrain));
+        }
+
+        internal static (IntPtr roads, IntPtr cartTracks) GetTerrainCoverageSources(IntPtr terrain)
+        {
+            if (terrain == IntPtr.Zero)
+                return default;
+            return (
+                MotuNative.HasTerrainRoadCoverage(terrain) != 0 ? terrain : IntPtr.Zero,
+                MotuNative.HasTerrainCartTracks(terrain) != 0 ? terrain : IntPtr.Zero);
+        }
+
+        internal static IslandPreparedMesh CopyTerrainMeshData(
+            MotuNative.ExportMesh source,
+            int lod,
+            float worldSize,
+            (IntPtr roads, IntPtr cartTracks) coverageSources)
+        {
+            float[] roadCoverage = null;
+            if (coverageSources.roads != IntPtr.Zero && source.vertices.length > 0)
+            {
+                var weights = new float[source.vertices.length];
+                if (MotuNative.CopyTerrainRoadCoverage(coverageSources.roads, source.vertices, weights) != 1)
+                    throw new InvalidOperationException("The Rust terrain export could not mark road vertices.");
+                if (Array.Exists(weights, weight => weight > 0f))
+                    roadCoverage = weights;
+            }
+
+            float[] cartTrackCoverage = null;
+            if (coverageSources.cartTracks != IntPtr.Zero && source.vertices.length > 0)
+            {
+                var weights = new float[source.vertices.length];
+                if (MotuNative.CopyTerrainCartTrackCoverage(coverageSources.cartTracks, source.vertices, weights) != 1)
+                    throw new InvalidOperationException("The Rust terrain export could not mark cart track vertices.");
+                if (Array.Exists(weights, weight => weight > 0f))
+                    cartTrackCoverage = weights;
+            }
+
             return CopyMeshData(
                 source.vertices,
                 source.normals,
@@ -28,7 +67,9 @@ namespace Motu.Interop
                 source.environment,
                 true,
                 true,
-                worldSize);
+                worldSize,
+                roadCoverage,
+                cartTrackCoverage);
         }
 
         internal static Mesh CopyTerrainMesh(
@@ -41,7 +82,7 @@ namespace Motu.Interop
 
         internal static Mesh CreateTerrainMesh(IslandPreparedMesh source, int lod)
         {
-            return CreateMesh(source, false);
+            return CreateMesh(source, false, terrainEnvironment: true);
         }
 
         internal static IslandPreparedMesh CopyRiverMeshData(
@@ -125,7 +166,9 @@ namespace Motu.Interop
             MotuNative.Vector2Array sourceEnvironment,
             bool requireMaterial,
             bool createSurfaceMapCoordinates,
-            float worldSize)
+            float worldSize,
+            float[] roadCoverage = null,
+            float[] cartTrackCoverage = null)
         {
             if (sourceVertices.data == IntPtr.Zero || sourceVertices.length == 0)
             {
@@ -176,10 +219,11 @@ namespace Motu.Interop
                     "The Rust terrain export returned invalid environment attributes.");
             }
 
-            return new IslandPreparedMesh(vertices, normals, triangles, uv, material, environment);
+            return new IslandPreparedMesh(vertices, normals, triangles, uv, material, environment,
+                roadCoverage: roadCoverage, cartTrackCoverage: cartTrackCoverage);
         }
 
-        private static Mesh CreateMesh(IslandPreparedMesh source, bool createTangents)
+        private static Mesh CreateMesh(IslandPreparedMesh source, bool createTangents, bool terrainEnvironment = false)
         {
             var mesh = new Mesh
             {
@@ -204,7 +248,27 @@ namespace Motu.Interop
             {
                 // UV1 carries terrain environment weights or vegetation-specific data
                 // (fallen wood uses it for end-grain texture coordinates).
-                mesh.uv2 = source.environment;
+                if (terrainEnvironment)
+                {
+                    // Keep the UV layout consistent when streaming combines tiles into a batch.
+                    bool hasRoads = source.roadCoverage.Length == source.vertices.Length;
+                    bool hasCartTracks = source.cartTrackCoverage.Length == source.vertices.Length;
+                    var environment = new Vector4[source.vertices.Length];
+                    for (var index = 0; index < environment.Length; index++)
+                    {
+                        var weights = source.environment[index];
+                        // Missing UV components default to W=1 on older terrain meshes.
+                        environment[index] = new Vector4(
+                            weights.x, weights.y,
+                            hasRoads ? source.roadCoverage[index] : 0f,
+                            hasCartTracks ? 1f - source.cartTrackCoverage[index] : 1f);
+                    }
+                    mesh.SetUVs(1, environment);
+                }
+                else
+                {
+                    mesh.uv2 = source.environment;
+                }
             }
             if (source.caveAttributes.Length == source.vertices.Length)
                 mesh.SetUVs(2, source.caveAttributes);

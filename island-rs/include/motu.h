@@ -180,7 +180,7 @@ typedef struct {
     uint32_t width, height;
     /* normalConvention: 0 OpenGL, 1 DirectX. materialMask bits: rock 0x01,
        river bed 0x02, forest floor 0x04, fallen stones 0x08, dirt 0x10,
-       beach 0x20, tree bark 0x40. */
+       beach 0x20, tree bark 0x40, road 0x80. */
     uint8_t normalConvention, materialMask;
     uint8_t reserved[2];
 } MotuMaterialBakeOptions;
@@ -215,10 +215,20 @@ MOTU_EXPORT void *CreateMotuWithForestReedsAndFerns(int32_t seed, const MotuOpti
 MOTU_EXPORT void *LoadMotu(const char *filePath);
 MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
 MOTU_EXPORT void ReleaseMotu(void *handle);
+/* Prepare on an exclusive resident island after town grading. Free the JSON
+   report with FreeCoastalTownJson. */
+MOTU_EXPORT char *PrepareCoastalCartTracks(void *handle, const char *requestJson);
+MOTU_EXPORT void FreeCoastalTownJson(char *json);
+MOTU_EXPORT int32_t HasTerrainCartTracks(const void *handle);
+MOTU_EXPORT int32_t CopyTerrainCartTrackCoverage(const void *handle, Vector3ExportArray vertices,
+                                                float *weights);
 MOTU_EXPORT MotuMaterialRevision GetMotuRuntimeMaterialRevision(void);
 MOTU_EXPORT uint8_t BakeMotuMaterialTextures(const MotuMaterialInputs *inputs,
                                               const MotuMaterialBakeOptions *options,
                                               ExportMaterialTextureSet *output);
+/* Borrow the road texture from a live set baked with mask bit 0x80.
+   Its buffers remain owned by the set until ReleaseMaterialTextureSet. */
+MOTU_EXPORT uint8_t GetMotuRoadMaterialTexture(const void *handle, ExportMaterialTexture *output);
 MOTU_EXPORT void ReleaseMaterialTextureSet(ExportMaterialTextureSet *output);
 MOTU_EXPORT void* CreateMotuWithHybridForest(int32_t seed, const MotuOptions* options,
     const MotuForestOptions* forest, const MotuReedOptions* reeds, const MotuFernOptions* ferns,

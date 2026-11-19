@@ -129,6 +129,10 @@ pub struct Terrain {
     pub(super) triangle_index: TriangleIndex,
     #[serde(skip)]
     pub(super) road_sampling_bounds: Option<[Vec2; 2]>,
+    #[serde(skip)]
+    pub(super) road_coverage: Option<super::road_grade::CorridorIndex>,
+    #[serde(skip)]
+    pub(super) cart_tracks: Option<super::cart_track_install::InstalledCartTracks>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,6 +200,8 @@ impl Terrain {
             mesh,
             triangle_index,
             road_sampling_bounds: None,
+            road_coverage: None,
+            cart_tracks: None,
         }
     }
 
@@ -493,7 +499,7 @@ pub(super) fn sample_mesh_triangle(
 /// Only numerical slack is accepted at an edge; clamping and normalising the
 /// weights prevents a tolerated negative weight from extrapolating a steep face.
 #[allow(clippy::cast_possible_truncation)]
-fn precise_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
+pub(super) fn precise_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
     let weights = precise_weights(point, triangle.map(Vec3::truncate))?;
     let [a, b, c] = triangle.map(|position| f64::from(position.z));
     Some((a * weights[0] + b * weights[1] + c * weights[2]) as f32)

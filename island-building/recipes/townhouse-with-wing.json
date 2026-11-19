@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "name": "Island cottage",
+  "seed": 42,
+  "width": 6.0,
+  "depth": 8.0,
+  "wall_height": 2.9,
+  "storeys": 2,
+  "staircase": {
+    "enclosed": true,
+    "door_style": "frame_and_panel",
+    "axis": "auto",
+    "position": null,
+    "width": 1.0,
+    "going": 0.24,
+    "target_riser": 0.19,
+    "landing_depth": 1.0
+  },
+  "wall_thickness": 0.2,
+  "floor_thickness": 0.16,
+  "foundation": {
+    "outset": 0.08,
+    "burial_depth": 0.15,
+    "stairs": true,
+    "stair_run": "along_wall"
+  },
+  "walls": {
+    "style": "wattle_and_daub",
+    "beam_width": 0.14,
+    "frame_projection": 0.025,
+    "bay_width": 1.5
+  },
+  "roof": {
+    "kind": "gable",
+    "covering": "thatch",
+    "rise": 3.0,
+    "overhang": 0.35,
+    "thickness": 0.12
+  },
+  "opening_defaults": {
+    "window": {
+      "width": 0.8,
+      "height": 1.2,
+      "sill": 0.95
+    },
+    "window_panes": {
+      "columns": 2,
+      "rows": 3
+    },
+    "door": {
+      "width": 1.0,
+      "height": 2.2,
+      "sill": 0.0
+    }
+  },
+  "opening_generation": {
+    "door_facades": [
+      "south"
+    ],
+    "window_facades": [
+      "south",
+      "east",
+      "north",
+      "west"
+    ],
+    "window_spacing": 3.0,
+    "corner_clearance": 0.45,
+    "overrides": [
+      {
+        "id": "auto-door-south",
+        "disabled": false,
+        "facade": null,
+        "offset": 0.5,
+        "width": null,
+        "height": null,
+        "sill": null,
+        "hinge": null,
+        "swing_degrees": null,
+        "door_style": "frame_and_panel",
+        "window_panes": null
+      }
+    ]
+  },
+  "openings": [],
+  "partitions": [],
+  "extensions": [
+    {
+      "id": "extension-14-0",
+      "kind": "wing",
+      "facade": "east",
+      "offset": 0.0,
+      "width": 4.0,
+      "depth": 6.0,
+      "wall_height": 2.9,
+      "roof_rise": 3.0,
+      "windows": true,
+      "window_panes": null,
+      "door_style": "frame_and_panel"
+    }
+  ],
+  "chimney": {
+    "facade": "north",
+    "offset": -1.6000001,
+    "width": 1.6,
+    "depth": 0.6,
+    "firebox_width": 1.0,
+    "firebox_height": 0.85,
+    "firebox_depth": 0.42,
+    "hearth_depth": 0.3,
+    "hearth_height": 0.12,
+    "stack_width": 0.65,
+    "stack_depth": 0.5,
+    "height_above_roof": 1.9450006
+  },
+  "materials": {
+    "wall": [
+      0.78,
+      0.72,
+      0.59
+    ],
+    "roof": [
+      0.27,
+      0.20499997,
+      0.12
+    ],
+    "floor": [
+      0.38,
+      0.27000004,
+      0.17
+    ],
+    "foundation": [
+      0.255,
+      0.25,
+      0.23
+    ],
+    "stone_slab": [
+      0.24,
+      0.25,
+      0.245
+    ],
+    "ceiling": [
+      0.38,
+      0.27000004,
+      0.17
+    ],
+    "interior": [
+      0.76,
+      0.72,
+      0.61
+    ],
+    "trim": [
+      0.82,
+      0.76000005,
+      0.61
+    ],
+    "door": [
+      0.3,
+      0.19999996,
+      0.12
+    ],
+    "glass": [
+      0.65,
+      0.82,
+      0.88,
+      0.16
+    ],
+    "chimney": [
+      0.255,
+      0.25,
+      0.23
+    ],
+    "timber": [
+      0.09,
+      0.04499999,
+      0.022
+    ],
+    "wall_recipe": null,
+    "roof_recipe": null,
+    "door_recipe": null,
+    "chimney_recipe": null,
+    "timber_recipe": null,
+    "floor_recipe": null,
+    "foundation_recipe": null,
+    "stone_slab_recipe": null,
+    "ceiling_recipe": null
+  },
+  "grub_filter": {
+    "enabled": true,
+    "grime": 1.0,
+    "moss": 0.7,
+    "height_falloff": 2.0,
+    "patch_size": 1.25,
+    "fine_patch_size": 0.18,
+    "fine_mix": 0.35,
+    "dirt_colour": [
+      0.075,
+      0.05500001,
+      0.035
+    ],
+    "moss_colour": [
+      0.07,
+      0.115,
+      0.025000002
+    ]
+  },
+  "atlas_size": 512
+}

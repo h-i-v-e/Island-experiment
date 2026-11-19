@@ -5,6 +5,7 @@ using UnityEngine;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Settings;
+using Motu.Towns;
 
 namespace Motu.World
 {
@@ -124,6 +125,7 @@ namespace Motu.World
         private readonly HashSet<Vector2Int> discoveryScanCells =
             new HashSet<Vector2Int>();
         private readonly List<Vector2Int> removalCells = new List<Vector2Int>();
+        private readonly TownBuildingLodBudget townLods = new TownBuildingLodBudget();
         private CancellationTokenSource shutdown;
         private WorldEnvironmentController worldEnvironment;
         private IslandRuntimeEntry currentGeneration;
@@ -508,6 +510,7 @@ namespace Motu.World
 
         private void UpdateResidencyAndFocus(Vector3 worldPosition)
         {
+            var updateTownLods = townLods.BeginUpdate();
             foreach (var entry in managedIslands.Values)
             {
                 var generator = entry.Generator;
@@ -534,6 +537,7 @@ namespace Motu.World
                     else
                     {
                         generator.Runtime.SetViewPosition(worldPosition);
+                        if (updateTownLods) townLods.Consider(generator.Runtime.Town, worldPosition);
                         // An adjacent island can already be visible before the
                         // viewer crosses its grid boundary. Start its bounded
                         // terrain/collision neighborhood at that approach too.
@@ -543,6 +547,7 @@ namespace Motu.World
                 entry.Horizon?.SetViewPosition(worldPosition,
                     generator == null || generator.IsGenerating || !generator.HasRuntime, Lod3DistanceMetres);
             }
+            if (updateTownLods) townLods.Apply();
             SetFocusedIsland(SelectFocusedIsland(worldPosition), worldPosition);
         }
 

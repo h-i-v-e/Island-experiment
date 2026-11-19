@@ -1,0 +1,148 @@
+{
+  "name": "Road",
+  "seed": 0,
+  "parameters": {
+    "dirt_colour": {
+      "kind": "colour",
+      "default": [
+        0.33097073,
+        0.19209355,
+        0.07963513
+      ],
+      "description": "dirt_colour"
+    },
+    "stone_colour": {
+      "kind": "colour",
+      "default": [
+        0.18657555,
+        0.18657555,
+        0.18657555
+      ]
+    }
+  },
+  "width": 256,
+  "height": 256,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "rounded_stones",
+    "cells_x": 16,
+    "cells_y": 16,
+    "stone_radius": 1.0,
+    "cell_jitter": 1.0,
+    "warp_amplitude": 0.4,
+    "anisotropy": 1.0,
+    "stone_height": 0.015,
+    "stone_variation": 0.005,
+    "gap_height": 0.0,
+    "sand_amplitude": 0.009,
+    "edge_softness": 0.1
+  },
+  "layers": [
+    {
+      "id": "layer",
+      "name": "Layer 1",
+      "enabled": true,
+      "source": {
+        "kind": "value",
+        "frequency": 1,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 0,
+        "domain_warp": null,
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": 0.0,
+        "top_m": 0.01,
+        "invert": true
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.3,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "dirt_colour"
+                }
+              },
+              {
+                "position": 1.0,
+                "colour": {
+                  "parameter": "dirt_colour"
+                }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.2,
+    "maximum_m": 0.2,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 1.0,
+    "max_radius": 8.0,
+    "cavity_strength": 1.5,
+    "horizon_strength": 0.85,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "stone_colour"
+    },
+    "warm_color": {
+      "parameter": "stone_colour"
+    },
+    "palette": [],
+    "variation": 0.12,
+    "crack_darkening": 0.28,
+    "shoulder_variation": 0.06,
+    "mineral_density": 0.055,
+    "mineral_brightness": 0.25,
+    "occlusion_influence": 0.08
+  },
+  "output_profiles": [
+    "separate"
+  ]
+}

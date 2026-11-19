@@ -100,6 +100,40 @@ namespace Motu.Tests
             }
         }
 
+        [Test]
+        public void CartTrackFeathersIntoNaturalTerrainAndYieldsToTownPaving()
+        {
+            if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat))
+                Assert.Ignore("Terrain coverage comparison requires floating-point render targets.");
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Coastal Terrain Field"));
+            var target = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBFloat);
+            var readback = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var previous = RenderTexture.active;
+            try
+            {
+                material.SetFloat("_ProbeRoadCoverage", 1);
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 0, 1));
+                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(0).Within(.001f));
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 0, .75f));
+                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(.25f).Within(.001f));
+                material.SetVector("_ProbeEnvironment", Vector4.zero);
+                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(1).Within(.001f));
+
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 1, 0));
+                var paved = Sample(material, target, readback, 0, 0);
+                Assert.That(paved.x, Is.EqualTo(0).Within(.001f));
+                Assert.That(paved.y, Is.EqualTo(1).Within(.001f));
+                Assert.That(paved.z, Is.EqualTo(1).Within(.001f));
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                Object.DestroyImmediate(readback);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(material);
+            }
+        }
+
         private static Vector4 Sample(Material material, RenderTexture target, Texture2D readback,
             float localX, float logicalOffset)
         {

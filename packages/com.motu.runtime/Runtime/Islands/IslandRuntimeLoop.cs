@@ -1,3 +1,4 @@
+using Motu.Towns;
 using UnityEngine;
 
 namespace Motu.Islands
@@ -7,6 +8,7 @@ namespace Motu.Islands
         private sealed class IslandRuntimeLoop
         {
             private readonly IslandGenerator generator;
+            private readonly TownBuildingLodBudget townLods = new TownBuildingLodBudget();
             internal IslandRuntimeLoop(IslandGenerator generator)
             {
                 this.generator = generator;
@@ -30,6 +32,8 @@ namespace Motu.Islands
                 }
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime?.SetViewPosition(viewer.position);
+                if (!generator.managedByWorld)
+                    UpdateTownLods(viewer);
                 if (generator.terrainStreamer != null
                     && generator.terrainStreamer.gameObject.activeInHierarchy
                     && generator.Streaming.Target != null)
@@ -39,6 +43,15 @@ namespace Motu.Islands
                 }
             }
 
+            private void UpdateTownLods(Transform viewer)
+            {
+                var town = generator.islandRuntime?.Town;
+                if (town == null || !townLods.BeginUpdate()) return;
+                if (viewer == null) viewer = Camera.main?.transform;
+                if (viewer == null) return;
+                townLods.Consider(town, viewer.position);
+                townLods.Apply();
+            }
         }
     }
 }

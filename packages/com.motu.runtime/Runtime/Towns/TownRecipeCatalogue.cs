@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Motu.Towns
 {
@@ -17,6 +18,7 @@ namespace Motu.Towns
         public TextAsset buildingRecipe;
         [Min(0)] public int minimumCount;
         [Min(0)] public int maximumCount = 1;
+        [Tooltip("Centre/Other applies when roads are disabled. Street layouts start with the largest footprint.")]
         public TownPlacement placement;
     }
 
@@ -188,25 +190,65 @@ namespace Motu.Towns
     [Serializable]
     public sealed class CoastalTownSettings
     {
-        [Tooltip("Place one native-planned town beside the longest river mouth. Riverless strips remain empty.")]
+        [Tooltip("Plan a settlement at each sea outlet. The middle outlet is the capital.")]
         public bool enabled = true;
-        [Tooltip("Empty uses the packaged cathedral, cottage and workshop catalogue.")]
-        public TownRecipeCatalogue catalogue;
+        [FormerlySerializedAs("catalogue")]
+        [Tooltip("Building catalogue and placement settings for the capital. Empty uses the packaged capital catalogue.")]
+        public TownRecipeCatalogue capitalCatalogue;
+        [Tooltip("Building catalogue and placement settings shared by all villages. Empty uses the packaged village catalogue.")]
+        public TownRecipeCatalogue villageCatalogue;
         [Tooltip("Plan streets, place buildings along them and cut roadbeds into the native terrain.")]
         public bool roadsEnabled = true;
+        [Tooltip("Connect settlement roads with terrain-following cart tracks and record prospective bridge crossings.")]
+        public bool connectSettlements = true;
         public TownRoadSettings roads = new TownRoadSettings();
-        [Tooltip("Empty uses packed dirt and stone from the island's terrain materials. Road mesh UVs are in metres.")]
+        [HideInInspector] // Retain the serialized reference for older scenes.
         public Material roadMaterial;
 
-        internal string CaptureJson() => CaptureJson(out _);
+        public TownRecipeCatalogue catalogue { get => capitalCatalogue; set => capitalCatalogue = value; }
+
+        private TownRoadSettings SharedRoads => roadsEnabled ? roads ?? new TownRoadSettings() : null;
 
         internal string CaptureJson(out TownDependencyData[] dependencies)
         {
             dependencies = Array.Empty<TownDependencyData>();
-            if (!enabled) return null;
-            var source = catalogue != null ? catalogue : Resources.Load<TownRecipeCatalogue>("Towns/DefaultTownCatalogue");
-            if (source == null) throw new InvalidOperationException("The default Motu town catalogue is missing.");
-            return source.CaptureJson(out dependencies, roads: roadsEnabled ? roads ?? new TownRoadSettings() : null);
+            return enabled
+                ? RequireCatalogue(capitalCatalogue, "DefaultTownCatalogue").CaptureJson(out dependencies, roads: SharedRoads)
+                : null;
+        }
+
+        internal string CaptureJson(out TownDependencyData[] dependencies, out string villageJson)
+        {
+            villageJson = null;
+            var capitalJson = CaptureJson(out dependencies);
+            if (capitalJson == null) return null;
+            villageJson = RequireCatalogue(villageCatalogue, "DefaultVillageCatalogue")
+                .CaptureJson(out var villageDependencies, roads: SharedRoads);
+            if (dependencies.Length == 0 && villageDependencies.Length == 0) return capitalJson;
+            var combined = new Dictionary<string, TownDependencyData>(StringComparer.Ordinal);
+            AddDependencies(dependencies, combined);
+            AddDependencies(villageDependencies, combined);
+            dependencies = new List<TownDependencyData>(combined.Values).ToArray();
+            return capitalJson;
+        }
+
+        private static TownRecipeCatalogue RequireCatalogue(TownRecipeCatalogue catalogue, string fallback)
+        {
+            if (catalogue != null) return catalogue;
+            var resource = Resources.Load<TownRecipeCatalogue>("Towns/" + fallback);
+            if (resource == null) throw new InvalidOperationException("The packaged Motu catalogue is missing: " + fallback);
+            return resource;
+        }
+
+        private static void AddDependencies(TownDependencyData[] source,
+            Dictionary<string, TownDependencyData> combined)
+        {
+            foreach (var dependency in source)
+            {
+                if (combined.TryAdd(dependency.fileName, dependency)) continue;
+                if (combined[dependency.fileName].json != dependency.json)
+                    throw new InvalidOperationException("Town material dependencies have the same filename: " + dependency.fileName);
+            }
         }
 
         internal CoastalTownSettings Copy()

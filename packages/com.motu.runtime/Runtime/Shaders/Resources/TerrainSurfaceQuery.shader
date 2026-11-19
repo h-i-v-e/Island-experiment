@@ -13,8 +13,8 @@ Shader "Hidden/Motu/Terrain Surface Query"
             #include "../TerrainCoverageCommon.cginc"
             sampler2D _WorldNormal;
             float _SurfaceWorldSize, _SurfaceUseNormalMap;
-            struct Input { float3 vertex : POSITION; float3 normal : NORMAL; float4 material : COLOR; float2 environment : TEXCOORD1; };
-            struct Varying { float4 pos : SV_POSITION; float3 local : TEXCOORD0; float3 normal : TEXCOORD1; float4 material : TEXCOORD2; float2 environment : TEXCOORD3; };
+            struct Input { float3 vertex : POSITION; float3 normal : NORMAL; float4 material : COLOR; float4 environment : TEXCOORD1; };
+            struct Varying { float4 pos : SV_POSITION; float3 local : TEXCOORD0; float3 normal : TEXCOORD1; float4 material : TEXCOORD2; float4 environment : TEXCOORD3; };
             Varying Vert(Input input)
             {
                 Varying output;
@@ -42,6 +42,7 @@ Shader "Hidden/Motu/Terrain Surface Query"
                 if (c.river > .5) surface = 6;
                 if (c.stones > .5) surface = 5;
                 if (c.rock > .5) surface = 3;
+                if (c.gravel > .5) surface = 5;
                 if (c.snow > .5) surface = 7;
                 return float4(surface, input.local.y, 0, 1);
             }

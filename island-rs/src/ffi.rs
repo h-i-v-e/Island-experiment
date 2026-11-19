@@ -402,6 +402,7 @@ struct FfiMaterialTextureSet {
     beach: Option<FfiMaterialTexture>,
     fallen_stones: Option<FfiMaterialTexture>,
     tree_bark: Option<FfiMaterialTexture>,
+    road: Option<FfiMaterialTexture>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1053,6 +1054,7 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
         beach: options.materialMask & 0x20 != 0,
         fallen_stones: options.materialMask & 0x08 != 0,
         tree_bark: options.materialMask & 0x40 != 0,
+        road: options.materialMask & 0x80 != 0,
     };
     let request = RuntimeMaterialInputs::new(
         LinearRgb(inputs.dirtColour),
@@ -1084,6 +1086,7 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
             IslandMaterialKind::Beach => owned.beach = Some(texture),
             IslandMaterialKind::FallenStones => owned.fallen_stones = Some(texture),
             IslandMaterialKind::TreeBark => owned.tree_bark = Some(texture),
+            IslandMaterialKind::Road => owned.road = Some(texture),
         }
     }
 
@@ -1104,6 +1107,26 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
         *output = ExportMaterialTextureSet { handle, ..exported };
     }
     1
+}
+
+/// Borrows the road texture from a bake that selected material bit 0x80.
+/// The exported buffers live until the material texture set is released.
+///
+/// # Safety
+/// A non-null handle must come from a live material texture set. A non-null
+/// output must point to writable storage for one `ExportMaterialTexture`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetMotuRoadMaterialTexture(
+    handle: *const c_void,
+    output: *mut ExportMaterialTexture,
+) -> u8 {
+    if output.is_null() {
+        return 0;
+    }
+    let road = unsafe { handle.cast::<FfiMaterialTextureSet>().as_ref() }
+        .and_then(|textures| textures.road.as_ref());
+    unsafe { output.write(export_material_texture(road)) };
+    u8::from(road.is_some())
 }
 
 #[unsafe(no_mangle)]
@@ -2254,7 +2277,7 @@ mod tests {
             width: 64,
             height: 64,
             normalConvention: 1,
-            materialMask: 0x7f,
+            materialMask: 0xff,
             reserved: [0; 2],
         };
         let mut output = ExportMaterialTextureSet::default();
@@ -2265,6 +2288,30 @@ mod tests {
         };
         assert_eq!(succeeded, 1);
         assert!(!output.handle.is_null());
+        let mut road = ExportMaterialTexture::default();
+        // SAFETY: the returned material set owns the buffers until release.
+        assert_eq!(
+            unsafe { GetMotuRoadMaterialTexture(output.handle, &raw mut road) },
+            1
+        );
+        let road_recipe: crate::procedural_textures::TextureRecipe =
+            serde_json::from_str(include_str!("../texture-recipes/Road.json"))
+                .expect("embedded Road recipe");
+        assert_eq!(
+            (road.physicalTileWidthMetres, road.physicalTileHeightMetres),
+            (
+                road_recipe.physical_tile_width_m,
+                road_recipe.physical_tile_height_m,
+            )
+        );
+        assert_eq!(
+            (road.minimumHeight, road.maximumHeight, road.baseHeight),
+            (
+                road_recipe.displacement.minimum_m,
+                road_recipe.displacement.maximum_m,
+                road_recipe.displacement.base_m,
+            )
+        );
         for texture in [
             output.dirt,
             output.forestFloor,
@@ -2273,6 +2320,7 @@ mod tests {
             output.beach,
             output.fallenStones,
             output.treeBark,
+            road,
         ] {
             assert_eq!((texture.width, texture.height), (64, 64));
             assert!(texture.physicalTileWidthMetres > 0.0);

@@ -18,7 +18,51 @@ namespace Motu.Towns
         public TownBridgeCandidate[] bridge_candidates;
         public string[] diagnostics;
         public float[] mouth;
+        public TownSettlement[] settlements;
+        public TownRoadExit[] road_exits;
+        public TownTrackBlocker[] routing_blockers;
+        public TownCartTrackPlan cartTracks;
         public string seed;
+    }
+    [Serializable] internal sealed class TownRoadExit
+    {
+        public int settlement_index;
+        public float[] position, direction;
+        public float half_width;
+    }
+    [Serializable] internal sealed class TownTrackBlocker
+    {
+        public float[] centre, half_extents;
+        public float yaw;
+    }
+    [Serializable] internal sealed class TownCartTrackPlan
+    {
+        public int run_count;
+        public TownCartTrackLink[] links;
+        public TownCartTrackBridge[] bridges;
+        public TownCartTrackDiagnostic[] diagnostics;
+        public TownRoadExit[] portals;
+    }
+    [Serializable] internal sealed class TownCartTrackLink
+    {
+        public int from_settlement, to_settlement, from_exit, to_exit;
+    }
+    [Serializable] internal sealed class TownCartTrackBridge
+    {
+        public int link_index;
+        public float[] start, end;
+        public string kind;
+    }
+    [Serializable] internal sealed class TownCartTrackDiagnostic
+    {
+        public int settlement_index;
+        public string reason;
+    }
+    [Serializable] internal sealed class TownSettlement
+    {
+        public string kind;
+        public int river_index, building_count, skipped_count;
+        public float[] mouth, centre;
     }
     [Serializable] internal sealed class TownPrototype
     {
@@ -47,7 +91,8 @@ namespace Motu.Towns
     }
     [Serializable] internal sealed class TownInstance
     {
-        public int prototype_index;
+        public int prototype_index, settlement_index;
+        public string entry_id;
         public float[] position;
         public float yaw_radians;
         public TownFrontage frontage;

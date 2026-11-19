@@ -11,17 +11,25 @@ use motu::procedural_textures::{
     MaterialLayer, MaterialModel, ParameterDefinition, ROUNDED_STONES_MAX_RADIUS,
     ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, SourceKind,
     TextureRecipe,
+    parameters::{MAX_RECIPE_PARAMETERS, is_valid_parameter_name, rename_recipe_parameter},
     recipe::{OcclusionCombine, OutputProfile as RecipeOutputProfile},
 };
 
+pub(super) struct ParameterNameEdit {
+    original: Option<String>,
+    name: String,
+    focus: bool,
+}
+
 /// Draws either the base recipe or the selected layer and reports mutations.
-pub fn draw(
+pub(super) fn draw(
     ui: &mut egui::Ui,
     recipe: &mut TextureRecipe,
     selected_layer_id: Option<&str>,
+    parameter_name_edit: &mut Option<ParameterNameEdit>,
 ) -> bool {
     let Some(layer_id) = selected_layer_id else {
-        return draw_base(ui, recipe);
+        return draw_base(ui, recipe, parameter_name_edit);
     };
     let Some(index) = recipe.layers.iter().position(|layer| layer.id == layer_id) else {
         ui.colored_label(
@@ -33,10 +41,17 @@ pub fn draw(
     let parameters = &recipe.parameters;
     let (earlier_layers, selected_and_after) = recipe.layers.split_at_mut(index);
     let layer = &mut selected_and_after[0];
-    draw_layer(ui, layer, earlier_layers, parameters)
+    ui.push_id(("layer inspector", layer_id), |ui| {
+        draw_layer(ui, layer, earlier_layers, parameters)
+    })
+    .inner
 }
 
-fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
+fn draw_base(
+    ui: &mut egui::Ui,
+    recipe: &mut TextureRecipe,
+    parameter_name_edit: &mut Option<ParameterNameEdit>,
+) -> bool {
     let mut changed = false;
     ui.heading("Base material");
     changed |= text_row(ui, "Name", &mut recipe.name);
@@ -64,7 +79,7 @@ fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
     egui::CollapsingHeader::new("Recipe parameters")
         .default_open(true)
         .show(ui, |ui| {
-            changed |= parameter_editor(ui, &mut recipe.parameters);
+            changed |= parameter_editor(ui, recipe, parameter_name_edit);
         });
     egui::CollapsingHeader::new("Displacement and normals")
         .default_open(true)
@@ -843,13 +858,15 @@ fn colour_map_editor(
         ColourMap::Gradient { stops } => {
             let mut remove = None;
             for (index, stop) in stops.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    changed |= f32_row(ui, "At", &mut stop.position, 0.01);
-                    if ui.small_button("×").clicked() {
-                        remove = Some(index);
-                    }
+                ui.push_id(("gradient stop", index), |ui| {
+                    ui.horizontal(|ui| {
+                        changed |= f32_row(ui, "At", &mut stop.position, 0.01);
+                        if ui.small_button("×").clicked() {
+                            remove = Some(index);
+                        }
+                    });
+                    changed |= colour_value_row(ui, "Colour", &mut stop.colour, parameters);
                 });
-                changed |= colour_value_row(ui, "Colour", &mut stop.colour, parameters);
             }
             if let Some(index) = remove {
                 stops.remove(index);
@@ -881,7 +898,11 @@ fn palette_editor(
                 remove = Some(index);
             }
         });
-        changed |= colour_value_row(ui, "Value", colour, parameters);
+        changed |= ui
+            .push_id(("palette colour", index), |ui| {
+                colour_value_row(ui, "Value", colour, parameters)
+            })
+            .inner;
     }
     if let Some(index) = remove {
         colours.remove(index);
@@ -947,33 +968,30 @@ fn colour_value_row(
     value: &mut ColourValue,
     parameters: &BTreeMap<String, ParameterDefinition>,
 ) -> bool {
-    let was_parameter = matches!(value, ColourValue::Parameter(_));
-    let mut use_parameter = was_parameter;
-    let mut changed = false;
+    let current = match value {
+        ColourValue::Literal(_) => None,
+        ColourValue::Parameter(reference) => Some(reference.parameter.as_str()),
+    };
+    let mut selected = current;
     ui.horizontal(|ui| {
         ui.label(label);
-        egui::ComboBox::from_id_salt((label, std::ptr::from_ref(value)))
-            .selected_text(if use_parameter {
-                "Parameter"
-            } else {
-                "Literal"
-            })
+        egui::ComboBox::from_id_salt(("colour source", label))
+            .selected_text(current.unwrap_or("Literal"))
             .show_ui(ui, |ui| {
-                changed |= ui
-                    .selectable_value(&mut use_parameter, false, "Literal")
-                    .changed();
-                changed |= ui
-                    .selectable_value(&mut use_parameter, true, "Parameter")
-                    .changed();
+                ui.selectable_value(&mut selected, None, "Literal");
+                for name in parameters.keys() {
+                    ui.selectable_value(&mut selected, Some(name.as_str()), name);
+                }
             });
     });
-    if use_parameter != was_parameter {
-        *value = if use_parameter {
-            let base = value.as_resolved().unwrap_or(LinearRgb::new(0.5, 0.5, 0.5));
-            ColourValue::Parameter(ColourParameterReference {
-                parameter: parameters.keys().next().cloned().unwrap_or_default(),
-                base: Some(base),
-            })
+    let mut changed = selected != current;
+    if changed {
+        *value = if let Some(parameter) = selected.map(str::to_owned) {
+            let base = match value {
+                ColourValue::Parameter(reference) => reference.base,
+                ColourValue::Literal(_) => None,
+            };
+            ColourValue::Parameter(ColourParameterReference { parameter, base })
         } else {
             let literal = match value {
                 ColourValue::Literal(colour) => *colour,
@@ -988,7 +1006,6 @@ fn colour_value_row(
             };
             ColourValue::Literal(literal)
         };
-        changed = true;
     }
 
     match value {
@@ -996,19 +1013,6 @@ fn colour_value_row(
             changed |= ui.color_edit_button_rgb(&mut colour.0).changed();
         }
         ColourValue::Parameter(reference) => {
-            egui::ComboBox::from_label("Parameter")
-                .selected_text(if reference.parameter.is_empty() {
-                    "Select…"
-                } else {
-                    &reference.parameter
-                })
-                .show_ui(ui, |ui| {
-                    for name in parameters.keys() {
-                        changed |= ui
-                            .selectable_value(&mut reference.parameter, name.clone(), name)
-                            .changed();
-                    }
-                });
             let mut preserve_base = reference.base.is_some();
             if ui
                 .checkbox(&mut preserve_base, "Preserve authored variation")
@@ -1035,14 +1039,22 @@ fn colour_value_row(
 
 fn parameter_editor(
     ui: &mut egui::Ui,
-    parameters: &mut BTreeMap<String, ParameterDefinition>,
+    recipe: &mut TextureRecipe,
+    name_edit: &mut Option<ParameterNameEdit>,
 ) -> bool {
     let mut changed = false;
     let mut remove = None;
-    for (name, definition) in parameters.iter_mut() {
+    for (name, definition) in &mut recipe.parameters {
         ui.separator();
         ui.horizontal(|ui| {
             ui.strong(name);
+            if ui.small_button("Rename").clicked() {
+                *name_edit = Some(ParameterNameEdit {
+                    original: Some(name.clone()),
+                    name: name.clone(),
+                    focus: true,
+                });
+            }
             if ui.small_button("Remove").clicked() {
                 remove = Some(name.clone());
             }
@@ -1058,24 +1070,206 @@ fn parameter_editor(
         }
     }
     if let Some(name) = remove {
-        parameters.remove(&name);
+        recipe.parameters.remove(&name);
         changed = true;
     }
-    if parameters.len() < 32 && ui.button("+ Colour parameter").clicked() {
-        let name = (1..=parameters.len() + 1)
-            .map(|index| format!("colour_{index}"))
-            .find(|name| !parameters.contains_key(name))
-            .expect("finite parameter map always has a free generated name");
-        parameters.insert(
-            name,
+    if recipe.parameters.len() < MAX_RECIPE_PARAMETERS && ui.button("+ Colour parameter").clicked()
+    {
+        *name_edit = Some(ParameterNameEdit {
+            original: None,
+            name: String::new(),
+            focus: true,
+        });
+    }
+    changed |= draw_parameter_name_edit(ui, recipe, name_edit);
+    changed
+}
+
+fn draw_parameter_name_edit(
+    ui: &mut egui::Ui,
+    recipe: &mut TextureRecipe,
+    name_edit: &mut Option<ParameterNameEdit>,
+) -> bool {
+    let Some(edit) = name_edit.as_mut() else {
+        return false;
+    };
+    if let Some(original) = &edit.original {
+        if !recipe.parameters.contains_key(original) {
+            *name_edit = None;
+            return false;
+        }
+        ui.label(format!("Rename {original}"));
+    } else {
+        ui.label("New colour parameter");
+    }
+    let response = ui.add(egui::TextEdit::singleline(&mut edit.name).hint_text("e.g. dirt_colour"));
+    if std::mem::take(&mut edit.focus) {
+        response.request_focus();
+    }
+    let unchanged = edit.original.as_deref() == Some(edit.name.as_str());
+    let valid = is_valid_parameter_name(&edit.name);
+    let duplicate = !unchanged && recipe.parameters.contains_key(&edit.name);
+    if !edit.name.is_empty() && !valid {
+        ui.label("Start with a lowercase letter. Use up to 64 lowercase letters, digits, or underscores.");
+    } else if duplicate {
+        ui.label("That parameter name is already in use.");
+    }
+    let ready = valid && !duplicate && !unchanged;
+    let enter = response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+    let (submit, cancel) = ui
+        .horizontal(|ui| {
+            let label = if edit.original.is_some() {
+                "Apply name"
+            } else {
+                "Add parameter"
+            };
+            let submit = ui.add_enabled(ready, egui::Button::new(label)).clicked();
+            (submit || ready && enter, ui.button("Cancel").clicked())
+        })
+        .inner;
+    if cancel {
+        *name_edit = None;
+    } else if submit {
+        let edit = name_edit.take().expect("active parameter name edit");
+        if let Some(original) = edit.original {
+            return rename_recipe_parameter(recipe, &original, &edit.name);
+        }
+        recipe.parameters.insert(
+            edit.name,
             ParameterDefinition::Colour {
                 default: LinearRgb::new(0.5, 0.5, 0.5),
                 description: String::new(),
             },
         );
-        changed = true;
+        return true;
     }
-    changed
+    false
+}
+
+#[cfg(test)]
+mod colour_picker_tests {
+    use super::*;
+    use crate::{
+        document::StudioDocument,
+        file_io::{canonical_json_bytes, parse_recipe_bytes},
+    };
+    use std::path::Path;
+
+    #[test]
+    fn adding_a_colour_parameter_accepts_an_authored_name() {
+        let mut recipe = StudioDocument::default_recipe();
+        let mut edit = None;
+        let ctx = egui::Context::default();
+        let mut frame = |events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    parameter_editor(ui, &mut recipe, &mut edit);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let initial = frame(Vec::new());
+        let open = text_position(&initial, "+ Colour parameter");
+        frame(pointer(open, true));
+        frame(pointer(open, false));
+        let named = frame(vec![egui::Event::Text("dirt_colour".into())]);
+        let add = text_position(&named, "Add parameter");
+        frame(pointer(add, true));
+        frame(pointer(add, false));
+        assert!(edit.is_none());
+        assert_eq!(
+            recipe.parameters.keys().collect::<Vec<_>>(),
+            ["dirt_colour"]
+        );
+    }
+
+    #[test]
+    fn selecting_a_parameter_survives_redraws_and_recipe_serialization() {
+        let mut recipe = StudioDocument::default_recipe();
+        let dirt = LinearRgb::new(0.31, 0.17, 0.08);
+        recipe.parameters.insert(
+            "dirt_colour".into(),
+            ParameterDefinition::Colour {
+                default: dirt,
+                description: String::new(),
+            },
+        );
+
+        let ctx = egui::Context::default();
+        let mut values = [
+            recipe.albedo.base_color.clone(),
+            recipe.albedo.base_color.clone(),
+        ];
+        let mut slot = 0;
+        let mut frame = |events| {
+            // The inspector edits a freshly cloned recipe each frame.
+            values[slot ^ 1] = values[slot].clone();
+            slot ^= 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    colour_value_row(ui, "Base colour", &mut values[slot], &recipe.parameters);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let initial = frame(Vec::new());
+        let literal = text_position(&initial, "Literal");
+        frame(pointer(literal, true));
+        frame(pointer(literal, false));
+
+        let menu = frame(Vec::new());
+        let parameter = text_position(&menu, "dirt_colour");
+        frame(pointer(parameter, true));
+        frame(pointer(parameter, false));
+        let selected_frame = frame(Vec::new());
+        text_position(&selected_frame, "dirt_colour");
+
+        recipe.albedo.base_color = values[slot].clone();
+        let json = canonical_json_bytes(&recipe).unwrap();
+        let reopened = parse_recipe_bytes(Path::new("dirt-test.json"), &json).unwrap();
+        assert_eq!(
+            reopened.recipe.albedo.base_color,
+            ColourValue::Parameter(ColourParameterReference {
+                parameter: "dirt_colour".into(),
+                base: None,
+            })
+        );
+    }
+
+    fn pointer(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
+    fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.pos + text.galley.rect.center().to_vec2())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing picker label {label}"))
+    }
 }
 
 fn f32_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f64) -> bool {

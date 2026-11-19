@@ -76,10 +76,11 @@ pub enum IslandMaterialKind {
     Beach = 4,
     FallenStones = 5,
     TreeBark = 6,
+    Road = 7,
 }
 
 impl IslandMaterialKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Dirt,
         Self::ForestFloor,
         Self::Rock,
@@ -87,6 +88,7 @@ impl IslandMaterialKind {
         Self::Beach,
         Self::FallenStones,
         Self::TreeBark,
+        Self::Road,
     ];
 
     #[must_use]
@@ -99,6 +101,7 @@ impl IslandMaterialKind {
             Self::Beach => "beach",
             Self::FallenStones => "fallen_stones",
             Self::TreeBark => "tree_bark",
+            Self::Road => "road",
         }
     }
 }
@@ -115,12 +118,14 @@ pub struct MaterialSelection {
     pub beach: bool,
     pub fallen_stones: bool,
     pub tree_bark: bool,
+    pub road: bool,
 }
 
 impl MaterialSelection {
-    /// Ground materials only; tree bark is consumed by a separate vegetation renderer.
+    /// Base terrain materials used by the terrain atlas.
     pub const TERRAIN: Self = Self {
         tree_bark: false,
+        road: false,
         ..Self::ALL
     };
 
@@ -132,6 +137,7 @@ impl MaterialSelection {
         beach: true,
         fallen_stones: true,
         tree_bark: true,
+        road: true,
     };
 
     #[must_use]
@@ -144,6 +150,7 @@ impl MaterialSelection {
             IslandMaterialKind::Beach => self.beach,
             IslandMaterialKind::FallenStones => self.fallen_stones,
             IslandMaterialKind::TreeBark => self.tree_bark,
+            IslandMaterialKind::Road => self.road,
         }
     }
 }
@@ -343,6 +350,7 @@ fn recipe_cell(material: IslandMaterialKind) -> &'static OnceLock<Result<Texture
     static BEACH: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static FALLEN_STONES: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static TREE_BARK: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
+    static ROAD: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     match material {
         IslandMaterialKind::Dirt => &DIRT,
         IslandMaterialKind::ForestFloor => &FOREST_FLOOR,
@@ -351,6 +359,7 @@ fn recipe_cell(material: IslandMaterialKind) -> &'static OnceLock<Result<Texture
         IslandMaterialKind::Beach => &BEACH,
         IslandMaterialKind::FallenStones => &FALLEN_STONES,
         IslandMaterialKind::TreeBark => &TREE_BARK,
+        IslandMaterialKind::Road => &ROAD,
     }
 }
 
@@ -369,6 +378,7 @@ const fn recipe_json(material: IslandMaterialKind) -> &'static str {
             include_str!("../../texture-recipes/FallenStones.json")
         }
         IslandMaterialKind::TreeBark => include_str!("../../texture-recipes/PlateBark.json"),
+        IslandMaterialKind::Road => include_str!("../../texture-recipes/Road.json"),
     }
 }
 
@@ -462,6 +472,47 @@ mod tests {
     }
 
     #[test]
+    fn road_albedo_responds_to_both_island_colours() {
+        let options = RuntimeMaterialBakeOptions {
+            width: Some(128),
+            height: Some(128),
+            normal_convention: NormalConvention::DirectX,
+            materials: MaterialSelection {
+                dirt: false,
+                forest_floor: false,
+                rock: false,
+                river_bed: false,
+                beach: false,
+                fallen_stones: false,
+                tree_bark: false,
+                road: true,
+            },
+        };
+        let bake_road = |inputs: RuntimeMaterialInputs| {
+            bake_island_materials(&inputs, &options)
+                .expect("Road runtime bake")
+                .materials
+                .remove(&IslandMaterialKind::Road)
+                .expect("Road textures")
+        };
+        let palette = inputs();
+        let original = bake_road(palette);
+        let changed_dirt = bake_road(RuntimeMaterialInputs {
+            dirt_colour: LinearRgb::new(1.0, 0.0, 0.0),
+            ..palette
+        });
+        let changed_stone = bake_road(RuntimeMaterialInputs {
+            stone_colour: LinearRgb::new(0.0, 0.0, 1.0),
+            ..palette
+        });
+
+        assert_ne!(original.albedo, changed_dirt.albedo);
+        assert_ne!(original.albedo, changed_stone.albedo);
+        assert_eq!(original.height, changed_dirt.height);
+        assert_eq!(original.height, changed_stone.height);
+    }
+
+    #[test]
     fn fallen_stones_keep_engine_dirt_and_stone_colours_separate() {
         let result = bake_island_materials(
             &RuntimeMaterialInputs::new(
@@ -481,6 +532,7 @@ mod tests {
                     beach: false,
                     fallen_stones: true,
                     tree_bark: false,
+                    road: false,
                 },
             },
         )
@@ -521,6 +573,7 @@ mod tests {
                     beach: false,
                     fallen_stones: false,
                     tree_bark: false,
+                    road: false,
                 },
             },
         )
@@ -558,6 +611,7 @@ mod tests {
                     beach: false,
                     fallen_stones: false,
                     tree_bark: false,
+                    road: false,
                 },
             },
         )
@@ -598,6 +652,7 @@ mod tests {
                     beach: true,
                     fallen_stones: false,
                     tree_bark: false,
+                    road: false,
                 },
             },
         )
@@ -628,6 +683,7 @@ mod tests {
                     beach: false,
                     fallen_stones: false,
                     tree_bark: true,
+                    road: false,
                 },
             },
         )
@@ -652,6 +708,7 @@ mod tests {
                 beach: true,
                 fallen_stones: false,
                 tree_bark: false,
+                road: false,
             },
         };
         let first = bake_island_materials(

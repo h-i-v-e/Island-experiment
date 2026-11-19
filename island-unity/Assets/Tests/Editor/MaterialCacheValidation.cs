@@ -67,6 +67,12 @@ namespace Motu.Editor
                     Sequence(resolution * resolution * 3, 23),
                     Sequence(resolution * resolution * 2, 41),
                     Sequence(resolution * resolution, 59));
+                var road = new IslandPreparedMaterialTexture(
+                    resolution, resolution, 1f, 1f, -0.02f, 0.02f, 0f,
+                    Sequence(resolution * resolution * 3, 73),
+                    Sequence(resolution * resolution * 3, 97),
+                    Sequence(resolution * resolution * 2, 123),
+                    Sequence(resolution * resolution, 147));
                 var expected = new IslandPreparedMaterialTextures(
                     colours,
                     texture,
@@ -75,7 +81,8 @@ namespace Motu.Editor
                     texture,
                     texture,
                     texture,
-                    texture);
+                    texture,
+                    road);
                 TrySave(expected, 1024L * 1024L, directory);
                 var actual = TryLoad(colours, resolution, 1024L * 1024L, directory);
                 if (actual == null
@@ -86,7 +93,8 @@ namespace Motu.Editor
                     || !Same(texture, actual.riverBed)
                     || !Same(texture, actual.beach)
                     || !Same(texture, actual.fallenStones)
-                    || !Same(texture, actual.treeBark))
+                    || !Same(texture, actual.treeBark)
+                    || !Same(road, actual.road))
                 {
                     throw new InvalidOperationException(
                         "The content-addressed material cache did not round-trip its maps.");

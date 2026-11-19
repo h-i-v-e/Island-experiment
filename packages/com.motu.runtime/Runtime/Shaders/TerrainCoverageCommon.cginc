@@ -7,6 +7,7 @@
 #define MOTU_LAYER_RIVER_BED 3
 #define MOTU_LAYER_BEACH 4
 #define MOTU_LAYER_STONES 5
+#define MOTU_LAYER_ROAD 6
 
 sampler3D _CliffNoise3D;
 sampler2D _GrassPatchNoise;
@@ -74,6 +75,10 @@ struct MotuTerrainCoverage
     half beach;
     half forestFloor;
     half stones;
+    half road;
+    half roadShoulder;
+    half cartTrack;
+    half gravel;
     half grass;
     half snow;
     half cliff;
@@ -125,7 +130,7 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
     float3 localPosition,
     half3 worldNormal,
     half4 material,
-    half2 environment)
+    half4 environment)
 {
     MotuTerrainCoverage result;
     result.noise = MotuSampleTerrainNoise(localPosition);
@@ -244,6 +249,14 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         _StonesEdgeBlendWidth)
         * step(0.0h, elevation);
 
+    // The vertex profile runs from soil through gravel at 0.5 to paving at 1.
+    half shoulder = saturate(environment.z * 2.0h);
+    result.roadShoulder = smoothstep(0.0h, 1.0h,
+        shoulder + result.noise.detail.r * shoulder * (1.0h - shoulder) * 0.3h);
+    result.road = smoothstep(0.5h, 1.0h, environment.z);
+    result.cartTrack = saturate(1.0h - environment.w) * (1.0h - result.roadShoulder);
+    result.gravel = result.roadShoulder + result.cartTrack;
+
     float2 grassUv = MotuTerrainFieldPosition(localPosition).xz / max(_GrassPatchNoiseWorldSize, 0.1);
     half2 grassLayers = tex2D(_GrassPatchNoise, grassUv).rg;
     half grassPatch = grassLayers.r * 0.65h + grassLayers.g * 0.35h;
@@ -256,7 +269,8 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         -max(0.05h, fwidth(grassDistance)),
         max(0.05h, fwidth(grassDistance)),
         grassDistance)
-        * step(0.0h, elevation);
+        * step(0.0h, elevation)
+        * (1.0h - result.gravel);
 
     float noisySnowLine = _SnowLine
         + result.noise.macro.r * _SnowMacroNoiseMetres

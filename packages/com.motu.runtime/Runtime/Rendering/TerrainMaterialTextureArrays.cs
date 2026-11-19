@@ -6,17 +6,20 @@ namespace Motu.Rendering
 {
     internal sealed class TerrainMaterialTextureArrays : IDisposable
     {
-        internal const int LayerCount = 6;
         internal const int DirtLayer = 0;
         internal const int ForestFloorLayer = 1;
         internal const int RockLayer = 2;
         internal const int RiverBedLayer = 3;
         internal const int BeachLayer = 4;
         internal const int FallenStonesLayer = 5;
+        internal const int RoadLayer = 6;
+        internal const int LayerCount = RoadLayer + 1;
 
         private static readonly int AlbedoArrayId = Shader.PropertyToID("_TerrainAlbedoArray");
         private static readonly int NormalArrayId = Shader.PropertyToID("_TerrainNormalArray");
         private static readonly int MaskArrayId = Shader.PropertyToID("_TerrainMaskArray");
+        private static readonly int PackedRoadTileMetresId = Shader.PropertyToID("_PackedRoadTileMetres");
+        private static readonly int RoadHeightRangeId = Shader.PropertyToID("_RoadHeightRange");
         private static readonly int ParallaxNeutralHeightsAId =
             Shader.PropertyToID("_TerrainParallaxNeutralHeightsA");
         private static readonly int ParallaxNeutralHeightsBId =
@@ -28,6 +31,7 @@ namespace Motu.Rendering
         private readonly Vector4 parallaxNeutralHeightsA;
         private readonly Vector4 parallaxNeutralHeightsB;
         private readonly Vector4 roadTileMetres;
+        private readonly float roadHeightRange;
 
         internal TerrainMaterialTextureArrays(IslandPreparedMaterialTextures textures)
         {
@@ -40,6 +44,7 @@ namespace Motu.Rendering
                 textures.riverBed,
                 textures.beach,
                 textures.fallenStones,
+                textures.road,
             };
             var width = layers[0].width;
             var height = layers[0].height;
@@ -59,10 +64,10 @@ namespace Motu.Rendering
             parallaxNeutralHeightsB = new Vector4(
                 layers[BeachLayer].NormalizedBaseHeight,
                 layers[FallenStonesLayer].NormalizedBaseHeight,
-                0f,
+                layers[RoadLayer].NormalizedBaseHeight,
                 0f);
-            roadTileMetres = new Vector4(textures.dirt.physicalTileWidthMetres, textures.dirt.physicalTileHeightMetres,
-                textures.rock.physicalTileWidthMetres, textures.rock.physicalTileHeightMetres);
+            roadTileMetres = new Vector4(textures.road.physicalTileWidthMetres, textures.road.physicalTileHeightMetres, 0f, 0f);
+            roadHeightRange = textures.road.maximumHeight - textures.road.minimumHeight;
 
             albedo = CreateArray(
                 "Island terrain albedo array",
@@ -88,8 +93,8 @@ namespace Motu.Rendering
                 for (var layerIndex = 0; layerIndex < layers.Length; layerIndex++)
                 {
                     var layer = layers[layerIndex];
-                    albedo.SetPixelData(ExpandRgb(layer.albedoRgb, 255), 0, layerIndex);
-                    normal.SetPixelData(ExpandRgb(layer.normalRgb, 255), 0, layerIndex);
+                    albedo.SetPixelData(ExpandRgb(layer.albedoRgb), 0, layerIndex);
+                    normal.SetPixelData(ExpandRgb(layer.normalRgb), 0, layerIndex);
                     mask.SetPixelData(PackHeightAndOcclusion(layer), 0, layerIndex);
                 }
                 albedo.Apply(true, true);
@@ -115,6 +120,10 @@ namespace Motu.Rendering
             material.SetTexture(AlbedoArrayId, albedo);
             material.SetTexture(NormalArrayId, normal);
             material.SetTexture(MaskArrayId, mask);
+            if (material.HasProperty(PackedRoadTileMetresId))
+                material.SetVector(PackedRoadTileMetresId, roadTileMetres);
+            if (material.HasProperty(RoadHeightRangeId))
+                material.SetFloat(RoadHeightRangeId, roadHeightRange);
             material.SetVector(ParallaxNeutralHeightsAId, parallaxNeutralHeightsA);
             material.SetVector(ParallaxNeutralHeightsBId, parallaxNeutralHeightsB);
         }
@@ -171,7 +180,7 @@ namespace Motu.Rendering
             return texture;
         }
 
-        private static byte[] ExpandRgb(byte[] source, byte alpha)
+        private static byte[] ExpandRgb(byte[] source)
         {
             var pixels = source.Length / 3;
             var destination = new byte[checked(pixels * 4)];
@@ -180,7 +189,7 @@ namespace Motu.Rendering
                 destination[index * 4] = source[index * 3];
                 destination[index * 4 + 1] = source[index * 3 + 1];
                 destination[index * 4 + 2] = source[index * 3 + 2];
-                destination[index * 4 + 3] = alpha;
+                destination[index * 4 + 3] = 255;
             }
             return destination;
         }

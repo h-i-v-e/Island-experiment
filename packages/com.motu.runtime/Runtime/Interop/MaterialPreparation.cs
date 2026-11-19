@@ -37,7 +37,7 @@ namespace Motu.Interop
                 width = checked((uint)resolution),
                 height = checked((uint)resolution),
                 normalConvention = 1,
-                materialMask = 0x7f,
+                materialMask = 0xff,
                 reserved = 0,
             };
             var succeeded = MotuNative.BakeMotuMaterialTextures(
@@ -51,6 +51,9 @@ namespace Motu.Interop
                     throw new InvalidOperationException(
                         "The Rust procedural material library could not bake the requested textures.");
                 }
+                if (MotuNative.GetMotuRoadMaterialTexture(textures.handle, out var road) == 0)
+                    throw new InvalidOperationException("The Rust material bake is missing the road texture.");
+
                 var result = new IslandPreparedMaterialTextures(
                     colours,
                     CopyMaterialTexture(textures.dirt, resolution, "dirt"),
@@ -59,7 +62,8 @@ namespace Motu.Interop
                     CopyMaterialTexture(textures.riverBed, resolution, "river bed"),
                     CopyMaterialTexture(textures.beach, resolution, "beach"),
                     CopyMaterialTexture(textures.fallenStones, resolution, "fallen stones"),
-                    CopyMaterialTexture(textures.treeBark, resolution, "tree bark"));
+                    CopyMaterialTexture(textures.treeBark, resolution, "tree bark"),
+                    CopyMaterialTexture(road, resolution, "road"));
                 IslandMaterialTextureCache.TrySave(
                     result,
                     cacheBudgetBytes,

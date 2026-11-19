@@ -7,7 +7,7 @@ struct GrassVertexInput
 {
     float4 vertex : POSITION;
     float3 normal : NORMAL;
-    float2 environment : TEXCOORD1;
+    float4 environment : TEXCOORD1;
     float4 material : COLOR;
 };
 
@@ -22,7 +22,7 @@ struct GrassVertexOutput
     UNITY_FOG_COORDS(5)
     float3 islandLocalSurfacePosition : TEXCOORD6;
     half3 windLighting : TEXCOORD7;
-    half2 environment : TEXCOORD8;
+    half4 environment : TEXCOORD8;
 };
 
 half _GrassEnabled;

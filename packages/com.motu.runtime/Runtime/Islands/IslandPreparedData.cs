@@ -15,6 +15,8 @@ namespace Motu.Islands
         internal readonly Color[] material;
         internal readonly Vector2[] environment;
         internal readonly Vector2[] caveAttributes;
+        internal readonly float[] roadCoverage;
+        internal readonly float[] cartTrackCoverage;
 
         internal IslandPreparedMesh(
             Vector3[] vertices,
@@ -23,7 +25,9 @@ namespace Motu.Islands
             Vector2[] uv,
             Color[] material,
             Vector2[] environment,
-            Vector2[] caveAttributes = null)
+            Vector2[] caveAttributes = null,
+            float[] roadCoverage = null,
+            float[] cartTrackCoverage = null)
         {
             this.vertices = vertices;
             this.normals = normals;
@@ -32,6 +36,8 @@ namespace Motu.Islands
             this.material = material;
             this.environment = environment;
             this.caveAttributes = caveAttributes ?? Array.Empty<Vector2>();
+            this.roadCoverage = roadCoverage ?? Array.Empty<float>();
+            this.cartTrackCoverage = cartTrackCoverage ?? Array.Empty<float>();
         }
     }
 
@@ -243,6 +249,7 @@ namespace Motu.Islands
         internal readonly IslandPreparedMaterialTexture beach;
         internal readonly IslandPreparedMaterialTexture fallenStones;
         internal readonly IslandPreparedMaterialTexture treeBark;
+        internal readonly IslandPreparedMaterialTexture road;
 
         internal IslandPreparedMaterialTextures(
             IslandMaterialColours colours,
@@ -253,6 +260,7 @@ namespace Motu.Islands
             IslandPreparedMaterialTexture beach,
             IslandPreparedMaterialTexture fallenStones,
             IslandPreparedMaterialTexture treeBark,
+            IslandPreparedMaterialTexture road,
             bool loadedFromCache = false)
         {
             this.loadedFromCache = loadedFromCache;
@@ -264,6 +272,7 @@ namespace Motu.Islands
             this.beach = beach ?? throw new ArgumentNullException(nameof(beach));
             this.fallenStones = fallenStones ?? throw new ArgumentNullException(nameof(fallenStones));
             this.treeBark = treeBark ?? throw new ArgumentNullException(nameof(treeBark));
+            this.road = road ?? throw new ArgumentNullException(nameof(road));
         }
     }
 

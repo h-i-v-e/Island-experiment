@@ -3,7 +3,7 @@ use super::{Island, Terrain, TriangleIndex};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, mesh::EdgeSplitStencil, roads::RoadNetwork};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::{Add, Mul},
 };
 
@@ -109,12 +109,12 @@ impl Island {
         let bounds = [min, max].map(|point| point / ISLAND_WORLD_METRES);
         let mut terrain = Terrain::with_index(mesh, index);
         terrain.road_sampling_bounds = Some(bounds);
+        terrain.road_coverage = Some(corridor);
 
         extend_field(&mut self.material.values, &additions);
         extend_field(&mut self.environment.values, &additions);
         extend_field(&mut self.distance_to_land, &additions);
         extend_field(&mut self.submerged_river_carve, &additions);
-        mask_paving(&mut self.environment.values, terrain.vertices(), &corridor);
         self.terrain = terrain;
         self.coarser_lods = [lod1, lod2];
         #[cfg(feature = "surface-atlas")]
@@ -272,19 +272,7 @@ where
     }
 }
 
-fn mask_paving(environment: &mut [Vec2], vertices: &[crate::Vec3], corridor: &CorridorIndex) {
-    for (value, vertex) in environment.iter_mut().zip(vertices) {
-        let point = vertex.truncate() * ISLAND_WORLD_METRES;
-        let coverage = corridor.paving_coverage(point);
-        // Stone coverage displaces grass-eligible dirt in the ground shaders.
-        // Leave the terrain's material, particularly river-bed weight, alone.
-        if coverage > 0. {
-            *value = value.lerp(Vec2::Y, coverage);
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Corridor {
     start: Vec2,
     end: Vec2,
@@ -293,6 +281,7 @@ struct Corridor {
     radius: f32,
     core_radius: f32,
     shoulder: f32,
+    joined_ends: [bool; 2],
 }
 
 impl Corridor {
@@ -306,6 +295,7 @@ impl Corridor {
             radius: core_radius + shoulder,
             core_radius,
             shoulder,
+            joined_ends: [false; 2],
         }
     }
 
@@ -353,42 +343,86 @@ impl Corridor {
         })
     }
 
-    fn paving_coverage(self, point: Vec2) -> f32 {
-        let offset = point - self.start;
-        let distance = if self.length > 0. {
-            let along = offset.dot(self.axis);
-            Vec2::new(
-                (offset.dot(self.axis.perp()).abs() - self.core_radius).max(0.),
-                (along - along.clamp(0., self.length)).abs(),
-            )
-            .length()
-        } else {
-            (offset.length() - self.core_radius).max(0.)
-        };
-        let transition = self
+    fn material_profile(self, point: Vec2) -> f32 {
+        let outer_width = self
             .shoulder
             .clamp(PAVEMENT_EDGE_MIN_METRES, SHOULDER_EDGE_METRES);
-        let apron = transition * 0.5;
-        1. - ((distance - apron) / apron).clamp(0., 1.)
+        let inner_width = (outer_width * 0.5).min(self.core_radius * 0.4);
+        let offset = point - self.start;
+        let edge_distance = if self.length > 0. {
+            let along = offset.dot(self.axis);
+            // Overlap the paint where a strip meets another paved section
+            // so the shared edge cannot cut a gravel stripe across it.
+            let [start, end] = self
+                .joined_ends
+                .map(|joined| if joined { inner_width * 2. } else { 0. });
+            let edges = Vec2::new(
+                offset.dot(self.axis.perp()).abs() - self.core_radius,
+                (-along - start).max(along - self.length - end),
+            );
+            edges.max(Vec2::ZERO).length() + edges.max_element().min(0.)
+        } else {
+            offset.length() - self.core_radius
+        };
+        if edge_distance >= 0. {
+            0.5 * (1. - edge_distance / outer_width).clamp(0., 1.)
+        } else {
+            0.5 + 0.5 * (-edge_distance / inner_width).min(1.)
+        }
     }
 }
 
-struct CorridorIndex {
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct CorridorIndex {
     roads: Vec<Corridor>,
     bins: Vec<Vec<usize>>,
     min: Vec2,
     max: Vec2,
 }
 
+impl Terrain {
+    /// Sample the road material profile at normalized terrain XY.
+    /// 0 is natural terrain, 0.5 is the gravel edge, and 1 is the paved core.
+    #[must_use]
+    pub fn road_coverage_at(&self, point: Vec2) -> f32 {
+        self.road_coverage.as_ref().map_or(0., |corridor| {
+            corridor.material_profile(point * ISLAND_WORLD_METRES)
+        })
+    }
+
+    #[must_use]
+    pub fn has_road_coverage(&self) -> bool {
+        self.road_coverage.is_some()
+    }
+}
+
 impl CorridorIndex {
     fn new(network: &RoadNetwork, min: Vec2, max: Vec2) -> Self {
+        let mut joined = network
+            .junctions
+            .iter()
+            .filter(|junction| junction.radius > 0.)
+            .map(|junction| junction.node)
+            .collect::<BTreeSet<_>>();
+        // Equal-width straight sections share a node without a junction face.
+        let mut endpoints = BTreeSet::new();
+        joined.extend(
+            network
+                .strips
+                .iter()
+                .flat_map(|strip| [strip.start, strip.end])
+                .filter(|&node| !endpoints.insert(node)),
+        );
         let roads = network
             .strips
             .iter()
             .map(|strip| {
                 let start = strip.stations[0].point;
                 let end = strip.stations[strip.stations.len() - 1].point;
-                Corridor::new(start, end, strip.half_width, network.shoulder)
+                Corridor {
+                    joined_ends: [joined.contains(&strip.start), joined.contains(&strip.end)],
+                    ..Corridor::new(start, end, strip.half_width, network.shoulder)
+                }
             })
             .chain(
                 network
@@ -448,9 +482,9 @@ impl CorridorIndex {
             .fold(SHOULDER_EDGE_METRES, f32::min)
     }
 
-    fn paving_coverage(&self, point: Vec2) -> f32 {
+    fn material_profile(&self, point: Vec2) -> f32 {
         self.candidates(point, point)
-            .map(|road| road.paving_coverage(point))
+            .map(|road| road.material_profile(point))
             .fold(0., f32::max)
     }
 }
@@ -461,7 +495,7 @@ fn box_bins(min: Vec2, max: Vec2) -> impl Iterator<Item = usize> {
     (bin(min.y)..=bin(max.y)).flat_map(move |y| x.clone().map(move |x| y * CORRIDOR_INDEX_SIZE + x))
 }
 
-fn segment_distance_squared(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f32 {
+pub(super) fn segment_distance_squared(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f32 {
     let u = b - a;
     let v = d - c;
     let cross = u.perp_dot(v);
@@ -489,7 +523,7 @@ mod tests {
     use super::*;
     use crate::{
         ForestOptions,
-        roads::{RoadStation, RoadStrip},
+        roads::{RoadEdge, RoadGradeOptions, RoadJunction, RoadStation, RoadStrip, grade_roads},
     };
 
     fn road(start: Vec2, end: Vec2, height: f32) -> RoadNetwork {
@@ -514,6 +548,71 @@ mod tests {
 
     fn fixture() -> Island {
         Island::shared_forest_fixture(ForestOptions::default())
+    }
+
+    #[test]
+    fn a_junction_does_not_add_a_gravel_stripe_across_the_road() {
+        let mut route = road(Vec2::new(652., 650.), Vec2::new(680., 650.), 39.);
+        route.junctions.push(RoadJunction {
+            node: 0,
+            point: Vec2::new(650., 650.),
+            height: 39.,
+            radius: 2.,
+            square_axis: Some(Vec2::X),
+            rectangle_half_extents: None,
+        });
+        let (min, max) = route.bounds().unwrap();
+        let corridor = CorridorIndex::new(&route, min, max);
+        for x in [651.6, 651.8, 652., 652.2] {
+            assert!(corridor.material_profile(Vec2::new(x, 650.)) > 0.99);
+        }
+        assert!((corridor.material_profile(Vec2::new(652., 652.)) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn straight_sections_share_paving_across_their_common_endpoint() {
+        let nodes = [
+            Vec2::new(630., 650.),
+            Vec2::new(650., 650.),
+            Vec2::new(680., 650.),
+        ];
+        let route = grade_roads(
+            &nodes,
+            &[
+                RoadEdge {
+                    start: 0,
+                    end: 1,
+                    half_width: 2.,
+                },
+                RoadEdge {
+                    start: 1,
+                    end: 2,
+                    half_width: 2.,
+                },
+            ],
+            RoadGradeOptions {
+                min_height: 1.,
+                max_grade: 0.22,
+                max_cut: 3.,
+                shoulder: 2.,
+                sample_spacing: 1.,
+            },
+            |_| Some(39.),
+        );
+        assert_eq!(route.strips.len(), 2);
+        assert!(route.junctions.is_empty());
+        let (min, max) = route.bounds().unwrap();
+        let corridor = CorridorIndex::new(&route, min, max);
+        for x in [649.6, 649.8, 650., 650.2, 650.4] {
+            assert_eq!(corridor.material_profile(Vec2::new(x, 650.)), 1., "at {x}");
+            assert_eq!(corridor.material_profile(Vec2::new(x, 651.5)), 1., "at {x}");
+            assert_eq!(corridor.material_profile(Vec2::new(x, 652.)), 0.5, "at {x}");
+        }
+        assert_eq!(
+            corridor.material_profile(nodes[0]),
+            0.5,
+            "actual end of the road"
+        );
     }
 
     #[test]
@@ -548,18 +647,12 @@ mod tests {
             assert!((fine.sample_height_map(point.x, point.y) - hit).abs() < 1.0e-6);
             assert!((fine.sample(point.x, point.y) - hit).abs() < 1.0e-6);
             let environment = island.environment.sample(fine, point);
-            assert!(environment.x.abs() < 1.0e-6);
-            if offset.abs() < 2. {
-                assert!(
-                    environment.y > 0.98,
-                    "paving must suppress grass at {offset}"
-                );
+            assert!(environment.length() < 1.0e-6);
+            if offset.abs() <= 1.5 {
+                assert!(fine.road_coverage_at(point) > 0.98, "road core at {offset}");
             }
             if offset > 4. {
-                assert!(
-                    environment.y < 0.02,
-                    "unaltered terrain retains its ground cover"
-                );
+                assert!(fine.road_coverage_at(point) < 0.02, "unaltered ground");
             }
             for mesh in &island.coarser_lods {
                 let value = Terrain::new(mesh.clone())
@@ -567,6 +660,14 @@ mod tests {
                     .unwrap();
                 assert!((value.position.z - hit).abs() < 1.0e-7);
             }
+        }
+        for (offset, expected) in [(1.8, 0.75), (2., 0.5), (2.4, 0.25), (2.85, 0.)] {
+            let point = (station + direction * offset) / ISLAND_WORLD_METRES;
+            let profile = island.terrain().road_coverage_at(point);
+            assert!(
+                (profile - expected).abs() < 0.001,
+                "profile at {offset}: {profile}"
+            );
         }
         assert!(island.apply_town_roads(&route).is_err());
         assert_eq!(

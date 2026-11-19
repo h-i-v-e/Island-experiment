@@ -81,14 +81,11 @@ impl Island {
         clamp_sides: u8,
     ) -> Result<Vec<Mesh>, &str> {
         let atlas = self.cached_surface_atlas(lod)?;
+        let mesh = self.terrain.cart_track_atlas_mesh(lod, &atlas.mesh);
         let tiles = self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
-            || {
-                atlas
-                    .mesh
-                    .sliced_grid_preserving_uv_seams(bounds, divisions)
-            },
+            || mesh.sliced_grid_preserving_uv_seams(bounds, divisions),
             |coarser| {
-                atlas.mesh.sliced_grid_clamped_preserving_uv_seams(
+                mesh.sliced_grid_clamped_preserving_uv_seams(
                     bounds,
                     divisions,
                     coarser,
