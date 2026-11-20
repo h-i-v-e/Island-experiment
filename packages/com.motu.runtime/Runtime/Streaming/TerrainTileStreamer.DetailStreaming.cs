@@ -164,7 +164,8 @@ namespace Motu.Streaming
                 var retired = new List<TileGroup>(lod0Groups.Count);
                 foreach (var replacement in replacements)
                 {
-                    if (lod0Groups.TryGetValue(replacement.Key, out var existing))
+                    var replacesDetail = lod0Groups.TryGetValue(replacement.Key, out var existing);
+                    if (replacesDetail)
                     {
                         HideRetiredTerrain(existing);
                         lod0Groups.Remove(replacement.Key);
@@ -173,6 +174,7 @@ namespace Motu.Streaming
                     lod0Groups.Add(replacement.Key, replacement.Value);
                     pendingTransitionGroups.Remove(replacement.Value);
                     replacement.Value.root.SetActive(true);
+                    ShowWheatPlants(replacement.Key, replacement.Value.tiles[0]?.wheatPlants, !replacesDetail);
                 }
 
                 var desiredSet = new HashSet<Vector2Int>(desired);
@@ -191,6 +193,7 @@ namespace Motu.Streaming
                     retired.Add(group);
                     lod0Groups.Remove(key);
                     SetLod1TileActive(key, true);
+                    HideWheatPlants(key, group.tiles[0]?.wheatPlants);
                     RevealLod2TileIfUncovered(new Vector2Int(
                         key.x / Divisions,
                         key.y / Divisions));
@@ -362,6 +365,7 @@ namespace Motu.Streaming
                         tileObject.transform.SetParent(root.transform, false);
                         tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                         tiles[index] = new Tile(tileObject, mesh);
+                        InstallWheatTile(tiles[index], preparedMesh.wheat);
                     }
 
                     // Mesh and tangent uploads must use Unity's main thread. Yield
@@ -390,7 +394,7 @@ namespace Motu.Streaming
             var area = new MotuNative.ExportArea(parent.x * inverse, parent.y * inverse,
                 (parent.x + 1) * inverse, (parent.y + 1) * inverse);
             var preparation = TerrainGridWorker.PrepareAsync(nativeOwner, area, lod, divisions,
-                clampSides, worldSize, cancellation.Token);
+                clampSides, worldSize, cancellation.Token, wheatFields);
             // Observe faults even if a teleport/unload abandons this coroutine.
             _ = preparation.ContinueWith(task => { _ = task.Exception; },
                 CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
@@ -425,6 +429,7 @@ namespace Motu.Streaming
                         tile.AddComponent<MeshFilter>().sharedMesh = mesh;
                         group.tiles[index] = new Tile(tile, mesh);
                         if (lod == 0) ConfigureTerrainRenderer(tile);
+                        InstallWheatTile(group.tiles[index], meshes[index].wheat);
                         meshes[index] = null;
                     }
                     if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)

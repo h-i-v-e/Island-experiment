@@ -96,16 +96,18 @@ namespace Motu.Islands
                     generator.Ferns.ShowFerns,
                     cancellationToken,
                     frameBudget,
-                    prepared.boulderColliders);
+                    prepared.boulderColliders,
+                    prepared.wheat);
                 generator.terrainStreamer.SetWaterfallFootDebug(
                     generator.DebugSettings.ShowWaterfallFeet);
                 generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres,
                     generator.Generation.TerrainShape);
-                if (generator.Navigation.Enabled)
-                    IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.InstallBirdPerches(prepared.landBirdPerches, generator.Forest.ShowForests, prepared.colliderHeightMap.maximumHeight);
                 generator.islandRuntime.SetTownRenderer(TownRenderer.Install(generator.runtimeRoot.transform,
-                    prepared.town, worldSize, roadsOnTerrain: true, useBuildingLodBudget: true));
+                    prepared.town, worldSize, terrainTextures: generator.terrainMaterialTextures, roadsOnTerrain: true,
+                    useBuildingLodBudget: true));
+                if (generator.Navigation.Enabled)
+                    IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.Activate();
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime.SetViewPosition(viewer.position);

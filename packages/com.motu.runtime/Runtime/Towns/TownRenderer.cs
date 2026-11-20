@@ -8,7 +8,7 @@ using static Motu.Rendering.UnityObjectLifetime;
 namespace Motu.Towns
 {
     /// <summary>Imports native results only. Placement and terrain fitting live in Rust.</summary>
-    public sealed class TownRenderer : MonoBehaviour
+    public sealed partial class TownRenderer : MonoBehaviour
     {
         private readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
         private readonly List<TownBuildingLod> buildingLods = new List<TownBuildingLod>();
@@ -38,7 +38,9 @@ namespace Motu.Towns
             if (data == null || (!includeUnplacedPrototypes && (data.instances?.Length ?? 0) == 0
                 && (data.settlements?.Length ?? 0) == 0
                 && (data.road_mesh?.indices?.Length ?? 0) == 0 && (data.bridge_candidates?.Length ?? 0) == 0
-                && (data.cartTracks?.run_count ?? 0) == 0)) return null;
+                && (data.cartTracks?.run_count ?? 0) == 0
+                && (data.bridgePlan?.bridges?.Length ?? 0) == 0
+                && (data.bridgePlan?.diagnostics?.Length ?? 0) == 0 && data.pier == null)) return null;
             var root = new GameObject((data.settlements?.Length ?? 0) > 0 ? "River-mouth settlements" : "River-mouth town");
             root.transform.SetParent(parent, false);
             root.transform.localScale = Vector3.one * (worldSize / NativeWorldSizeMetres);
@@ -59,9 +61,12 @@ namespace Motu.Towns
             InspectionLocalPosition = capitalIndex >= 0
                 ? GroundPosition(settlements[capitalIndex].centre, MouthLocalPosition)
                 : MouthLocalPosition;
-            BuildBuildings(data, templatesRoot.transform, BuildSettlementRoots(settlements), capitalIndex, useBuildingLodBudget);
+            var churchStone = BuildBuildings(data, templatesRoot.transform, BuildSettlementRoots(settlements),
+                capitalIndex, useBuildingLodBudget);
             if (settlements.Length == 0 && BuildingCount > 0) SettlementCount = 1;
             BuildSupports(data);
+            BuildBridges(data.bridgePlan, churchStone);
+            BuildCapitalPier(data.pier, data.pierDiagnostic, churchStone);
             RoadCount = data.road_count;
             bridgeCandidates = data.bridge_candidates ?? Array.Empty<TownBridgeCandidate>();
             CartTrackRunCount = data.cartTracks?.run_count ?? 0;
@@ -91,14 +96,16 @@ namespace Motu.Towns
             return roots;
         }
 
-        private void BuildBuildings(TownPreparedData data, Transform templatesRoot, Transform[] settlementRoots,
+        private Material BuildBuildings(TownPreparedData data, Transform templatesRoot, Transform[] settlementRoots,
             int capitalIndex, bool useBuildingLodBudget)
         {
             var prototypes = new GameObject[data.prototypes.Length];
             var prototypeBounds = new Bounds[prototypes.Length];
+            Material churchStone = null;
             SharedPrototypes = prototypes;
             for (var index = 0; index < prototypes.Length; index++)
-                prototypes[index] = BuildPrototype(templatesRoot, data.prototypes[index], out prototypeBounds[index]);
+                prototypes[index] = BuildPrototype(templatesRoot, data.prototypes[index], out prototypeBounds[index],
+                    ref churchStone);
             var grouped = settlementRoots.Length > 0;
             var sawInspectionBuilding = false;
             var sawInspectionFrontage = false;
@@ -136,6 +143,7 @@ namespace Motu.Towns
                     }
                 }
             }
+            return churchStone;
         }
 
         private void BuildSupports(TownPreparedData data)
@@ -211,7 +219,8 @@ namespace Motu.Towns
             return true;
         }
 
-        private GameObject BuildPrototype(Transform parent, TownPrototype source, out Bounds shellBounds)
+        private GameObject BuildPrototype(Transform parent, TownPrototype source, out Bounds shellBounds,
+            ref Material churchStone)
         {
             var root = new GameObject(source.entry_id + " [" + source.hash + "]");
             root.transform.SetParent(parent, false);
@@ -221,6 +230,8 @@ namespace Motu.Towns
                 var imported = CreateMaterial(material, material.slot);
                 imported.name = source.entry_id + " " + material.slot;
                 materials[material.slot] = imported;
+                if (source.is_church && material.slot == "wall" && material.grub_uniform?.Length == 20)
+                    churchStone ??= imported;
             }
             var atlas = CreateMaterial(source.atlas, "atlas");
             atlas.name = source.entry_id + " atlas";
@@ -303,24 +314,45 @@ namespace Motu.Towns
             return child;
         }
 
-        internal Mesh CreateMesh(TownMesh source, string name)
+        internal Mesh CreateMesh(TownMesh source, string name, Vector3 origin = default)
+            => CreateMesh(name, origin, 1f, source);
+
+        private Mesh CreateMesh(string name, Vector3 origin, float uvScale, params TownMesh[] sources)
         {
-            if (source == null || source.positions == null || source.positions.Length % 3 != 0)
-                throw new InvalidOperationException("The native town returned invalid mesh positions.");
-            var count = source.positions.Length / 3;
+            var count = 0;
+            var indexCount = 0;
+            foreach (var source in sources)
+            {
+                if (source?.positions == null || source.positions.Length % 3 != 0)
+                    throw new InvalidOperationException("The native town returned invalid mesh positions.");
+                count += source.positions.Length / 3;
+                indexCount += source.indices.Length;
+            }
             var positions = new Vector3[count];
             var normals = new Vector3[count];
             var uv = new Vector2[count];
-            for (var i = 0; i < count; i++)
+            var triangles = new int[indexCount];
+            var vertexBase = 0;
+            var indexBase = 0;
+            foreach (var source in sources)
             {
-                positions[i] = Vector(source.positions, i * 3);
-                normals[i] = Vector(source.normals, i * 3);
-                uv[i] = new Vector2(source.uvs[i * 2], source.uvs[i * 2 + 1]);
+                var vertexCount = source.positions.Length / 3;
+                for (var i = 0; i < vertexCount; i++)
+                {
+                    positions[vertexBase + i] = Vector(source.positions, i * 3) - origin;
+                    normals[vertexBase + i] = Vector(source.normals, i * 3);
+                    uv[vertexBase + i] = new Vector2(source.uvs[i * 2], source.uvs[i * 2 + 1]) * uvScale;
+                }
+                // Swapping native Y/Z changes handedness.
+                for (var i = 0; i < source.indices.Length; i += 3)
+                {
+                    triangles[indexBase + i] = vertexBase + source.indices[i];
+                    triangles[indexBase + i + 1] = vertexBase + source.indices[i + 2];
+                    triangles[indexBase + i + 2] = vertexBase + source.indices[i + 1];
+                }
+                vertexBase += vertexCount;
+                indexBase += source.indices.Length;
             }
-            var triangles = (int[])source.indices.Clone();
-            // Swapping native Y/Z changes handedness.
-            for (var i = 0; i < triangles.Length; i += 3)
-                (triangles[i + 1], triangles[i + 2]) = (triangles[i + 2], triangles[i + 1]);
             var mesh = Own(new Mesh { name = name, indexFormat = count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 });
             mesh.vertices = positions;
             mesh.normals = normals;

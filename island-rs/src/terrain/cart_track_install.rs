@@ -44,6 +44,18 @@ impl Terrain {
             .map_or(0., |tracks| tracks.surface.coverage_at(xy))
     }
 
+    pub(super) fn cart_track_corridor_overlaps(&self, min: Vec2, max: Vec2) -> bool {
+        self.cart_tracks
+            .as_ref()
+            .is_some_and(|tracks| tracks.surface.corridor_overlaps(min, max))
+    }
+
+    pub(super) fn cart_track_height(&self, xy: Vec2, height: f32) -> f32 {
+        self.cart_tracks.as_ref().map_or(height, |tracks| {
+            height - tracks.surface.rut_cut(self, xy, height)
+        })
+    }
+
     pub(super) fn cart_track_detail_mesh(&self) -> &Mesh {
         self.cart_tracks
             .as_ref()
@@ -76,6 +88,8 @@ impl Island {
         blockers: &[CartTrackBlocker],
         connect_coastal_seams: bool,
         settlement_count: usize,
+        capital: Option<usize>,
+        centres: &[Option<Vec2>],
     ) -> Result<CartTrackReport, String> {
         if self.terrain.has_cart_tracks() {
             return Err("cart tracks have already been prepared on this island".into());
@@ -105,12 +119,13 @@ impl Island {
                     position,
                     direction: inward.to_array(),
                     half_width: 0.9,
+                    curb: false,
                 });
                 approaches.push(points);
             }
         }
-        let mut plan = if inputs.len() > 1 {
-            planner.plan(&inputs)
+        let mut plan = if !inputs.is_empty() {
+            planner.plan(&inputs, capital, centres, exits.len())
         } else {
             CartTrackPlan::default()
         };
@@ -139,11 +154,9 @@ impl Island {
                     .extend(approach[..approach.len() - 1].iter().rev().copied());
             }
         }
-        let surface = CartTrackSurface::new(plan.runs.iter().map(|run| run.points.as_slice()));
+        let surface = CartTrackSurface::new(&plan.runs, &plan.bridges);
         if !surface.is_empty() {
-            let detail = surface
-                .refined_mesh(self.terrain.mesh())?
-                .map(|(mesh, _)| mesh);
+            let detail = surface.rutted_mesh(&self.terrain)?;
             let clearance = cart_track_clearance(&plan);
             for batch in clearance.chunks(4096) {
                 self.clear_decorations(batch)?;
@@ -189,5 +202,6 @@ fn cart_track_clearance(plan: &CartTrackPlan) -> Vec<DecorationClearance> {
             });
         }
     }
+    result.extend(plan.bridge_clearance());
     result
 }

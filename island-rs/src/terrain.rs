@@ -60,8 +60,13 @@ mod snapshot;
 mod surface_atlas;
 mod surface_maps;
 pub(crate) mod town;
+mod town_bridges;
+mod town_footpaths;
+pub(crate) mod town_pier;
+mod town_wheat;
 #[cfg(feature = "surface-atlas")]
 pub use surface_atlas::SurfaceAtlas;
+pub use town_footpaths::TownStairFoot;
 
 pub(crate) use decorations::SettledRock;
 pub use decorations::{Decoration, Decorations};

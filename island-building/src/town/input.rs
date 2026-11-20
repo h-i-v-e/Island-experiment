@@ -83,6 +83,12 @@ pub struct TownInput {
     pub rivers: Vec<RiverPolyline>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub protected_terrain: Vec<motu::TownProtectedTerrain>,
+    /// Bank pairs rejected by precise island fitting, in native XY metres.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bridge_exclusions: Vec<[[f32; 2]; 2]>,
+    /// Generate streets and frontage using land connections only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_bridges: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -227,6 +233,17 @@ pub(super) fn validate_terrain(input: &TownInput) -> Result<(), TownError> {
         || input.protected_terrain.iter().any(|area| !area.is_valid())
     {
         return fail("protected terrain requires up to 64 finite, ordered rectangles");
+    }
+    if input.bridge_exclusions.len() > 4096
+        || input
+            .bridge_exclusions
+            .iter()
+            .flatten()
+            .any(|&[x, y]| grid.sample(x, y).is_none())
+    {
+        return fail(
+            "bridge exclusions require up to 4096 bank pairs with finite XY coordinates inside the height grid",
+        );
     }
     validate_rivers(input)
 }

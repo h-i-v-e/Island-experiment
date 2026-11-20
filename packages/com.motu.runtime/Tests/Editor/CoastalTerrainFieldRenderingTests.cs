@@ -1,3 +1,6 @@
+using System.Threading;
+using Motu.Islands;
+using Motu.Streaming;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -101,6 +104,70 @@ namespace Motu.Tests
         }
 
         [Test]
+        public void EmptyWheatPlotsDoNotAllocateAMask()
+        {
+            Assert.That(WheatGroundMask.Build(System.Array.Empty<WheatField>(), CancellationToken.None), Is.Null);
+        }
+
+        [Test]
+        public void RotatedWheatPlotsClearTerrainGrassAndLeavePathCoverageIntact()
+        {
+            if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat))
+                Assert.Ignore("Wheat coverage comparison requires floating-point render targets.");
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Coastal Terrain Field"));
+            var target = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBFloat);
+            var readback = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var previous = RenderTexture.active;
+            Texture2D mask = null;
+            try
+            {
+                const float centreX = -230;
+                const float centreZ = 37;
+                const float sectionOffset = 6000;
+                float diagonal = Mathf.Sqrt(.5f);
+                material.SetFloat("_ProbeWheatCoverage", 1);
+                material.SetVector("_ProbeEnvironment", new Vector4(1, 1, 0, 1));
+                var unplanted = Sample(material, target, readback, centreX, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(unplanted, new Vector4(0, 1, 1, 1)), Is.LessThan(.001f));
+
+                var field = new WheatField(new Vector2(centreX, centreZ), new Vector2(6, 2), Mathf.PI / 4f, 1);
+                mask = WheatGroundMask.Build(new[] { field }, CancellationToken.None).Bind(material);
+                var planted = Sample(material, target, readback,
+                    centreX + 4f * diagonal, sectionOffset, centreZ + 4f * diagonal);
+                Assert.That(Vector4.Distance(planted, new Vector4(1, 0, 0, 0)), Is.LessThan(.001f));
+
+                var outside = Sample(material, target, readback,
+                    centreX + 4f * diagonal, sectionOffset, centreZ - 4f * diagonal);
+                Assert.That(Vector4.Distance(outside, unplanted), Is.LessThan(.001f));
+                var beyondCrop = Sample(material, target, readback, 600, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(beyondCrop, unplanted), Is.LessThan(.001f));
+                var edge = Sample(material, target, readback,
+                    centreX + 5.775f * diagonal, sectionOffset, centreZ + 5.775f * diagonal);
+                Assert.That(edge.x, Is.EqualTo(.5f).Within(.18f));
+
+                material.SetFloat("_ProbeWheatCoverage", 0);
+                material.SetFloat("_ProbeRoadCoverage", 1);
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, .5f, 0));
+                var footpath = Sample(material, target, readback, centreX, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(footpath, new Vector4(0, 0, 1, 1)), Is.LessThan(.001f));
+                material.SetVector("_ProbeEnvironment", Vector4.zero);
+                var cartTrack = Sample(material, target, readback, centreX, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(cartTrack, new Vector4(1, 0, 1, 1)), Is.LessThan(.001f));
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 1, 0));
+                var road = Sample(material, target, readback, centreX, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(road, new Vector4(0, 1, 1, 1)), Is.LessThan(.001f));
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                Object.DestroyImmediate(mask);
+                Object.DestroyImmediate(readback);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(material);
+            }
+        }
+
+        [Test]
         public void CartTrackFeathersIntoNaturalTerrainAndYieldsToTownPaving()
         {
             if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat))
@@ -135,9 +202,9 @@ namespace Motu.Tests
         }
 
         private static Vector4 Sample(Material material, RenderTexture target, Texture2D readback,
-            float localX, float logicalOffset)
+            float localX, float logicalOffset, float localZ = 37)
         {
-            material.SetVector("_ProbeLocalPosition", new Vector4(localX, 12, 37, 0));
+            material.SetVector("_ProbeLocalPosition", new Vector4(localX, 12, localZ, 0));
             material.SetVector("_MotuTerrainFieldOffset", new Vector4(logicalOffset, 0, 0, 0));
             Graphics.Blit(Texture2D.whiteTexture, target, material);
             RenderTexture.active = target;

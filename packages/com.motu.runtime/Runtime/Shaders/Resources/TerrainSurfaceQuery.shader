@@ -1,5 +1,10 @@
 Shader "Hidden/Motu/Terrain Surface Query"
 {
+    Properties
+    {
+        [NoScaleOffset] [HideInInspector] _MotuWheatGroundMask ("Wheat ground coverage", 2D) = "black" {}
+        [HideInInspector] _MotuWheatGroundUV ("Wheat ground coordinates", Vector) = (0, 0, 0, 0)
+    }
     SubShader
     {
         Pass

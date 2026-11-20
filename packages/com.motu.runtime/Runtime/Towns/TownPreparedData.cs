@@ -10,6 +10,9 @@ namespace Motu.Towns
         public TownInstance[] instances = Array.Empty<TownInstance>();
         public TownMesh supports;
         public TownBox[] support_colliders, stair_colliders;
+        public TownStairFoot[] stair_feet;
+        public TownTrackBlocker[] footpath_blockers;
+        [NonSerialized] public int footpath_vertex_count;
         public TownMaterial support_material;
         public string clearance_json;
         public string roads_json;
@@ -21,14 +24,23 @@ namespace Motu.Towns
         public TownSettlement[] settlements;
         public TownRoadExit[] road_exits;
         public TownTrackBlocker[] routing_blockers;
+        public TownTrackBlocker[] wheat_fields;
         public TownCartTrackPlan cartTracks;
+        [NonSerialized] public TownBridgePlan bridgePlan;
+        [NonSerialized] public TownCapitalPier pier;
+        [NonSerialized] public string pierDiagnostic;
         public string seed;
+    }
+    [Serializable] internal sealed class TownStairFoot
+    {
+        public float[] position, house;
     }
     [Serializable] internal sealed class TownRoadExit
     {
         public int settlement_index;
         public float[] position, direction;
         public float half_width;
+        public bool curb;
     }
     [Serializable] internal sealed class TownTrackBlocker
     {
@@ -50,7 +62,8 @@ namespace Motu.Towns
     [Serializable] internal sealed class TownCartTrackBridge
     {
         public int link_index;
-        public float[] start, end;
+        public float[] start, end, start_heading, end_heading;
+        public float width;
         public string kind;
     }
     [Serializable] internal sealed class TownCartTrackDiagnostic
@@ -67,6 +80,7 @@ namespace Motu.Towns
     [Serializable] internal sealed class TownPrototype
     {
         public string entry_id, hash;
+        public bool is_church;
         public TownLod[] lods;
         public TownDoorData[] doors;
         public TownBox[] colliders, support_colliders;
@@ -104,8 +118,49 @@ namespace Motu.Towns
     }
     [Serializable] internal sealed class TownBridgeCandidate
     {
-        public float[] from, to;
+        public float[] from, to, start_heading, end_heading;
         public float width;
+    }
+    [Serializable] internal sealed class TownBridgePlan
+    {
+        public TownBridge[] bridges;
+        public TownBridgeDiagnostic[] diagnostics;
+    }
+    [Serializable] internal sealed class TownBridge
+    {
+        public string id, surface;
+        public float[] start, end;
+        public int arch_count;
+        public float width;
+        public TownMesh masonry, dressing, deck, coarse_masonry, coarse_deck, collision;
+    }
+    [Serializable] internal sealed class TownBridgeDiagnostic
+    {
+        public int crossing;
+        public string reason;
+        [NonSerialized] public string kind, surface;
+        [NonSerialized] public float[] start, end;
+    }
+    [Serializable] internal sealed class TownCapitalPier
+    {
+        public string id;
+        public float[] start, end;
+        public float deck_height, width, berth_side;
+        public TownPierBerthDefinition berth;
+        public TownTrackBlocker clearance;
+        public bool access_connected;
+        public TownMesh timber, stone, metal, coarse_timber, coarse_stone, collision, navigation;
+        public TownPierPropPointData[] prop_points;
+    }
+    [Serializable] internal sealed class TownPierBerthDefinition
+    {
+        public float[] position, approach, heading;
+        public float min_depth, length, width;
+    }
+    [Serializable] internal sealed class TownPierPropPointData
+    {
+        public float[] position, heading;
+        public string kind;
     }
     [Serializable] internal sealed class TownBox { public float[] min, max; }
     [Serializable] internal sealed class TownDoorData

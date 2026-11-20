@@ -17,6 +17,8 @@ namespace Motu.Islands
         internal readonly Vector2[] caveAttributes;
         internal readonly float[] roadCoverage;
         internal readonly float[] cartTrackCoverage;
+        // Derived from these exact terrain triangles during terrain preparation.
+        internal WheatTileData wheat;
 
         internal IslandPreparedMesh(
             Vector3[] vertices,
@@ -455,6 +457,7 @@ namespace Motu.Islands
     internal sealed class IslandPreparedData : IDisposable
     {
         internal readonly TownPreparedData town;
+        internal readonly IslandPreparedWheat wheat;
         internal NativeIslandHandle handle;
         internal readonly bool loadedFromSnapshot;
         internal readonly IslandPreparedSurfaceMaps surfaceMaps;
@@ -493,12 +496,14 @@ namespace Motu.Islands
             IslandPreparedCaves caves = null,
             IslandPreparedBoulderCollider[][] boulderColliders = null, IslandPreparedMesh navigationMesh = null,
             LandBirdPerch[] landBirdPerches = null,
-            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null, TownPreparedData town = null)
+            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null, TownPreparedData town = null,
+            IslandPreparedWheat wheat = null)
         {
             if (lodSurfaceMaps == null || lodSurfaceMaps.Length != 2
                 || lodSurfaceMaps[0] == null || lodSurfaceMaps[1] == null)
                 throw new ArgumentException("Both coarse terrain atlases are required.", nameof(lodSurfaceMaps));
             this.town = town;
+            this.wheat = wheat;
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
             this.surfaceMaps = surfaceMaps;

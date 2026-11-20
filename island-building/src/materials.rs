@@ -92,7 +92,7 @@ pub(crate) fn generate(
     }
     Ok(materials)
 }
-fn material(
+pub(crate) fn material(
     r: &BuildingRecipe,
     base: &Path,
     slot: MaterialSlot,

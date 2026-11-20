@@ -31,12 +31,16 @@ pub(super) fn generate(
         // solids so there are no duplicate faces at their exact shared planes.
         slabs::joined_boxes(builder, MaterialSlot::Foundation, &shapes);
         colliders.extend(shapes);
+        let run = f32::from(steps) * foundation::STEP_RUN + stairs.tread_overhang;
         layouts.push(FittedStair {
             door_id: stairs.door_id.into(),
             steps,
             step_rise,
             step_run: foundation::STEP_RUN,
             bounds,
+            foot: std::array::from_fn(|axis| {
+                stairs.flight_origin[axis] + stairs.direction[axis] * run
+            }),
         });
     }
     Ok((colliders, layouts))

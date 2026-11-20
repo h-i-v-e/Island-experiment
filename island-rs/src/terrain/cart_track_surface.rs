@@ -1,6 +1,10 @@
-//! Terrain surface coverage for wheel ruts along dry cart-track alignments.
+//! Terrain surface coverage and shallow cuts along dry cart-track alignments.
 use std::collections::BTreeMap;
 
+use super::{
+    Terrain,
+    cart_tracks::{CartTrackBridge, CartTrackRun},
+};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, mesh::EdgeSplitStencil};
 
 const BIN_COUNT: usize = 128;
@@ -9,6 +13,7 @@ const RUT_CORE_RADIUS_METRES: f32 = 0.05;
 const RUT_RADIUS_METRES: f32 = 0.27;
 const TRACK_HALF_WIDTH_METRES: f32 = WHEEL_OFFSET_METRES + RUT_RADIUS_METRES;
 const END_FADE_METRES: f32 = 1.5;
+const MAX_RUT_CUT: f32 = 0.30 / ISLAND_WORLD_METRES;
 const MAXIMUM_CROSS_EDGE_METRES: f32 = 0.19;
 const MAXIMUM_ALONG_EDGE_METRES: f32 = 2.0;
 const MAXIMUM_ADDED_VERTICES: usize = 320_000;
@@ -24,6 +29,7 @@ struct Segment {
     length: f32,
     distance_before: f32,
     distance_after: f32,
+    paint_through_ends: [bool; 2],
 }
 
 impl Segment {
@@ -45,6 +51,7 @@ impl Segment {
             length,
             distance_before: 0.,
             distance_after: 0.,
+            paint_through_ends: [false; 2],
         })
     }
 
@@ -62,12 +69,23 @@ impl Segment {
     fn sample(self, point: Vec2) -> RutSample {
         let offset = point - self.start;
         let along = offset.dot(self.axis).clamp(0., self.length);
-        let distance_squared = (offset - self.axis * along).length_squared();
-        let end_distance =
-            (self.distance_before + along).min(self.distance_after + (self.length - along));
+        let across = offset - self.axis * along;
+        let distances = [
+            self.distance_before + along,
+            self.distance_after + (self.length - along),
+        ];
+        let paint_distance = distances
+            .into_iter()
+            .zip(self.paint_through_ends)
+            .filter_map(|(distance, through)| (!through).then_some(distance))
+            .fold(f32::INFINITY, f32::min);
         RutSample {
-            distance_squared,
-            end_distance,
+            centre: self.start + self.axis * along,
+            across: self.axis.perp_dot(across),
+            normal: self.axis.perp(),
+            distance_squared: across.length_squared(),
+            end_distance: distances[0].min(distances[1]),
+            paint_distance,
         }
     }
 
@@ -127,14 +145,32 @@ fn on_tile_edge(start: Vec2, end: Vec2) -> bool {
 
 #[derive(Clone, Copy)]
 struct RutSample {
+    centre: Vec2,
+    across: f32,
+    normal: Vec2,
     distance_squared: f32,
     end_distance: f32,
+    paint_distance: f32,
 }
 
 impl RutSample {
     fn coverage(self) -> f32 {
         wheel_profile(self.distance_squared.sqrt())
-            * smooth_step(self.end_distance / END_FADE_METRES)
+            * smooth_step(self.paint_distance / END_FADE_METRES)
+    }
+
+    fn cut(self, terrain: &Terrain) -> f32 {
+        let weight =
+            wheel_profile(self.across.abs()) * smooth_step(self.end_distance / END_FADE_METRES);
+        if weight <= 0. {
+            return 0.;
+        }
+        let offset = self.normal * (WHEEL_OFFSET_METRES * self.across.signum());
+        let [here, opposite] = [self.centre + offset, self.centre - offset].map(|point| {
+            let point = point / ISLAND_WORLD_METRES;
+            terrain.sample_height_map(point.x, point.y)
+        });
+        (here - opposite).clamp(0., MAX_RUT_CUT) * weight
     }
 }
 
@@ -160,24 +196,34 @@ pub(super) struct CartTrackSurface {
 }
 
 impl CartTrackSurface {
-    pub(super) fn new<'a>(runs: impl IntoIterator<Item = &'a [[f32; 3]]>) -> Self {
+    #[allow(clippy::float_cmp)] // Bridge endpoints are copied from the associated final dry run.
+    pub(super) fn new(runs: &[CartTrackRun], bridges: &[CartTrackBridge]) -> Self {
         let mut track = Self::default();
-        for (run, points) in runs.into_iter().enumerate() {
+        for (run, alignment) in runs.iter().enumerate() {
+            let points = &alignment.points;
             let [Some(first), Some(last)] = [points.first(), points.last()] else {
                 continue;
             };
             let start_index = track.segments.len();
             let start_crossing = seam_endpoint(*first);
             let end_crossing = seam_endpoint(*last);
-            let mut length = if start_crossing.is_some() {
-                f32::INFINITY
-            } else {
-                0.
+            // Wheel ruts meet the deck at the exact endpoints of a fitted
+            // bridge on this route. Other dry terminals keep their usual fade.
+            let link_bridges = || {
+                bridges
+                    .iter()
+                    .filter(|b| b.link_index == alignment.link_index)
             };
+            let paint_through_ends = [
+                start_crossing.is_some() || link_bridges().any(|b| b.end == *first),
+                end_crossing.is_some() || link_bridges().any(|b| b.start == *last),
+            ];
+            let mut length = 0.;
             for pair in points.windows(2) {
                 let [start, end] = [pair[0], pair[1]].map(|p| Vec2::new(p[0], p[1]));
                 if let Some(mut segment) = Segment::new(run, start, end) {
                     segment.distance_before = length;
+                    segment.paint_through_ends = paint_through_ends;
                     length += segment.length;
                     track.segments.push(segment);
                 }
@@ -188,11 +234,7 @@ impl CartTrackSurface {
             for (side, y) in [start_crossing, end_crossing].into_iter().flatten() {
                 track.seam_crossings[side].push(y);
             }
-            let mut distance_after = if end_crossing.is_some() {
-                f32::INFINITY
-            } else {
-                0.
-            };
+            let mut distance_after = 0.;
             for segment in track.segments[start_index..].iter_mut().rev() {
                 segment.distance_after = distance_after;
                 distance_after += segment.length;
@@ -213,6 +255,11 @@ impl CartTrackSurface {
         self.segments.is_empty()
     }
 
+    pub(super) fn corridor_overlaps(&self, min: Vec2, max: Vec2) -> bool {
+        self.candidates(min, max)
+            .any(|segment| segment.overlaps(min, max))
+    }
+
     pub(super) fn coverage_at(&self, point: Vec2) -> f32 {
         let point = point * ISLAND_WORLD_METRES;
         if let Some(side) = seam_side(point.x) {
@@ -221,20 +268,60 @@ impl CartTrackSurface {
                 .map(|y| wheel_profile((point.y - y).abs()))
                 .fold(0., f32::max);
         }
-        let Some(indices) = self.bins.get(&point_bin(point)) else {
+        self.nearest_runs(point)
+            .map(RutSample::coverage)
+            .fold(0., f32::max)
+    }
+
+    fn nearest_runs(&self, point: Vec2) -> impl Iterator<Item = RutSample> + '_ {
+        self.bins
+            .get(&point_bin(point))
+            .into_iter()
+            .flat_map(move |indices| {
+                indices
+                    .chunk_by(|&a, &b| self.segments[a].run == self.segments[b].run)
+                    .filter_map(move |run| {
+                        run.iter()
+                            .map(|&index| self.segments[index].sample(point))
+                            .min_by(|a, b| a.distance_squared.total_cmp(&b.distance_squared))
+                    })
+            })
+    }
+
+    pub(super) fn rut_cut(&self, terrain: &Terrain, xy: Vec2, height: f32) -> f32 {
+        let point = xy * ISLAND_WORLD_METRES;
+        let seam_distance = point
+            .min(Vec2::splat(ISLAND_WORLD_METRES) - point)
+            .min_element();
+        if height <= 0. || seam_distance <= 0. {
             return 0.;
-        };
-        let mut coverage = 0.0_f32;
-        for run in indices.chunk_by(|&a, &b| self.segments[a].run == self.segments[b].run) {
-            let nearest = run
-                .iter()
-                .map(|&index| self.segments[index].sample(point))
-                .min_by(|a, b| a.distance_squared.total_cmp(&b.distance_squared));
-            if let Some(sample) = nearest {
-                coverage = coverage.max(sample.coverage());
-            }
         }
-        coverage
+        let depth = self
+            .nearest_runs(point)
+            .map(|sample| sample.cut(terrain))
+            .fold(0., f32::max);
+        if depth <= 0. {
+            return 0.;
+        }
+        let pavement = terrain.road_coverage_at(xy);
+        let depth = depth * (1. - pavement) * smooth_step(seam_distance / END_FADE_METRES);
+        depth.min(height)
+    }
+
+    pub(super) fn rutted_mesh(&self, terrain: &Terrain) -> Result<Option<Mesh>, &'static str> {
+        let source = terrain.mesh();
+        let mut refined = self.refined_mesh(source)?.map(|(mesh, _)| mesh);
+        let mesh = refined.as_ref().unwrap_or(source);
+        let cuts: Vec<_> = mesh
+            .vertices
+            .iter()
+            .map(|point| self.rut_cut(terrain, point.truncate(), point.z))
+            .collect();
+        if cuts.iter().any(|&cut| cut > 0.) {
+            let mesh = refined.get_or_insert_with(|| source.clone());
+            lower_rut_vertices(mesh, &cuts);
+        }
+        Ok(refined)
     }
 
     /// Splits only render faces around the wheel ruts and retains the original
@@ -327,6 +414,33 @@ impl CartTrackSurface {
     }
 }
 
+fn lower_rut_vertices(mesh: &mut Mesh, cuts: &[f32]) {
+    for (point, depth) in mesh.vertices.iter_mut().zip(cuts) {
+        point.z -= depth;
+    }
+    if mesh.normals.is_empty() {
+        return;
+    }
+
+    let mut affected = vec![false; mesh.vertices.len()];
+    for face in mesh.triangles.chunks_exact(3) {
+        if face.iter().any(|&index| cuts[index as usize] > 0.) {
+            for &index in face {
+                affected[index as usize] = true;
+            }
+        }
+    }
+    let previous_normals = std::mem::take(&mut mesh.normals);
+    mesh.calculate_normals();
+    for (index, (new, old)) in mesh.normals.iter_mut().zip(previous_normals).enumerate() {
+        let xy = mesh.vertices[index].truncate();
+        // The shared border keeps its native height and normal on both islands.
+        if !affected[index] || xy.min_element() <= 0. || xy.max_element() >= 1. {
+            *new = old;
+        }
+    }
+}
+
 fn seam_side(x: f32) -> Option<usize> {
     [0.0_f32, ISLAND_WORLD_METRES]
         .into_iter()
@@ -366,16 +480,79 @@ fn box_bins(min: Vec2, max: Vec2) -> impl Iterator<Item = usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Vec3, terrain::Terrain};
+    use crate::{
+        Vec3,
+        terrain::{Terrain, cart_tracks::Crossing},
+    };
 
     fn normalized(x: f32, y: f32) -> Vec2 {
         Vec2::new(x, y) / ISLAND_WORLD_METRES
     }
 
+    fn dry_tracks<'a>(runs: impl IntoIterator<Item = &'a [[f32; 3]]>) -> CartTrackSurface {
+        let runs: Vec<_> = runs
+            .into_iter()
+            .map(|points| CartTrackRun {
+                link_index: 0,
+                points: points.to_vec(),
+            })
+            .collect();
+        CartTrackSurface::new(&runs, &[])
+    }
+
+    #[test]
+    fn wheat_clearance_blocks_the_gap_between_the_wheel_ruts() {
+        let points = [[40., 100., 6.], [80., 100., 6.]];
+        let track = dry_tracks([points.as_slice()]);
+        assert!(track.coverage_at(normalized(60., 100.)) < f32::EPSILON);
+        assert!(track.corridor_overlaps(Vec2::new(59.8, 99.9), Vec2::new(60.2, 100.1)));
+        assert!(!track.corridor_overlaps(Vec2::new(59.8, 101.2), Vec2::new(60.2, 101.4)));
+    }
+
+    #[test]
+    fn both_wheel_ruts_reach_the_bridge_banks_while_dry_ends_still_fade() {
+        let near = [50., 100., 6.];
+        let far = [70., 100., 6.];
+        let runs = [
+            CartTrackRun {
+                link_index: 0,
+                points: vec![[40., 100., 6.], near],
+            },
+            CartTrackRun {
+                link_index: 0,
+                points: vec![far, [80., 100., 6.]],
+            },
+        ];
+        let mut bridges = [CartTrackBridge {
+            link_index: 0,
+            start: near,
+            end: far,
+            width: 2.4,
+            kind: Crossing::River,
+            start_heading: Some([1., 0.]),
+            end_heading: Some([1., 0.]),
+        }];
+        let tracks = CartTrackSurface::new(&runs, &bridges);
+        for y in [99.4, 100.6] {
+            for x in [49.9, 50., 70., 70.1] {
+                assert!(tracks.coverage_at(normalized(x, y)) > 0.99);
+            }
+            for x in [40., 60., 80.] {
+                assert!(tracks.coverage_at(normalized(x, y)) < f32::EPSILON);
+            }
+        }
+        // Coincidence with a bank on another link does not pin a dry terminal.
+        bridges[0].link_index = 1;
+        let unrelated = CartTrackSurface::new(&runs, &bridges);
+        for x in [50., 70.] {
+            assert!(unrelated.coverage_at(normalized(x, 100.6)) < f32::EPSILON);
+        }
+    }
+
     #[test]
     fn wheel_ruts_keep_a_natural_centre_and_fade_at_the_dry_end() {
         let run = [[30., 30., 1.], [45., 30., 1.], [60., 38., 1.]];
-        let tracks = CartTrackSurface::new([run.as_slice()]);
+        let tracks = dry_tracks([run.as_slice()]);
         for y in [29.4, 30.6] {
             assert!(tracks.coverage_at(normalized(40., y)) > 0.99);
             assert!(tracks.coverage_at(normalized(30.75, y)) > 0.49);
@@ -390,6 +567,48 @@ mod tests {
         assert!(tracks.coverage_at((bend + axis * 2. + across) / ISLAND_WORLD_METRES) > 0.99);
         assert!(tracks.coverage_at((bend + axis * 0.05 - across) / ISLAND_WORLD_METRES) > 0.99);
         assert!(tracks.coverage_at(bend / ISLAND_WORLD_METRES) < f32::EPSILON);
+    }
+
+    #[test]
+    fn cross_slope_cuts_only_the_higher_rut_and_caps_the_depth() {
+        let run = [[34., 40., 6.], [54., 40., 6.]];
+        let height = |y, cross_slope| 6. + (y - 40.) * cross_slope;
+        let tracks = dry_tracks([run.as_slice()]);
+        for (cross_slope, cut) in [(0.15, 0.18), (0.50, 0.30), (-0.50, 0.30), (0., 0.)] {
+            let [a, b, c, d] = [(31., 37.), (57., 37.), (57., 43.), (31., 43.)].map(|(x, y)| {
+                normalized(x, y).extend(height(y, cross_slope) / ISLAND_WORLD_METRES)
+            });
+            let terrain = Terrain::new(Mesh {
+                vertices: vec![a, b, c, d],
+                normals: vec![Vec3::Z; 4],
+                triangles: vec![0, 1, 2, 0, 2, 3],
+                uv: Vec::new(),
+            });
+            let rut_side = if cross_slope < 0. { -1. } else { 1. };
+            for (x, offset, expected) in [
+                (44., rut_side * 0.60, cut),
+                (44., -rut_side * 0.60, 0.),
+                (44., 0., 0.),
+                (44., 1.0, 0.),
+                (34., rut_side * 0.60, 0.),
+                (34.75, rut_side * 0.60, cut * 0.5),
+                (54., rut_side * 0.60, 0.),
+            ] {
+                let point = normalized(x, 40. + offset);
+                let depth =
+                    tracks.rut_cut(&terrain, point, terrain.sample_height_map(point.x, point.y));
+                assert!((depth * ISLAND_WORLD_METRES - expected).abs() < 0.0001);
+            }
+            let mesh = tracks.rutted_mesh(&terrain).unwrap().unwrap();
+            for point in mesh.vertices {
+                let [x, y, z] = (point * ISLAND_WORLD_METRES).to_array();
+                let depth = height(y, cross_slope) - z;
+                assert!((-0.0001..=cut + 0.0001).contains(&depth));
+                if (y - 40.).abs() <= 0.32 || (y - 40.) * rut_side < 0. {
+                    assert!(depth.abs() < 0.0001, "{x}, {y}: {depth}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -411,7 +630,7 @@ mod tests {
             uv: coordinates.to_vec(),
         };
         let run = [[34., 43., 2.], [54., 52., 2.]];
-        let tracks = CartTrackSurface::new([run.as_slice()]);
+        let tracks = dry_tracks([run.as_slice()]);
         let (mesh, stencils) = tracks.refined_mesh(&source).unwrap().unwrap();
         assert!(!stencils.is_empty());
         assert_eq!(&mesh.vertices[..4], &source.vertices);
@@ -480,7 +699,7 @@ mod tests {
         let east_run = [[east - 8., 607., 41.], [east, 607., 41.]];
         let west_run = [[0., 607., 41.], [8., 607., 41.]];
         let extract = |run: &[[f32; 3]], mesh: Mesh, edge: f32| {
-            let tracks = CartTrackSurface::new([run]);
+            let tracks = dry_tracks([run]);
             let (mesh, _) = tracks.refined_mesh(&mesh).unwrap().unwrap();
             assert!(
                 tracks.coverage_at(Vec2::new(
@@ -552,7 +771,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         });
-        let tracks = CartTrackSurface::new(runs.iter().map(Vec::as_slice));
+        let tracks = dry_tracks(runs.iter().map(Vec::as_slice));
         let now = std::time::Instant::now();
         let (_, splits) = tracks.refined_mesh(&mesh).unwrap().unwrap();
         eprintln!(

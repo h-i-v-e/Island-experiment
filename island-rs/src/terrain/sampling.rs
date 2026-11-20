@@ -70,6 +70,14 @@ impl TriangleIndex {
         &self.faces[self.offsets[bin]..self.offsets[bin + 1]]
     }
 
+    pub(super) fn faces_in_bounds(&self, min: Vec2, max: Vec2) -> impl Iterator<Item = u32> + '_ {
+        let [x_min, y_min] = self.point_bin(min);
+        let [x_max, y_max] = self.point_bin(max);
+        (y_min..=y_max).flat_map(move |y| {
+            (x_min..=x_max).flat_map(move |x| self.bin_faces(x, y).iter().copied())
+        })
+    }
+
     pub(super) fn nearest_vertex(&self, mesh: &Mesh, point: Vec2) -> usize {
         let [origin_x, origin_y] = self.point_bin(point);
         let mut best = None::<(f32, usize)>;
@@ -131,6 +139,8 @@ pub struct Terrain {
     pub(super) road_sampling_bounds: Option<[Vec2; 2]>,
     #[serde(skip)]
     pub(super) road_coverage: Option<super::road_grade::CorridorIndex>,
+    #[serde(skip)]
+    pub(super) footpaths: Option<super::town_footpaths::FootpathPaint>,
     #[serde(skip)]
     pub(super) cart_tracks: Option<super::cart_track_install::InstalledCartTracks>,
 }
@@ -201,6 +211,7 @@ impl Terrain {
             triangle_index,
             road_sampling_bounds: None,
             road_coverage: None,
+            footpaths: None,
             cart_tracks: None,
         }
     }

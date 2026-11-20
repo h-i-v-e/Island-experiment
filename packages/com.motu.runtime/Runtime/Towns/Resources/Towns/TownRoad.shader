@@ -104,6 +104,35 @@ Shader "Motu/TownRoad"
 
         Pass
         {
+            Name "ShadowCaster"
+            Tags { "LightMode"="ShadowCaster" }
+            ZWrite On
+            ColorMask 0
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex ShadowVert
+            #pragma fragment ShadowFrag
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
+            float3 _LightDirection;
+            float3 _LightPosition;
+            float4 ShadowVert(Attributes input) : SV_POSITION
+            {
+                UNITY_SETUP_INSTANCE_ID(input);
+                float3 position = TransformObjectToWorld(input.positionOS.xyz);
+                float3 normal = TransformObjectToWorldNormal(input.normalOS);
+                #if defined(_CASTING_PUNCTUAL_LIGHT_SHADOW)
+                    float3 direction = normalize(_LightPosition - position);
+                #else
+                    float3 direction = _LightDirection;
+                #endif
+                return ApplyShadowClamping(TransformWorldToHClip(ApplyShadowBias(position, normal, direction)));
+            }
+            half4 ShadowFrag() : SV_Target { return 0; }
+            ENDHLSL
+        }
+
+        Pass
+        {
             Name "DepthOnly"
             Tags { "LightMode"="DepthOnly" }
             ZWrite On

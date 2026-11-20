@@ -1,4 +1,4 @@
-use super::{corridor, strip_ends};
+use super::{CurbExits, corridor, strip_ends};
 use crate::{
     collision::BoxCollider,
     terrain_support::PlacementPose,
@@ -9,6 +9,7 @@ use crate::{
 };
 use motu::{
     Vec2,
+    bridges::{BridgeChannel, BridgeKind, BridgeRequest, BridgeSurface, fit_bridge},
     roads::{MAX_ROAD_EDGES, RoadEdge, RoadGradeOptions, RoadNetwork, RoadStrip, grade_roads},
 };
 use std::{collections::HashMap, ops::Range};
@@ -21,13 +22,18 @@ pub(in crate::town) struct StreetLayout {
     plan: Plan,
     components: Vec<Option<usize>>,
     edge_to_section: Vec<usize>,
-    river_sections: Vec<bool>,
+    bridges: Vec<StreetBridge>,
+}
+
+struct StreetBridge {
+    nodes: [usize; 2],
+    candidate: BridgeCandidate,
 }
 
 pub(in crate::town) struct Streets {
     pub network: RoadNetwork,
     pub exits: Vec<TownRoadExit>,
-    pub curb_exits: Vec<TownRoadExit>,
+    pub curb_exits: CurbExits,
     pub bridges: Vec<BridgeCandidate>,
     pub ring_length: f32,
     pub ring_count: usize,
@@ -42,18 +48,9 @@ impl StreetLayout {
         })
     }
 
-    pub fn finish(mut self, root: usize, input: &TownInput, settings: &TownSettings) -> Streets {
+    pub fn finish(mut self, root: usize) -> Streets {
         let selected = self.components[root];
         let on_street = |node| self.components[node] == selected;
-        let bridges = bridge_candidates(
-            &self.plan,
-            &self.roads,
-            &self.edge_to_section,
-            &self.river_sections,
-            &on_street,
-            input,
-            settings,
-        );
         self.roads.retain_strips(|strip| on_street(strip.start));
         let exits = self.road_exits();
         let ring_strips = self.roads.strips.iter().filter_map(|strip| {
@@ -71,20 +68,79 @@ impl StreetLayout {
         let rows = super::frontage::rows(&self.roads, ring_count, &|strip| {
             self.plan.sections[self.edge_to_section[strip.source]].frontage_ring
         });
-        let curb_exits = if exits.is_empty() {
-            self.outer_curb_exits(ring_count)
-        } else {
-            Vec::new()
+        let curb_exits = CurbExits {
+            ring: self.outer_ring_exits(ring_count),
+            fallback: if exits.is_empty() {
+                self.outer_curb_exits(ring_count)
+            } else {
+                Vec::new()
+            },
         };
         Streets {
             network: self.roads,
             exits,
             curb_exits,
-            bridges,
+            bridges: self
+                .bridges
+                .into_iter()
+                .filter(|bridge| on_street(bridge.nodes[0]))
+                .map(|bridge| bridge.candidate)
+                .collect(),
             ring_length,
             ring_count,
             rows,
         }
+    }
+
+    fn outer_ring_exits(&self, ring_count: usize) -> Vec<TownRoadExit> {
+        let Some(outer) = ring_count.checked_sub(1) else {
+            return Vec::new();
+        };
+        let mut degree = vec![0; self.plan.nodes.len()];
+        let mut ring = vec![[None; 2]; self.plan.nodes.len()];
+        for strip in &self.roads.strips {
+            let section = &self.plan.sections[self.edge_to_section[strip.source]];
+            for node in [strip.start, strip.end] {
+                degree[node] += 1;
+                if section.ring == Some(outer) {
+                    let ends = &mut ring[node];
+                    ends[usize::from(ends[0].is_some())] = Some(strip);
+                }
+            }
+        }
+        for bridge in &self.bridges {
+            for node in bridge.nodes {
+                degree[node] += 1;
+            }
+        }
+
+        let mut exits = Vec::new();
+        for (node, [first, second]) in ring.into_iter().enumerate() {
+            if let [Some(a), Some(b)] = [first, second] {
+                let ray = |strip: &RoadStrip| {
+                    let other = if strip.start == node {
+                        strip.end
+                    } else {
+                        strip.start
+                    };
+                    (self.plan.nodes[other] - self.plan.nodes[node]).normalize()
+                };
+                let (a_ray, b_ray) = (ray(a), ray(b));
+                // Collinear strips only meet at a grading seam.
+                if a_ray.perp_dot(b_ray).abs() > 0.5 {
+                    let outward = -(a_ray + b_ray).normalize();
+                    if let Some(junction) = self.roads.junctions.iter().find(|j| j.node == node) {
+                        let outside = junction.point + outward * (2. * junction.radius);
+                        if let Some(edge) = junction.ray_entry(outside, -outward, 0.) {
+                            exits.push(ring_exit(edge, junction.height, outward, a.half_width));
+                        }
+                    }
+                }
+            } else if let (Some(strip), 1) = (first, degree[node]) {
+                append_dead_end_exits(&mut exits, strip, node);
+            }
+        }
+        exits
     }
 
     fn outer_curb_exits(&self, ring_count: usize) -> Vec<TownRoadExit> {
@@ -108,6 +164,7 @@ impl StreetLayout {
                     position: [curb.x, curb.y, height],
                     direction: outward.to_array(),
                     half_width: strip.half_width,
+                    curb: true,
                 })
             })
             .collect()
@@ -136,9 +193,46 @@ impl StreetLayout {
                     position: [end.point.x, end.point.y, end.height],
                     direction: direction.to_array(),
                     half_width: strip.half_width,
+                    curb: false,
                 })
             })
             .collect()
+    }
+}
+
+fn ring_exit(point: Vec2, height: f32, outward: Vec2, half_width: f32) -> TownRoadExit {
+    TownRoadExit {
+        settlement_index: 0,
+        position: [point.x, point.y, height],
+        direction: outward.to_array(),
+        half_width,
+        curb: true,
+    }
+}
+
+fn append_dead_end_exits(exits: &mut Vec<TownRoadExit>, strip: &RoadStrip, node: usize) {
+    let (from, to) = strip_ends(strip);
+    let Some(forward) = (to - from).try_normalize() else {
+        return;
+    };
+    let (end, heading) = if strip.end == node {
+        (strip.stations.last().unwrap(), forward)
+    } else {
+        (strip.stations.first().unwrap(), -forward)
+    };
+    exits.push(ring_exit(end.point, end.height, heading, strip.half_width));
+
+    // The obstruction that cut off the ring can block the straight departure.
+    // Offer the outside curb just inside the cap to leave room for both wheels.
+    let middle = end.point - heading * (1.0_f32.min(from.distance(to) * 0.5));
+    let outward = -forward.perp();
+    if let Some(height) = strip.surface_height(middle) {
+        exits.push(ring_exit(
+            middle + outward * strip.half_width,
+            height,
+            outward,
+            strip.half_width,
+        ));
     }
 }
 
@@ -345,12 +439,20 @@ pub(in crate::town) fn layout(
         },
         cancelled,
     )?;
+    let bridges = bridge_candidates(
+        &plan,
+        &roads,
+        &edge_to_section,
+        &river_sections,
+        input,
+        settings,
+    );
     let roots = roads
         .strips
         .iter()
         .filter(|strip| edge_to_section[strip.source] < plan.inner_section_count)
         .map(|strip| strip.start);
-    let components = connected_to_centre(&roads, &plan, roots);
+    let components = connected_to_centre(&roads, &bridges, &plan, roots);
     Ok(components
         .iter()
         .any(Option::is_some)
@@ -359,7 +461,7 @@ pub(in crate::town) fn layout(
             plan,
             components,
             edge_to_section,
-            river_sections,
+            bridges,
         }))
 }
 
@@ -429,14 +531,20 @@ fn disable_incomplete_access(plan: &Plan, surviving: &[bool], eligible: &mut [bo
 
 fn connected_to_centre(
     roads: &RoadNetwork,
+    bridges: &[StreetBridge],
     plan: &Plan,
     roots: impl Iterator<Item = usize>,
 ) -> Vec<Option<usize>> {
     let mut components = vec![None; plan.nodes.len()];
     let mut adjacent = vec![Vec::new(); plan.nodes.len()];
-    for strip in &roads.strips {
-        adjacent[strip.start].push(strip.end);
-        adjacent[strip.end].push(strip.start);
+    for [a, b] in roads
+        .strips
+        .iter()
+        .map(|strip| [strip.start, strip.end])
+        .chain(bridges.iter().map(|bridge| bridge.nodes))
+    {
+        adjacent[a].push(b);
+        adjacent[b].push(a);
     }
     let mut pending = Vec::new();
     for root in roots {
@@ -471,10 +579,12 @@ fn bridge_candidates(
     roads: &RoadNetwork,
     edge_to_section: &[usize],
     river_sections: &[bool],
-    connected: &impl Fn(usize) -> bool,
     input: &TownInput,
     settings: &TownSettings,
-) -> Vec<BridgeCandidate> {
+) -> Vec<StreetBridge> {
+    if input.disable_bridges {
+        return Vec::new();
+    }
     let mut graded = vec![None; plan.sections.len()];
     for strip in &roads.strips {
         graded[edge_to_section[strip.source]] = Some(strip);
@@ -497,10 +607,10 @@ fn bridge_candidates(
                     }
                     let from = graded[start - 1]?;
                     let to = graded[after]?;
-                    if !connected(from.end) && !connected(to.start) {
-                        return None;
-                    }
-                    plausible_bridge(from, to, input, settings)
+                    Some(StreetBridge {
+                        nodes: [from.end, to.start],
+                        candidate: plausible_bridge(from, to, input, settings)?,
+                    })
                 })
         })
         .collect()
@@ -514,14 +624,20 @@ fn plausible_bridge(
 ) -> Option<BridgeCandidate> {
     let a = from.stations.last()?;
     let b = to.stations.first()?;
+    if input.bridge_exclusions.iter().any(|&[p, q]| {
+        let p = Vec2::from_array(p);
+        let q = Vec2::from_array(q);
+        let near = |u: Vec2, v: Vec2| u.distance_squared(v) <= 0.75 * 0.75;
+        near(a.point, p) && near(b.point, q) || near(a.point, q) && near(b.point, p)
+    }) {
+        return None;
+    }
     let length = a.point.distance(b.point);
     let width = from.half_width.min(to.half_width) * 2.;
     if length < width || length > 50. || (b.height - a.height).abs() / length > 0.12 {
         return None;
     }
-    if !crosses_channel(a.point, b.point, input) {
-        return None;
-    }
+    let channel = crossed_channel(a.point, b.point, input)?;
     // A wet gap may follow the coastline. Every low sample along a plausible
     // crossing must lie on a river corridor rather than in open water.
     let (a0, _) = strip_ends(from);
@@ -537,42 +653,62 @@ fn plausible_bridge(
             return None;
         }
     }
-    Some(BridgeCandidate {
-        from: [a.point.x, a.point.y, a.height],
-        to: [b.point.x, b.point.y, b.height],
+    let request = BridgeRequest {
+        start: [a.point.x, a.point.y, a.height],
+        end: [b.point.x, b.point.y, b.height],
+        start_heading: Some((a.point - a0).try_normalize()?.to_array()),
+        end_heading: Some((b1 - b.point).try_normalize()?.to_array()),
         width,
+        surface: BridgeSurface::Paved,
+        kind: BridgeKind::River,
+        channel: Some(channel),
+    };
+    fit_bridge(&request, |point| input.terrain.sample(point.x, point.y)).ok()?;
+    Some(BridgeCandidate {
+        from: request.start,
+        to: request.end,
+        width,
+        start_heading: request.start_heading,
+        end_heading: request.end_heading,
     })
 }
 
-fn crosses_channel(from: Vec2, to: Vec2, input: &TownInput) -> bool {
+fn crossed_channel(from: Vec2, to: Vec2, input: &TownInput) -> Option<BridgeChannel> {
     let deck = to - from;
-    let mut crossing: Option<Vec2> = None;
-    for segment in input
-        .rivers
-        .iter()
-        .flat_map(|river| river.points.windows(2))
-    {
-        let a = Vec2::from_array(segment[0]);
-        let offset = a - from;
-        let channel = Vec2::from_array(segment[1]) - a;
-        let cross = deck.perp_dot(channel);
-        if cross.abs() < 0.0001 {
-            continue;
+    let mut crossing: Option<BridgeChannel> = None;
+    for river in &input.rivers {
+        for (index, segment) in river.points.windows(2).enumerate() {
+            let a = Vec2::from_array(segment[0]);
+            let offset = a - from;
+            let channel = Vec2::from_array(segment[1]) - a;
+            let cross = deck.perp_dot(channel);
+            if cross.abs() < 0.0001 {
+                continue;
+            }
+            let along_deck = offset.perp_dot(channel) / cross;
+            let along_channel = offset.perp_dot(deck) / cross;
+            if !(0. ..=1.).contains(&along_deck) || !(0. ..=1.).contains(&along_channel) {
+                continue;
+            }
+            let point = from + deck * along_deck;
+            if cross.abs() < 0.5 * deck.length() * channel.length()
+                || crossing
+                    .is_some_and(|previous| Vec2::from_array(previous.center).distance(point) > 0.2)
+            {
+                return None;
+            }
+            let width =
+                river.width(index) + (river.width(index + 1) - river.width(index)) * along_channel;
+            crossing = Some(BridgeChannel {
+                center: point.to_array(),
+                direction: channel.normalize().to_array(),
+                half_width: width * 0.5,
+                // The planning grid only gives a lower bound. Runtime fits to the island's hydraulic surface.
+                water_height: input.terrain.sample(point.x, point.y)?.max(input.sea_level),
+            });
         }
-        let along_deck = offset.perp_dot(channel) / cross;
-        let along_channel = offset.perp_dot(deck) / cross;
-        if !(0. ..=1.).contains(&along_deck) || !(0. ..=1.).contains(&along_channel) {
-            continue;
-        }
-        let point = from + deck * along_deck;
-        if cross.abs() < 0.5 * deck.length() * channel.length()
-            || crossing.is_some_and(|previous| previous.distance(point) > 0.2)
-        {
-            return false;
-        }
-        crossing = Some(point);
     }
-    crossing.is_some()
+    crossing
 }
 
 #[cfg(test)]
@@ -592,6 +728,8 @@ mod tests {
                 height: 101,
                 heights: vec![10.; 101 * 101],
             },
+            bridge_exclusions: Vec::new(),
+            disable_bridges: false,
             protected_terrain: Vec::new(),
             rivers: Vec::new(),
         }
@@ -640,8 +778,9 @@ mod tests {
             network: roads,
             bridges,
             exits,
+            curb_exits,
             ..
-        } = streets.finish(root, &input, &settings);
+        } = streets.finish(root);
         assert_eq!(roads.strips.len(), initial_sections);
         assert!(bridges.is_empty());
         assert!(roads.validate().is_ok());
@@ -656,6 +795,28 @@ mod tests {
         );
         let config = settings.roads.unwrap();
         assert_eq!(exits.len(), DIRECTIONS.len());
+        let corners = super::super::clear_curb_exits(
+            curb_exits,
+            [0.; 2],
+            &roads,
+            &[],
+            &[],
+            &input,
+            &settings,
+        );
+        let corner_radius = inner + config.ring_spacing + config.half_width;
+        assert_eq!(corners.len(), 4);
+        for corner in corners {
+            let point = Vec2::new(corner.position[0], corner.position[1]);
+            assert!(point.abs().distance(Vec2::splat(corner_radius)) < 0.001);
+            assert!(
+                point
+                    .normalize()
+                    .distance(Vec2::from_array(corner.direction))
+                    < 0.001
+            );
+            assert!(roads.surface_height(point).is_some());
+        }
         for (axis, exit) in DIRECTIONS.into_iter().zip(exits) {
             let [x, y, height] = exit.position;
             assert!(Vec2::from_array(exit.direction).distance(axis) < 0.001);
@@ -671,6 +832,56 @@ mod tests {
                 "street continues beyond the squares"
             );
         }
+    }
+
+    #[test]
+    fn interrupted_outer_ring_offers_exposed_ends_alongside_cross_streets() {
+        let mut input = dry_land();
+        let settings = settings();
+        let config = settings.roads.unwrap();
+        let (_, inner) = plan(bounds(), config, 2).unwrap();
+        let outer = inner + config.ring_spacing;
+        let blocked = Vec2::new(outer, outer * 0.5);
+        input.protected_terrain.push(TownProtectedTerrain {
+            min: (blocked - 0.1).to_array(),
+            max: (blocked + 0.1).to_array(),
+        });
+        let layout = layout(
+            bounds(),
+            PlacementPose::default(),
+            &settings,
+            &input,
+            &[],
+            2,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
+        let root = layout.inner_strips().next().unwrap().start;
+        let streets = layout.finish(root);
+        assert_eq!(streets.exits.len(), 4);
+        let exits = super::super::clear_curb_exits(
+            streets.curb_exits,
+            [0.; 2],
+            &streets.network,
+            &[],
+            &[],
+            &input,
+            &settings,
+        );
+        let toward_gap = |exit: &TownRoadExit| {
+            let [x, y, _] = exit.position;
+            (x - outer).abs() < 0.001 && (y - blocked.y) * exit.direction[1] < 0.
+        };
+        assert_eq!(exits.iter().filter(|exit| toward_gap(exit)).count(), 2);
+        assert_eq!(
+            exits
+                .iter()
+                .filter(|exit| Vec2::from_array(exit.direction).dot(Vec2::X) > 0.999)
+                .count(),
+            2,
+            "both dead ends can turn out of town"
+        );
     }
 
     #[test]
@@ -699,7 +910,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let root = layout.inner_strips().next().unwrap().start;
-        let streets = layout.finish(root, &input, &settings);
+        let streets = layout.finish(root);
         assert!(streets.exits.is_empty());
         let curb_radius = outer + config.half_width;
         let occupied = crate::town::ClearanceRect {
@@ -708,7 +919,10 @@ mod tests {
             yaw: 0.,
         };
         let exits = super::super::clear_curb_exits(
-            streets.curb_exits,
+            CurbExits {
+                ring: Vec::new(),
+                fallback: streets.curb_exits.fallback,
+            },
             [0.; 2],
             &streets.network,
             &[occupied],
@@ -782,7 +996,7 @@ mod tests {
             .unwrap()
             .unwrap();
             let root = streets.inner_strips().next().unwrap().start;
-            let roads = streets.finish(root, &input, &settings).network;
+            let roads = streets.finish(root).network;
             roads.validate().unwrap();
             for x in [inner + 7., middle, outer - 7.] {
                 assert!(
@@ -804,20 +1018,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn channel_preserves_gap_and_records_landings_without_orphan_streets() {
+    fn river_valley() -> TownInput {
         let mut input = dry_land();
         input.rivers.push(RiverPolyline {
             points: vec![[16., 100.], [16., -100.]],
             widths: vec![4., 4.],
             join: None,
         });
+        for row in input.terrain.heights.chunks_exact_mut(input.terrain.width) {
+            for (column, height) in (0_u16..).zip(row) {
+                let x = input.terrain.origin[0] + f32::from(column) * input.terrain.spacing;
+                // A four-metre bed with sloping banks up to the two graded roads.
+                *height = ((x - 16.).abs() - 2.).clamp(0., 8.) + 2.;
+            }
+        }
+        input
+    }
+
+    fn valley_streets(input: &TownInput) -> Streets {
         let settings = settings();
         let streets = layout(
             bounds(),
             PlacementPose::default(),
             &settings,
-            &input,
+            input,
             &[],
             2,
             &|| false,
@@ -829,31 +1053,92 @@ mod tests {
             .find(|strip| strip_ends(strip).0.x < 0.)
             .unwrap()
             .start;
-        let Streets {
-            network: roads,
-            bridges,
-            exits,
-            ..
-        } = streets.finish(root, &input, &settings);
-        assert_eq!(
-            exits
-                .into_iter()
-                .map(|exit| Vec2::from_array(exit.direction))
-                .collect::<Vec<_>>(),
-            [Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y]
-        );
+        streets.finish(root)
+    }
+
+    #[test]
+    fn river_bridges_join_both_graded_banks_and_preserve_the_channel_gap() {
+        let streets = valley_streets(&river_valley());
+        let roads = &streets.network;
+        roads.validate().unwrap();
+        assert_eq!(streets.exits.len(), 4, "the far bank exit is reachable");
+        assert!(!streets.bridges.is_empty());
+        for bridge in streets.bridges {
+            let start = Vec2::new(bridge.from[0], bridge.from[1]);
+            let end = Vec2::new(bridge.to[0], bridge.to[1]);
+            let direction = (end - start).normalize();
+            assert!((start.x - 16.) * (end.x - 16.) < 0.);
+            assert!(roads.surface_height(start.lerp(end, 0.5)).is_none());
+            for (landing, heading, at_start) in [
+                (bridge.from, bridge.start_heading, false),
+                (bridge.to, bridge.end_heading, true),
+            ] {
+                assert!(Vec2::from_array(heading.unwrap()).distance(direction) < 0.001);
+                assert!(roads.strips.iter().any(|strip| {
+                    let station = if at_start {
+                        strip.stations.first()
+                    } else {
+                        strip.stations.last()
+                    }
+                    .unwrap();
+                    station.point.distance(Vec2::new(landing[0], landing[1])) < 0.001
+                        && (station.height - landing[2]).abs() < 0.001
+                        && (strip.half_width * 2. - bridge.width).abs() < 0.001
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn exact_fit_rejections_prune_the_far_bank_only_when_its_last_crossing_is_lost() {
+        let mut input = river_valley();
+        let streets = valley_streets(&input);
+        assert_eq!(streets.bridges.len(), 2);
+        for bridge in streets.bridges {
+            // Road orientation can reverse on the next trial; tolerate sub-metre landing rounding.
+            input.bridge_exclusions.push([
+                [bridge.to[0] + 0.5, bridge.to[1]],
+                [bridge.from[0], bridge.from[1] - 0.5],
+            ]);
+            let next = valley_streets(&input);
+            assert_eq!(next.bridges.len(), 2 - input.bridge_exclusions.len());
+            assert_eq!(
+                next.exits.len(),
+                if next.bridges.is_empty() { 3 } else { 4 }
+            );
+        }
+        let rejected = valley_streets(&input);
         assert!(
-            roads
+            rejected
+                .network
                 .strips
                 .iter()
                 .flat_map(|strip| &strip.stations)
-                .all(|station| station.point.x < 14.)
+                .all(|station| station.point.x < 16.)
         );
-        assert!(!bridges.is_empty());
+        input.bridge_exclusions.clear();
+        input.disable_bridges = true;
+        let fallback = valley_streets(&input);
+        assert!(fallback.bridges.is_empty());
+        assert_eq!(fallback.network, rejected.network);
+    }
+
+    #[test]
+    fn protected_channel_excludes_bridges_and_unreachable_roads() {
+        let mut input = river_valley();
+        input.protected_terrain.push(TownProtectedTerrain {
+            min: [15., -100.],
+            max: [17., 100.],
+        });
+        let streets = valley_streets(&input);
+        assert!(streets.bridges.is_empty());
         assert!(
-            bridges
+            streets
+                .network
+                .strips
                 .iter()
-                .all(|bridge| (bridge.from[0] - 16.) * (bridge.to[0] - 16.) < 0.)
+                .flat_map(|strip| &strip.stations)
+                .all(|station| station.point.x < 16.)
         );
     }
 
@@ -865,10 +1150,6 @@ mod tests {
             widths: Vec::new(),
             join: None,
         });
-        assert!(!crosses_channel(
-            Vec2::new(-10., 0.),
-            Vec2::new(10., 0.),
-            &input
-        ));
+        assert!(crossed_channel(Vec2::new(-10., 0.), Vec2::new(10., 0.), &input).is_none());
     }
 }

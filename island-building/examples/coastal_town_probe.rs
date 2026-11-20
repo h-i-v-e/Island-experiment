@@ -286,6 +286,8 @@ fn town_input(island: &Island, tile_seed: u64) -> TownInput {
     TownInput {
         tile_seed,
         sea_level: 0.,
+        bridge_exclusions: Vec::new(),
+        disable_bridges: false,
         protected_terrain: island.town_protected_terrain(),
         terrain: HeightGrid {
             origin: [0.; 2],

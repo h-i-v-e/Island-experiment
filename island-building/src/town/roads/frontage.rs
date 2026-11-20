@@ -85,9 +85,9 @@ fn entrances(building: &BuildingRecipe) -> impl Iterator<Item = &OpeningRecipe> 
 
 #[derive(Clone, Copy)]
 pub(in crate::town) struct Row {
-    start: Vec2,
-    end: Vec2,
-    half_width: f32,
+    pub start: Vec2,
+    pub end: Vec2,
+    pub half_width: f32,
 }
 
 /// Join adjacent straight strips so one footprint can span several grading sections.
@@ -95,6 +95,22 @@ pub(in crate::town) fn rows(
     roads: &RoadNetwork,
     ring_count: usize,
     ring_index: &impl Fn(&RoadStrip) -> usize,
+) -> Vec<Vec<Row>> {
+    grouped_rows(roads, ring_count, ring_index, false)
+}
+
+/// A field can use the open side of a street across a junction with a side road.
+pub(in crate::town) fn field_rows(roads: &RoadNetwork) -> Vec<Row> {
+    grouped_rows(roads, 1, &|_| 0, true)
+        .pop()
+        .unwrap_or_default()
+}
+
+fn grouped_rows(
+    roads: &RoadNetwork,
+    ring_count: usize,
+    ring_index: &impl Fn(&RoadStrip) -> usize,
+    through_junctions: bool,
 ) -> Vec<Vec<Row>> {
     use std::collections::HashMap;
     let mut adjacent = HashMap::<usize, Vec<usize>>::new();
@@ -120,23 +136,35 @@ pub(in crate::town) fn rows(
             (&mut row.start, strip.start, -direction),
             (&mut row.end, strip.end, direction),
         ] {
-            while let [first, second] = adjacent[&node].as_slice() {
-                let next = if used[*first] { *second } else { *first };
-                let next_strip = &roads.strips[next];
-                let (a, b) = strip_ends(next_strip);
-                let (near, far, far_node) = if next_strip.start == node {
-                    (a, b, next_strip.end)
-                } else {
-                    (b, a, next_strip.start)
-                };
-                if used[next]
-                    || ring_index(next_strip) != ring
-                    || (next_strip.half_width - row.half_width).abs() > 0.001
-                    || near.distance(*point) > 0.004
-                    || (far - near).normalize().dot(outward) < 0.9999
-                {
+            loop {
+                let neighbours = &adjacent[&node];
+                if !through_junctions && neighbours.len() != 2 {
                     break;
                 }
+                let Some((next, far, far_node)) = neighbours.iter().copied().find_map(|next| {
+                    let strip = &roads.strips[next];
+                    if used[next]
+                        || ring_index(strip) != ring
+                        || (strip.half_width - row.half_width).abs() > 0.001
+                    {
+                        return None;
+                    }
+                    let (a, b) = strip_ends(strip);
+                    let (near, far, far_node) = if strip.start == node {
+                        (a, b, strip.end)
+                    } else {
+                        (b, a, strip.start)
+                    };
+                    let gap = if through_junctions {
+                        (near - *point).perp_dot(outward).abs()
+                    } else {
+                        near.distance(*point)
+                    };
+                    (gap <= 0.004 && (far - near).normalize().dot(outward) >= 0.9999)
+                        .then_some((next, far, far_node))
+                }) else {
+                    break;
+                };
                 used[next] = true;
                 *point = far;
                 node = far_node;
@@ -558,6 +586,8 @@ mod tests {
                     heights: heights.collect(),
                 },
                 rivers: vec![],
+                bridge_exclusions: Vec::new(),
+                disable_bridges: false,
                 protected_terrain: vec![],
             };
             assert_eq!(

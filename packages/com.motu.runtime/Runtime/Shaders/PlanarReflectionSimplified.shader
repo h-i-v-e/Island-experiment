@@ -26,6 +26,7 @@ Shader "Motu/Planar Reflection Simplified"
     HLSLINCLUDE
     #include "MotuUrp.hlsl"
     #include "ForestShadowCommon.hlsl"
+    #include "WheatGroundCommon.hlsl"
 
     #include "WeatherWindCommon.cginc"
     #include "TreeLodCommon.cginc"
@@ -143,7 +144,8 @@ Shader "Motu/Planar Reflection Simplified"
         fixed3 albedo = lerp(
             _GroundDirtColor.rgb,
             grass,
-            smoothstep(0.12h, 0.72h, looseCover));
+            smoothstep(0.12h, 0.72h, looseCover)
+                * (1.0h - MotuWheatGroundCoverage(input.localPosition.xz)));
         half sandWeight = (1.0h - smoothstep(0.5h, 4.0h, input.localPosition.y))
             * (1.0h - rockWeight);
         albedo = lerp(albedo, _SandColor.rgb, sandWeight);
@@ -182,6 +184,7 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 GrassFragment(ReflectionVertexOutput input) : SV_Target
     {
+        clip(0.5h - MotuWheatGroundCoverage(input.localPosition.xz));
         fixed3 albedo = lerp(_GrassColorA.rgb, _GrassColorB.rgb, 0.45h);
         return FinishReflection(albedo, input);
     }

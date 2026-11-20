@@ -43,7 +43,7 @@ struct Search<'a> {
     occupied: Vec<ClearanceRect>,
     access: Vec<ClearanceRect>,
     rows_by_ring: Vec<Vec<roads::Row>>,
-    curb_exits: Vec<super::TownRoadExit>,
+    curb_exits: roads::CurbExits,
     accepted_lots: Vec<(usize, Lot)>,
     total_attempts: u32,
     remaining_samples: usize,
@@ -190,7 +190,7 @@ fn generate_layout(
         occupied: Vec::new(),
         access: Vec::new(),
         rows_by_ring: Vec::new(),
-        curb_exits: Vec::new(),
+        curb_exits: roads::CurbExits::default(),
         accepted_lots: Vec::new(),
         total_attempts: 0,
         remaining_samples: 8_000_000,
@@ -396,6 +396,11 @@ fn accept_placement(
         search.accepted_lots.push((index, lot));
     }
     if let Some(streets) = placed.streets.take() {
+        for bridge in &streets.bridges {
+            let footprint = roads::bridge_clearance(bridge, streets.network.shoulder);
+            search.occupied.push(footprint);
+            output.clearance.push(footprint);
+        }
         search.rows_by_ring = streets.rows;
         search.curb_exits = streets.curb_exits;
         search.reached_rings = streets.ring_count;
@@ -767,7 +772,7 @@ fn connect_street(
             )
         {
             placed.access = Some(access);
-            placed.streets = Some(streets.finish(root, input, settings));
+            placed.streets = Some(streets.finish(root));
         }
     }
     Ok(placed.access.is_some())
@@ -858,6 +863,15 @@ fn door_approaches(
         })
 }
 
+pub(super) fn door_clearances(
+    building: &crate::BuildingRecipe,
+    pose: PlacementPose,
+    length: f32,
+) -> impl Iterator<Item = ClearanceRect> + '_ {
+    door_approaches(building, length)
+        .map(move |bounds| posed_rect(bounds, [pose.origin[0], pose.origin[1]], pose.yaw, 0.))
+}
+
 fn publish_placement(
     output: &mut TownOutput,
     placed: Placed,
@@ -884,6 +898,25 @@ fn publish_placement(
             .iter()
             .map(|bounds| world_bounds(*bounds, placed.pose)),
     );
+    if placed.access.is_some() {
+        let house = [placed.pose.origin[0], placed.pose.origin[1]];
+        output
+            .stair_feet
+            .extend(placed.supports.stairs.iter().map(|stair| {
+                let world = placed.pose.world_point([stair.foot[0], stair.foot[1], 0.]);
+                motu::TownStairFoot {
+                    position: [world[0], world[1]],
+                    house,
+                }
+            }));
+        output.footpath_blockers.extend(
+            placed
+                .supports
+                .occupied_footprints
+                .iter()
+                .map(|&bounds| posed_rect(bounds, house, placed.pose.yaw, 0.)),
+        );
+    }
     output.instances.push(TownInstance {
         prototype_index: index,
         entry_id: String::new(),
@@ -1123,17 +1156,25 @@ pub(super) fn protected(rect: &ClearanceRect, input: &TownInput) -> bool {
 pub(super) fn touches_river(rect: &ClearanceRect, input: &TownInput, margin: f32) -> bool {
     input.rivers.iter().any(|river| {
         river.points.windows(2).enumerate().any(|(i, pair)| {
-            let a = rect.local(pair[0]);
-            let b = rect.local(pair[1]);
             let radius = river.width(i).max(river.width(i + 1)) * 0.5 + margin;
-            segment_intersects_box(
-                a,
-                b,
-                [rect.half_extents[0] + radius, rect.half_extents[1] + radius],
-            )
+            river_intersects(rect, pair[0], pair[1], radius)
         })
     })
 }
+
+pub(super) fn river_intersects(
+    rect: &ClearanceRect,
+    start: [f32; 2],
+    end: [f32; 2],
+    radius: f32,
+) -> bool {
+    segment_intersects_box(
+        rect.local(start),
+        rect.local(end),
+        rect.half_extents.map(|half| half + radius),
+    )
+}
+
 fn segment_intersects_box(a: [f32; 2], b: [f32; 2], half: [f32; 2]) -> bool {
     let mut near = 0_f32;
     let mut far = 1_f32;
@@ -1234,6 +1275,8 @@ mod tests {
         let input = TownInput {
             tile_seed: 1,
             sea_level: 0.,
+            bridge_exclusions: Vec::new(),
+            disable_bridges: false,
             protected_terrain: vec![],
             rivers: vec![],
             terrain: HeightGrid {
@@ -1302,6 +1345,8 @@ mod occupied_footprint_tests {
             let input = TownInput {
                 tile_seed: 1,
                 sea_level: 0.,
+                bridge_exclusions: Vec::new(),
+                disable_bridges: false,
                 protected_terrain: vec![],
                 rivers: vec![],
                 terrain: HeightGrid {
@@ -1327,7 +1372,7 @@ mod occupied_footprint_tests {
                 occupied: vec![],
                 access: Vec::new(),
                 rows_by_ring: Vec::new(),
-                curb_exits: Vec::new(),
+                curb_exits: roads::CurbExits::default(),
                 accepted_lots: Vec::new(),
                 total_attempts: 0,
                 remaining_samples: 100_000,
@@ -1359,6 +1404,8 @@ mod occupied_footprint_tests {
         let input = TownInput {
             tile_seed: 1,
             sea_level: 0.,
+            bridge_exclusions: Vec::new(),
+            disable_bridges: false,
             protected_terrain: vec![],
             rivers: vec![],
             terrain: HeightGrid {
@@ -1385,7 +1432,7 @@ mod occupied_footprint_tests {
             occupied: vec![],
             access: Vec::new(),
             rows_by_ring: Vec::new(),
-            curb_exits: Vec::new(),
+            curb_exits: roads::CurbExits::default(),
             accepted_lots: Vec::new(),
             total_attempts: 0,
             remaining_samples: 100_000,

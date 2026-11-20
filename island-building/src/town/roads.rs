@@ -2,24 +2,33 @@ mod frontage;
 mod network;
 
 pub(super) use frontage::{
-    Access, Lot, Lots, PAVED_TREAD_OVERLAP, Row, approach, central_approach, entrance, lots,
-    stair_access, stair_target,
+    Access, Lot, Lots, PAVED_TREAD_OVERLAP, Row, approach, central_approach, entrance, field_rows,
+    lots, stair_access, stair_target,
 };
 pub(super) use network::{Streets, layout};
 
-use super::{ClearanceRect, TownInput, TownRoadExit, TownSettings, placement};
+use super::{BridgeCandidate, ClearanceRect, TownInput, TownRoadExit, TownSettings, placement};
 use motu::{
     Vec2,
     roads::{RoadNetwork, RoadStrip},
 };
 
-fn corridor(from: Vec2, to: Vec2, half_width: f32, end_margin: f32) -> ClearanceRect {
+pub(super) fn corridor(from: Vec2, to: Vec2, half_width: f32, end_margin: f32) -> ClearanceRect {
     let delta = to - from;
     ClearanceRect {
         centre: ((from + to) * 0.5).to_array(),
         half_extents: [delta.length() * 0.5 + end_margin, half_width],
         yaw: delta.y.atan2(delta.x),
     }
+}
+
+pub(super) fn bridge_clearance(bridge: &BridgeCandidate, shoulder: f32) -> ClearanceRect {
+    corridor(
+        Vec2::new(bridge.from[0], bridge.from[1]),
+        Vec2::new(bridge.to[0], bridge.to[1]),
+        bridge.width * 0.5 + shoulder,
+        shoulder,
+    )
 }
 
 fn strip_ends(strip: &RoadStrip) -> (Vec2, Vec2) {
@@ -29,10 +38,14 @@ fn strip_ends(strip: &RoadStrip) -> (Vec2, Vec2) {
     )
 }
 
-/// Select at most one unobstructed departure per outside face. Prefer the
-/// middle of a side, where there is room for a cart to turn off the street.
+#[derive(Default)]
+pub(super) struct CurbExits {
+    ring: Vec<TownRoadExit>,
+    fallback: Vec<TownRoadExit>,
+}
+
 pub(super) fn clear_curb_exits(
-    mut candidates: Vec<TownRoadExit>,
+    candidates: CurbExits,
     centre: [f32; 2],
     roads: &RoadNetwork,
     buildings: &[ClearanceRect],
@@ -40,47 +53,56 @@ pub(super) fn clear_curb_exits(
     input: &TownInput,
     settings: &TownSettings,
 ) -> Vec<TownRoadExit> {
+    let CurbExits {
+        mut ring,
+        mut fallback,
+    } = candidates;
     let xy = |exit: &TownRoadExit| Vec2::new(exit.position[0], exit.position[1]);
+    let clear = |exit: &TownRoadExit, length| {
+        let direction = Vec2::from_array(exit.direction);
+        let curb = xy(exit);
+        let end = curb + direction * length;
+        // Ignore contact with the host pavement at the curb or end cap.
+        let departure = corridor(curb + direction * 0.01, end, 0.9, 0.);
+        !obstructs(roads, &departure, false)
+            && !placement::overlaps_any(&departure, buildings)
+            && !placement::overlaps_any(&departure, reservations)
+            && !placement::protected(&departure, input)
+            && !placement::touches_river(&departure, input, settings.river_margin)
+            && [0., length * 0.5, length].into_iter().all(|along| {
+                [-0.9, 0., 0.9].into_iter().all(|across| {
+                    let point = curb + direction * along + direction.perp() * across;
+                    input
+                        .terrain
+                        .sample(point.x, point.y)
+                        .is_some_and(|h| h > input.sea_level + settings.min_dry_height)
+                })
+            })
+    };
+    // A* can use a one-metre lead if the terrain turns sharply beyond it.
+    ring.retain(|exit| clear(exit, 1.));
+    let fallback_start = ring.len();
+    // Without cross-road exits also offer one turn-off per outside face,
+    // preferring the middle of the side where a cart has room to turn.
     let offset = |exit: &TownRoadExit| {
         (xy(exit) - Vec2::from_array(centre))
             .perp_dot(Vec2::from_array(exit.direction))
             .abs()
     };
-    candidates.sort_by(|a, b| offset(a).total_cmp(&offset(b)));
-    let mut selected = Vec::<TownRoadExit>::new();
-    for exit in candidates {
+    fallback.sort_by(|a, b| offset(a).total_cmp(&offset(b)));
+    for exit in fallback {
         let direction = Vec2::from_array(exit.direction);
-        if selected
+        if ring[fallback_start..]
             .iter()
             .any(|other| direction.dot(Vec2::from_array(other.direction)) > 0.99)
         {
             continue;
         }
-        let curb = xy(&exit);
-        let end = curb + direction * 4.;
-        // Start just beyond the host strip so a touching curb does not count as crossing it.
-        let departure = corridor(curb + direction * 0.01, end, 0.9, 0.);
-        if obstructs(roads, &departure, false)
-            || placement::overlaps_any(&departure, buildings)
-            || placement::overlaps_any(&departure, reservations)
-            || placement::protected(&departure, input)
-            || placement::touches_river(&departure, input, settings.river_margin)
-        {
-            continue;
-        }
-        if [0., 2., 4.].into_iter().all(|along| {
-            [-0.9, 0., 0.9].into_iter().all(|across| {
-                let point = curb + direction * along + direction.perp() * across;
-                input
-                    .terrain
-                    .sample(point.x, point.y)
-                    .is_some_and(|h| h > input.sea_level + settings.min_dry_height)
-            })
-        }) {
-            selected.push(exit);
+        if clear(&exit, 4.) {
+            ring.push(exit);
         }
     }
-    selected
+    ring
 }
 
 fn corridors(

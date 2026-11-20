@@ -54,6 +54,9 @@ namespace Motu.Streaming
             internal readonly GameObject gameObject;
             internal readonly Mesh mesh;
             internal Mesh edgeMesh;
+            internal Mesh wheatCanopy;
+            internal MeshRenderer wheatRenderer;
+            internal WheatPlant[] wheatPlants;
             internal int[] batchIndices;
             internal int renderBatchIndex = -1;
             internal GameObject grassObject;
@@ -262,7 +265,8 @@ namespace Motu.Streaming
             bool showFerns,
             CancellationToken cancellationToken,
             UnityFrameBudget installationBudget,
-            IslandPreparedBoulderCollider[][] boulderColliders = null)
+            IslandPreparedBoulderCollider[][] boulderColliders = null,
+            IslandPreparedWheat wheat = null)
         {
             uploadBudgetMilliseconds = installationBudget.MillisecondsPerFrame;
             nativeOwner = handle;
@@ -271,6 +275,7 @@ namespace Motu.Streaming
             terrainLod1Material = sharedTerrainLod1Material;
             terrainLod2Material = sharedTerrainLod2Material;
             grassMaterial = sharedGrassMaterial;
+            InstallWheat(wheat);
             reedMaterial = sharedReedMaterial;
             fernMaterial = sharedFernMaterial;
             terrainMaterial.SetFloat(GrassEnabledId, 0f);
@@ -376,7 +381,9 @@ namespace Motu.Streaming
 
         internal static IslandPreparedMesh[] PrepareOverviewTiles(
             IntPtr handle,
-            float terrainWorldSize)
+            float terrainWorldSize,
+            WheatField[] wheatFields = null,
+            CancellationToken cancellationToken = default)
         {
             var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
             MotuNative.CreateTerrainAtlasMeshGrid(handle, ref area, 2, Divisions, 0, out var export);
@@ -395,6 +402,7 @@ namespace Motu.Streaming
                 var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
                 for (var index = 0; index < export.length; index++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
                         IntPtr.Add(export.data, index * exportSize));
                     if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
@@ -404,6 +412,8 @@ namespace Motu.Streaming
                             2,
                             terrainWorldSize,
                             coverageSources);
+                        TerrainGridWorker.PrepareWheat(result[index], wheatFields, area, Divisions,
+                            index, terrainWorldSize, 2, cancellationToken);
                     }
                 }
                 return result;
@@ -531,6 +541,7 @@ namespace Motu.Streaming
             CancelPendingTransition();
             forestStreamer?.ClearPlayerFocus();
             reedStreamer?.ClearPlayerFocus();
+            ClearWheatFocus();
             fernStreamer?.ClearPlayerFocus();
             terrainMaterial?.SetFloat(GrassEnabledId, 0f);
             grassMaterial?.SetFloat(GrassEnabledId, 0f);
@@ -677,6 +688,7 @@ namespace Motu.Streaming
             forestShadowMask = null;
             reedStreamer?.Dispose();
             reedStreamer = null;
+            DisposeWheat();
             fernStreamer?.Dispose();
             fernStreamer = null;
             DestroyUnityObject(riverRoot);
@@ -781,6 +793,7 @@ namespace Motu.Streaming
 
         private void LateUpdate()
         {
+            UpdateWheatHandoffs();
             if (!meshEdgesVisible || meshEdgeMaterial == null)
             {
                 return;
@@ -917,6 +930,7 @@ namespace Motu.Streaming
                 if (tile != null)
                 {
                     DestroyUnityObject(tile.edgeMesh);
+                    DestroyUnityObject(tile.wheatCanopy);
                     DestroyUnityObject(tile.mesh);
                 }
             }

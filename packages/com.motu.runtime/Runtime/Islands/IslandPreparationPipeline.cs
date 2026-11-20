@@ -75,6 +75,7 @@ namespace Motu.Islands
                 // Snapshots hold base terrain. Finish town grading and clearance before deriving terrain or decorations.
                 var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies, villageRecipeJson,
                     connectSettlements, coastalStripOptions.HasValue);
+                var wheat = IslandPreparedWheat.Prepare(town, townSeed, worldSize, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +104,7 @@ namespace Motu.Islands
                     : snapshotPath;
                 IslandHorizonCache.TrySave(horizonPath, lod3, snapshotCacheBudgetBytes, snapshotPath);
                 cancellationToken.ThrowIfCancellationRequested();
-                var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle, worldSize);
+                var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle, worldSize, wheat?.Fields, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 var riverTiles = PrepareRiverTiles(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -138,7 +139,7 @@ namespace Motu.Islands
                     materialTextures,
                     cavesPrepared,
                     boulderColliders, navigationMesh, landBirdPerches,
-                    lodSurfaceMaps: lodSurfaceMaps, town: town);
+                    lodSurfaceMaps: lodSurfaceMaps, town: town, wheat: wheat);
                 handle = IntPtr.Zero;
                 return result;
             }

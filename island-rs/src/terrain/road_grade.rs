@@ -13,7 +13,7 @@ const PAVEMENT_EDGE_MAX_METRES: f32 = 0.4;
 const PAVEMENT_EDGE_MIN_METRES: f32 = 0.125;
 const SHOULDER_EDGE_METRES: f32 = 0.8;
 const MAXIMUM_NATIVE_CUT_METRES: f32 = 4.;
-const MAXIMUM_SUBGRID_RAISE_METRES: f32 = 0.25;
+pub(super) const MAXIMUM_SUBGRID_RAISE_METRES: f32 = 0.25;
 const MAXIMUM_ADDED_VERTICES: usize = 300_000;
 const CORRIDOR_INDEX_SIZE: usize = 64;
 
@@ -394,6 +394,12 @@ impl Terrain {
     pub fn has_road_coverage(&self) -> bool {
         self.road_coverage.is_some()
     }
+
+    pub(super) fn road_corridor_overlaps(&self, min: Vec2, max: Vec2) -> bool {
+        self.road_coverage
+            .as_ref()
+            .is_some_and(|corridor| corridor.overlaps(min, max, false))
+    }
 }
 
 impl CorridorIndex {
@@ -676,6 +682,47 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             std::io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn stair_approach_paints_existing_vertices_without_changing_the_road() {
+        let mut island = fixture();
+        let road = road(Vec2::new(645., 650.), Vec2::new(675., 650.), 39.);
+        island.apply_town_roads(&road).unwrap();
+        let vertex_count = island.terrain().vertices().len();
+        let triangle_count = island.terrain().mesh().triangles.len();
+        let foot = crate::TownStairFoot {
+            position: [660., 656.],
+            house: [660., 660.],
+        };
+        let foundation = crate::DecorationClearance {
+            centre: foot.house,
+            half_extents: [2., 3.],
+            yaw: 0.,
+        };
+        let count = island.paint_town_footpaths(&[foot], &[foundation]).unwrap();
+        assert!(
+            count >= 2,
+            "a path must connect a stair-side vertex to a road-edge vertex"
+        );
+        let terrain = island.terrain();
+        assert_eq!(terrain.vertices().len(), vertex_count);
+        assert_eq!(terrain.mesh().triangles.len(), triangle_count);
+        let point = |x, y| Vec2::new(x, y) / ISLAND_WORLD_METRES;
+        assert_eq!(terrain.town_surface_coverage_at(point(660., 650.)), 1.);
+        assert_eq!(terrain.town_surface_coverage_at(point(660., 645.)), 0.);
+        let painted_gravel = terrain.vertices().iter().any(|vertex| {
+            let xy = vertex.truncate();
+            let metres = xy * ISLAND_WORLD_METRES;
+            metres.y > 652.5
+                && metres.distance(Vec2::from_array(foot.position)) <= 6.
+                && terrain.road_coverage_at(xy) < 0.3
+                && terrain.town_surface_coverage_at(xy) > 0.49
+        });
+        assert!(
+            painted_gravel,
+            "a marked vertex must use the road gravel material"
         );
     }
 

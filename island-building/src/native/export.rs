@@ -72,6 +72,7 @@ struct Door<'a> {
 struct Prototype<'a> {
     entry_id: &'a str,
     hash: &'a str,
+    is_church: bool,
     lods: [Lod<'a>; 3],
     doors: Vec<Door<'a>>,
     colliders: &'a [BoxCollider],
@@ -110,7 +111,10 @@ struct Package<'a> {
     support_material: Option<Material>,
     support_colliders: &'a [BoxCollider],
     stair_colliders: &'a [BoxCollider],
+    stair_feet: &'a [motu::TownStairFoot],
+    footpath_blockers: &'a [ClearanceRect],
     clearance_json: String,
+    wheat_fields: &'a [ClearanceRect],
     routing_blockers: &'a [ClearanceRect],
     roads_json: String,
     road_exits: &'a [TownRoadExit],
@@ -195,7 +199,10 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
         support_material,
         support_colliders: &output.support_colliders,
         stair_colliders: &output.stair_colliders,
+        stair_feet: &output.stair_feet,
+        footpath_blockers: &output.footpath_blockers,
         clearance_json: serde_json::to_string(&output.clearance).map_err(|e| e.to_string())?,
+        wheat_fields: &output.wheat_fields,
         routing_blockers: &output.routing_blockers,
         roads_json,
         road_exits: &output.road_exits,
@@ -230,6 +237,7 @@ fn prototype<'a>(
     Ok(Prototype {
         entry_id,
         hash: &source.hash,
+        is_church: source.recipe.church.is_some(),
         lods: std::array::from_fn(|i| Lod {
             parts: source.lods[i]
                 .parts
@@ -265,11 +273,29 @@ fn prototype<'a>(
     })
 }
 
+pub(super) fn church_stone() -> Result<String, String> {
+    let recipe = crate::BuildingRecipe::parish_church();
+    let slot = MaterialSlot::Wall;
+    let maps = crate::materials::material(
+        &recipe,
+        std::path::Path::new("."),
+        slot,
+        recipe.materials.wall,
+        recipe.materials.wall_recipe.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    let material = texture(&maps, [1.; 4], grub_uniform(&recipe, slot))?;
+    serde_json::to_string(&material).map_err(|error| error.to_string())
+}
+
+fn grub_uniform(recipe: &crate::BuildingRecipe, slot: MaterialSlot) -> Vec<f32> {
+    crate::grub::material_filter(recipe, slot).map_or_else(Vec::new, |(filter, seed)| {
+        filter.uniform_vectors(seed).into_iter().flatten().collect()
+    })
+}
+
 fn material(source: &BuildingPrototype, slot: MaterialSlot) -> Result<Material, String> {
-    let uniform = crate::grub::material_filter(&source.recipe, slot)
-        .map_or_else(Vec::new, |(filter, seed)| {
-            filter.uniform_vectors(seed).into_iter().flatten().collect()
-        });
+    let uniform = grub_uniform(&source.recipe, slot);
     if let Some(image) = source.materials.iter().find(|image| image.slot == slot) {
         texture(image, [1.; 4], uniform)
     } else {

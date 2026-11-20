@@ -10,10 +10,19 @@ namespace Motu.Islands
         public int GeneratedTownBuildingCount => Town != null ? Town.BuildingCount : 0;
         public int GeneratedTownRoadCount => Town != null ? Town.RoadCount : 0;
         public int GeneratedTownFrontageCount => Town != null ? Town.RoadFrontageCount : 0;
+        public int GeneratedBridgeCount => Town != null ? Town.BridgeCount : 0;
+        public int GeneratedBridgeDiagnosticCount => Town != null ? Town.BridgeDiagnosticCount : 0;
         public int GeneratedTownBridgeCandidateCount => Town != null ? Town.BridgeCandidateCount : 0;
         public int GeneratedCartTrackRunCount => Town != null ? Town.CartTrackRunCount : 0;
         public int GeneratedCartTrackLinkCount => Town != null ? Town.CartTrackLinkCount : 0;
         public int GeneratedCartTrackBridgeCandidateCount => Town != null ? Town.CartTrackBridgeCandidateCount : 0;
+
+        public bool TryGetBridgeDiagnostic(int index, out TownBridgeRejection rejection)
+        {
+            if (Town != null) return Town.TryGetBridgeDiagnostic(index, out rejection);
+            rejection = default;
+            return false;
+        }
 
         public bool TryGetTownBridgeCandidate(int index, out Vector3 from, out Vector3 to, out float width)
         {

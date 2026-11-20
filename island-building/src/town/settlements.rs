@@ -3,7 +3,7 @@ use super::{
     TownSettlementKind, input,
     placement::{self, Random, Site, entry_seed},
     prototypes::PrototypePool,
-    rivers,
+    rivers, roads, wheat,
 };
 use crate::BuildingRecipe;
 use motu::roads::{MAX_ROAD_EDGES, RoadNetwork};
@@ -93,6 +93,7 @@ pub(super) fn generate(
     let village = village.zip(village_buildings).map(|(recipe, buildings)| {
         Catalogue::prepare(recipe, buildings, None, shoulder, &mut pool)
     });
+    let mut field_sites = Vec::with_capacity(mouths.len());
     for (index, mouth) in mouths.into_iter().enumerate() {
         if cancelled() {
             return Err(TownError::Cancelled);
@@ -143,18 +144,17 @@ pub(super) fn generate(
         if index == 0 {
             output.centre = planned.centre;
         }
-        for instance in &mut planned.instances {
-            let entry = instance.prototype_index;
-            instance.prototype_index = catalogue.prototype_indices[entry];
-            instance.settlement_index = index;
-            instance.entry_id.clone_from(&catalogue.entries[entry].id);
-        }
-        for exit in &mut planned.road_exits {
-            exit.settlement_index = index;
-        }
-        append_site(&mut output, planned)?;
+        field_sites.push(wheat::Site {
+            settings: &catalogue.settings,
+            rows: planned
+                .roads
+                .as_ref()
+                .map_or_else(Vec::new, roads::field_rows),
+        });
+        append_site(&mut output, planned, catalogue, index)?;
     }
     pool.finish(&mut output);
+    output.wheat_fields = wheat::generate(&output, &field_sites, input, cancelled)?;
     Ok(output)
 }
 
@@ -173,7 +173,21 @@ fn fits_terrain_limits(output: &TownOutput, site: &TownOutput) -> bool {
             <= 65_536
 }
 
-fn append_site(output: &mut TownOutput, mut site: TownOutput) -> Result<(), TownError> {
+fn append_site(
+    output: &mut TownOutput,
+    mut site: TownOutput,
+    catalogue: &Catalogue<'_>,
+    settlement_index: usize,
+) -> Result<(), TownError> {
+    for instance in &mut site.instances {
+        let entry = instance.prototype_index;
+        instance.prototype_index = catalogue.prototype_indices[entry];
+        instance.settlement_index = settlement_index;
+        instance.entry_id.clone_from(&catalogue.entries[entry].id);
+    }
+    for exit in &mut site.road_exits {
+        exit.settlement_index = settlement_index;
+    }
     let offset = placement::support_index_offset(&output.supports, &site.supports)?;
     output
         .supports
@@ -192,6 +206,8 @@ fn append_site(output: &mut TownOutput, mut site: TownOutput) -> Result<(), Town
         .append(&mut site.supports_grub_positions);
     output.support_colliders.append(&mut site.support_colliders);
     output.stair_colliders.append(&mut site.stair_colliders);
+    output.stair_feet.append(&mut site.stair_feet);
+    output.footpath_blockers.append(&mut site.footpath_blockers);
     output.clearance.append(&mut site.clearance);
     output.routing_blockers.append(&mut site.routing_blockers);
     output.instances.append(&mut site.instances);

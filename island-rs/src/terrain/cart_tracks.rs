@@ -5,15 +5,18 @@ mod surface;
 mod tests;
 
 use super::{Island, town::DecorationClearance};
+pub(crate) use crate::bridges::BridgeKind as Crossing;
+use crate::bridges::{BridgeChannel, BridgeRequest, BridgeSurface};
 use crate::{Mesh, Vec2, Vec3};
 use search::{Entrance, Graph, Route};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use surface::Surface;
+use surface::{BridgeFootprint, Surface};
 
 pub(crate) type CartTrackBlocker = DecorationClearance;
 const HALF_WIDTH: f32 = 0.9;
 const WHEEL_OFFSET: f32 = 0.6;
+const BRIDGE_WIDTH: f32 = 2.4;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct CartTrackExit {
@@ -21,6 +24,8 @@ pub(crate) struct CartTrackExit {
     pub(crate) position: [f32; 3],
     pub(crate) direction: [f32; 2],
     pub(crate) half_width: f32,
+    #[serde(default)]
+    pub(crate) curb: bool,
 }
 
 impl CartTrackExit {
@@ -35,6 +40,16 @@ pub(crate) struct CartTrackPlan {
     pub(crate) bridges: Vec<CartTrackBridge>,
     pub(crate) links: Vec<CartTrackLink>,
     pub(crate) diagnostics: Vec<CartTrackDiagnostic>,
+    #[serde(skip)]
+    bridge_footprints: Vec<BridgeFootprint>,
+}
+
+impl CartTrackPlan {
+    pub(super) fn bridge_clearance(&self) -> impl Iterator<Item = DecorationClearance> + '_ {
+        self.bridge_footprints
+            .iter()
+            .flat_map(|bridge| bridge.sections.iter().copied())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -43,11 +58,22 @@ pub(crate) struct CartTrackRun {
     pub(crate) points: Vec<[f32; 3]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Crossing {
-    River,
-    Ravine,
+fn cart_bridge_request(
+    start: [f32; 3],
+    end: [f32; 3],
+    width: f32,
+    kind: Crossing,
+) -> BridgeRequest {
+    BridgeRequest {
+        start,
+        end,
+        start_heading: None,
+        end_heading: None,
+        width,
+        kind,
+        surface: BridgeSurface::CartTrack,
+        channel: None,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -55,7 +81,21 @@ pub(crate) struct CartTrackBridge {
     pub(crate) link_index: usize,
     pub(crate) start: [f32; 3],
     pub(crate) end: [f32; 3],
+    pub(crate) width: f32,
+    pub(crate) start_heading: Option<[f32; 2]>,
+    pub(crate) end_heading: Option<[f32; 2]>,
     pub(crate) kind: Crossing,
+}
+
+impl CartTrackBridge {
+    pub(crate) fn request(&self, channel: Option<BridgeChannel>) -> BridgeRequest {
+        BridgeRequest {
+            start_heading: self.start_heading,
+            end_heading: self.end_heading,
+            channel,
+            ..cart_bridge_request(self.start, self.end, self.width, self.kind)
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -91,16 +131,29 @@ impl<'a> CartTrackPlanner<'a> {
         self.ground_points(&[boundary, end])
     }
 
-    pub(crate) fn plan(&self, exits: &[CartTrackExit]) -> CartTrackPlan {
+    pub(crate) fn plan(
+        &self,
+        exits: &[CartTrackExit],
+        capital: Option<usize>,
+        centres: &[Option<Vec2>],
+        first_portal: usize,
+    ) -> CartTrackPlan {
         let graph = Graph::new(self.mesh, &self.surface);
-        let entrances = exits
-            .iter()
-            .map(|exit| graph.entrance(exit))
-            .collect::<Vec<_>>();
-        let mut sites = BTreeMap::<usize, Vec<usize>>::new();
-        for (i, exit) in exits.iter().enumerate() {
-            sites.entry(exit.settlement_index).or_default().push(i);
+        let entrances: Vec<_> = exits.iter().map(|exit| graph.entrance(exit)).collect();
+        let mut sites = BTreeMap::<usize, Site>::new();
+        for (index, exit) in exits.iter().enumerate() {
+            sites
+                .entry(exit.settlement_index)
+                .or_default()
+                .exits
+                .push(index);
         }
+        for (&id, site) in &mut sites {
+            site.centre = centres.get(id).copied().flatten().unwrap_or_else(|| {
+                site.exits.iter().map(|&i| exits[i].xy()).sum::<Vec2>() / site.exits.len() as f32
+            });
+        }
+
         let mut network = Network {
             planner: self,
             exits,
@@ -108,66 +161,57 @@ impl<'a> CartTrackPlanner<'a> {
             sites: &sites,
             graph,
             result: CartTrackPlan::default(),
-            pairs: BTreeSet::new(),
             attempted: BTreeSet::new(),
         };
-        for (source, exit) in exits.iter().enumerate() {
-            if !entrances[source].usable()
-                || network
-                    .result
-                    .links
-                    .iter()
-                    .any(|link| link.to_exit == source)
-            {
-                continue;
-            }
-            for (_, _, site) in ranked_sites(exit, exits, &sites) {
-                if network
-                    .pairs
-                    .contains(&ordered(exit.settlement_index, site))
-                    || network.try_link(source, site)
-                {
+        let (mut villages, portals): (Vec<_>, Vec<_>) = sites
+            .keys()
+            .copied()
+            .filter(|id| Some(*id) != capital)
+            .partition(|id| sites[id].exits[0] < first_portal);
+        let mut connected = Vec::new();
+        if let Some(capital) = capital.filter(|id| sites.contains_key(id)) {
+            connected.push(capital);
+            network.order_by_distance(&mut villages, sites[&capital].centre);
+            // A later village may provide the first viable approach to a site
+            // skipped earlier. Retry only the unconnected targets.
+            loop {
+                let before = villages.len();
+                villages.retain(|&village| {
+                    if network.join(village, &connected) {
+                        connected.push(village);
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if villages.is_empty() || villages.len() == before {
                     break;
                 }
             }
+        } else if first_portal == 0 {
+            // A section without town exits can still carry a through track between seams.
+            connected.extend(portals.first().copied());
         }
-        // Directional choices can form separate groups. Try the nearest unjoined
-        // pairs, including alternate terminals, until every feasible group is joined.
-        let mut candidates = Vec::new();
-        for (source, exit) in exits
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| entrances[*i].usable())
-        {
-            for (_, distance, site) in ranked_sites(exit, exits, &sites) {
-                candidates.push((distance, source, site));
+
+        // Append seam routes after the settlement tree. A portal can never
+        // become the starting point for a new village branch.
+        for portal in portals {
+            if !connected.contains(&portal) && network.join(portal, &connected) {
+                connected.push(portal);
             }
         }
-        candidates.sort_unstable_by(|a, b| {
-            a.0.total_cmp(&b.0)
-                .then_with(|| a.1.cmp(&b.1))
-                .then_with(|| a.2.cmp(&b.2))
-        });
-        for (_, source, site) in candidates {
-            if !network.connected(exits[source].settlement_index, site) {
-                network.try_link(source, site);
-            }
-        }
-        for (&site, indices) in &sites {
-            let unjoined = sites.keys().any(|other| !network.connected(site, *other));
-            let reason = if !indices.iter().any(|&i| entrances[i].usable()) {
-                Some("no_dry_outward_approach")
-            } else if unjoined {
-                Some("disconnected_settlement_component")
+        for (&id, site) in &sites {
+            let reason = if !site.exits.iter().any(|&i| entrances[i].usable()) {
+                "no_dry_outward_approach"
+            } else if !connected.contains(&id) {
+                "disconnected_settlement_component"
             } else {
-                None
+                continue;
             };
-            if let Some(reason) = reason {
-                network.result.diagnostics.push(CartTrackDiagnostic {
-                    settlement_index: site,
-                    reason,
-                });
-            }
+            network.result.diagnostics.push(CartTrackDiagnostic {
+                settlement_index: id,
+                reason,
+            });
         }
         network.result
     }
@@ -177,8 +221,12 @@ impl<'a> CartTrackPlanner<'a> {
         let mut points = vec![first.extend(self.surface.height(first)?).to_array()];
         for edge in polyline.windows(2) {
             let count = (edge[0].distance(edge[1]) / 2.).ceil() as usize;
-            for i in 1..=count {
+            for i in 1..count {
                 let p = edge[0].lerp(edge[1], i as f32 / count as f32);
+                points.push(p.extend(self.surface.height(p)?).to_array());
+            }
+            if count > 0 {
+                let p = edge[1];
                 points.push(p.extend(self.surface.height(p)?).to_array());
             }
         }
@@ -217,26 +265,53 @@ impl<'a> CartTrackPlanner<'a> {
         })
     }
 
+    fn align_landing(
+        &self,
+        run: &mut CartTrackRun,
+        at_start: bool,
+        away: Vec2,
+    ) -> Option<[f32; 2]> {
+        let points = &mut run.points;
+        if points.len() < 2 {
+            return None;
+        }
+        let insertion = if at_start { 1 } else { points.len() - 1 };
+        let [bank, adjacent] = if at_start {
+            [points[0], points[1]]
+        } else {
+            [points[insertion], points[insertion - 1]]
+        }
+        .map(|point| Vec3::from_array(point).truncate());
+        let travel = (adjacent - bank).try_normalize()?;
+        if travel.distance_squared(away) > 1e-6 {
+            // Put a short tangent on the bank so both wheel ruts meet the deck.
+            let maximum = 0.75 * bank.distance(adjacent);
+            let lead = [1.5_f32, 0.75, 0.35].into_iter().find_map(|distance| {
+                let lead = bank + away * distance.min(maximum);
+                self.surface.dry_cost(bank, lead)?;
+                self.surface.dry_cost(lead, adjacent)?;
+                Some(lead.extend(self.surface.height(lead)?).to_array())
+            })?;
+            points.insert(insertion, lead);
+        }
+        let pair = if at_start {
+            &points[..2]
+        } else {
+            &points[points.len() - 2..]
+        };
+        heading(pair)
+    }
+
     fn geometry(
         &self,
         route: &Route,
         link_index: usize,
     ) -> Option<(Vec<CartTrackRun>, Vec<CartTrackBridge>)> {
         let mut runs = Vec::new();
-        let mut bridges = Vec::new();
         let mut run = Vec::new();
         for &(p, crossing) in &route.stations {
-            if let Some(kind) = crossing {
-                let a = *run.last()?;
+            if crossing.is_some() {
                 runs.push(self.finish_run(&run, link_index)?);
-                let start = a.extend(self.surface.height(a)?).to_array();
-                let end = p.extend(self.surface.height(p)?).to_array();
-                bridges.push(CartTrackBridge {
-                    link_index,
-                    start,
-                    end,
-                    kind,
-                });
                 run.clear();
             }
             if run.last() != Some(&p) {
@@ -244,98 +319,141 @@ impl<'a> CartTrackPlanner<'a> {
             }
         }
         runs.push(self.finish_run(&run, link_index)?);
-        runs.retain(|r| r.points.len() >= 2);
+        let bridges = route
+            .crossings()
+            .zip(runs.windows(2))
+            .map(|(crossing, banks)| {
+                let before = &banks[0].points;
+                let after = &banks[1].points;
+                Some(CartTrackBridge {
+                    link_index,
+                    start: *before.last()?,
+                    end: *after.first()?,
+                    width: BRIDGE_WIDTH,
+                    start_heading: None,
+                    end_heading: None,
+                    kind: crossing.kind,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some((runs, bridges))
     }
+}
+
+fn heading(points: &[[f32; 3]]) -> Option<[f32; 2]> {
+    let delta = Vec3::from_array(points[1]) - Vec3::from_array(points[0]);
+    delta.truncate().try_normalize().map(|v| v.to_array())
 }
 
 fn ordered(a: usize, b: usize) -> (usize, usize) {
     (a.min(b), a.max(b))
 }
 
-fn ranked_sites(
-    exit: &CartTrackExit,
-    exits: &[CartTrackExit],
-    sites: &BTreeMap<usize, Vec<usize>>,
-) -> Vec<(bool, f32, usize)> {
-    let direction = Vec2::from_array(exit.direction);
-    let mut ranks = sites
-        .iter()
-        .filter(|(id, _)| **id != exit.settlement_index)
-        .map(|(&site, indices)| {
-            let centre =
-                indices.iter().map(|&i| exits[i].xy()).sum::<Vec2>() / indices.len() as f32;
-            let delta = centre - exit.xy();
-            (direction.dot(delta) <= 0., delta.length_squared(), site)
-        })
-        .collect::<Vec<_>>();
-    ranks.sort_unstable_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.total_cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
-    });
-    ranks
+#[derive(Default)]
+struct Site {
+    centre: Vec2,
+    exits: Vec<usize>,
 }
 
 struct Network<'a, 'b> {
     planner: &'a CartTrackPlanner<'b>,
     exits: &'a [CartTrackExit],
     entrances: &'a [Entrance],
-    sites: &'a BTreeMap<usize, Vec<usize>>,
+    sites: &'a BTreeMap<usize, Site>,
     graph: Graph<'a>,
     result: CartTrackPlan,
-    pairs: BTreeSet<(usize, usize)>,
     attempted: BTreeSet<(usize, usize)>,
 }
 
 impl Network<'_, '_> {
-    fn try_link(&mut self, source: usize, site: usize) -> bool {
-        if !self.attempted.insert((source, site)) {
+    fn order_by_distance(&self, sites: &mut [usize], target: Vec2) {
+        // Stable ties preserve the capital as the first possible parent.
+        sites.sort_by(|a, b| {
+            self.sites[a]
+                .centre
+                .distance_squared(target)
+                .total_cmp(&self.sites[b].centre.distance_squared(target))
+        });
+    }
+
+    fn join(&mut self, target: usize, connected: &[usize]) -> bool {
+        if !self.sites[&target]
+            .exits
+            .iter()
+            .any(|&i| self.entrances[i].usable())
+        {
             return false;
         }
-        let Some(route) = self
-            .graph
-            .route(source, &self.sites[&site], self.exits, self.entrances)
-        else {
+        let centre = self.sites[&target].centre;
+        let mut sources = connected.to_vec();
+        self.order_by_distance(&mut sources, centre);
+        sources.into_iter().any(|site| self.try_link(site, target))
+    }
+
+    fn try_link(&mut self, origin: usize, site: usize) -> bool {
+        if !self.attempted.insert((origin, site)) {
             return false;
+        }
+        let sources = &self.sites[&origin].exits;
+        // A span may fit without room for a dry approach on both banks.
+        // Retry without that directed edge for this connection.
+        let mut rejected = BTreeSet::new();
+        let (source, target, mut runs, mut bridges, mut footprints) = 'search: loop {
+            let Some(route) = self.graph.route(
+                sources,
+                &self.sites[&site].exits,
+                self.exits,
+                self.entrances,
+                &rejected,
+            ) else {
+                return false;
+            };
+            let Some((mut runs, mut bridges)) =
+                self.planner.geometry(&route, self.result.links.len())
+            else {
+                return false;
+            };
+            let mut footprints = Vec::new();
+            for (index, (bridge, crossing)) in bridges.iter_mut().zip(route.crossings()).enumerate()
+            {
+                let Some(layout) = self.planner.surface.bridge_layout(bridge.request(None)) else {
+                    rejected.insert(crossing.nodes);
+                    continue 'search;
+                };
+                let (a, b) = crossing.nodes;
+                let footprint = BridgeFootprint::new(ordered(a, b), &layout);
+                let reserved = || self.result.bridge_footprints.iter().chain(&footprints);
+                if reserved().any(|other| footprint.conflicts(other)) {
+                    rejected.insert(crossing.nodes);
+                    continue 'search;
+                }
+                let (before, after) = runs.split_at_mut(index + 1);
+                let start = self
+                    .planner
+                    .align_landing(&mut before[index], false, -layout.axis);
+                let end = self.planner.align_landing(&mut after[0], true, layout.axis);
+                let (Some(start), Some(end)) = (start, end) else {
+                    rejected.insert(crossing.nodes);
+                    continue 'search;
+                };
+                bridge.start_heading = Some(start);
+                bridge.end_heading = Some(end);
+                if !reserved().any(|other| other.nodes == footprint.nodes) {
+                    footprints.push(footprint);
+                }
+            }
+            runs.retain(|run| run.points.len() >= 2);
+            break (route.source, route.target, runs, bridges, footprints);
         };
-        let Some((mut runs, mut bridges)) = self.planner.geometry(&route, self.result.links.len())
-        else {
-            return false;
-        };
-        let origin = self.exits[source].settlement_index;
-        self.pairs.insert(ordered(origin, site));
         self.result.links.push(CartTrackLink {
             from_settlement: origin,
             to_settlement: site,
             from_exit: source,
-            to_exit: route.target,
+            to_exit: target,
         });
         self.result.runs.append(&mut runs);
         self.result.bridges.append(&mut bridges);
+        self.result.bridge_footprints.append(&mut footprints);
         true
-    }
-
-    fn connected(&self, from: usize, to: usize) -> bool {
-        let mut visited = BTreeSet::from([from]);
-        let mut queue = vec![from];
-        while let Some(site) = queue.pop() {
-            if site == to {
-                return true;
-            }
-            for &(a, b) in &self.pairs {
-                let next = if a == site {
-                    b
-                } else if b == site {
-                    a
-                } else {
-                    continue;
-                };
-                if visited.insert(next) {
-                    queue.push(next);
-                }
-            }
-        }
-        false
     }
 }

@@ -8,6 +8,7 @@ mod prototypes;
 mod rivers;
 mod roads;
 mod settlements;
+mod wheat;
 
 pub use input::*;
 
@@ -43,12 +44,17 @@ pub struct TownFrontage {
     pub street_edge: [f32; 3],
 }
 
-/// Opposing bank approaches reserved as information for a future bridge.
+/// Graded road ends on opposing riverbanks, in native Z-up metres.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BridgeCandidate {
     pub from: [f32; 3],
     pub to: [f32; 3],
     pub width: f32,
+    /// Unit directions of travel from `from` to `to` at the respective road ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_heading: Option<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_heading: Option<[f32; 2]>,
 }
 
 /// Outward cart-track attachment on a graded street end or the outer ring curb.
@@ -60,9 +66,12 @@ pub struct TownRoadExit {
     /// Unit vector pointing out of the settlement in native XY.
     pub direction: [f32; 2],
     pub half_width: f32,
+    /// A departure from the outer ring, alongside any cross-street terminals.
+    #[serde(default)]
+    pub curb: bool,
 }
 
-/// Horizontal rectangle for removal of trees, rocks and other terrain decorations.
+/// Oriented horizontal rectangle in native XY metres.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ClearanceRect {
     pub centre: [f32; 2],
@@ -135,7 +144,15 @@ pub struct TownOutput {
     pub support_material: Option<MaterialTexture>,
     pub support_colliders: Vec<BoxCollider>,
     pub stair_colliders: Vec<BoxCollider>,
+    /// Fitted exterior stair approaches and the foundation footprints they avoid.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stair_feet: Vec<motu::TownStairFoot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footpath_blockers: Vec<ClearanceRect>,
     pub clearance: Vec<ClearanceRect>,
+    /// Vacant plots awaiting final terrain fitting. Local X follows the wheat rows.
+    #[serde(default)]
+    pub wheat_fields: Vec<ClearanceRect>,
     /// Accepted building, support and entrance reservations for cart-track routing.
     #[serde(default)]
     pub routing_blockers: Vec<ClearanceRect>,

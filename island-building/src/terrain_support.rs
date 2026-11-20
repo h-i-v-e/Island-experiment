@@ -55,6 +55,9 @@ pub struct FittedStair {
     pub step_rise: f32,
     pub step_run: f32,
     pub bounds: BoxCollider,
+    /// Building-local XY at the outer edge of the last fitted tread.
+    #[serde(default)]
+    pub foot: [f32; 2],
 }
 
 #[derive(Clone, Copy)]

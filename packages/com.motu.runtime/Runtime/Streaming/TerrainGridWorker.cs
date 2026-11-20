@@ -14,7 +14,8 @@ namespace Motu.Streaming
 
         internal static async Task<IslandPreparedMesh[]> PrepareAsync(
             NativeIslandHandle owner, MotuNative.ExportArea area, int lod,
-            int divisions, byte clampSides, float worldSize, CancellationToken cancellation)
+            int divisions, byte clampSides, float worldSize, CancellationToken cancellation,
+            WheatField[] wheatFields = null)
         {
             await Gate.WaitAsync(cancellation).ConfigureAwait(false);
             try
@@ -22,14 +23,14 @@ namespace Motu.Streaming
                 cancellation.ThrowIfCancellationRequested();
                 using var lease = owner.Acquire();
                 return await Task.Run(() => Prepare(lease.Value, area, lod, divisions,
-                    clampSides, worldSize, cancellation), cancellation).ConfigureAwait(false);
+                    clampSides, worldSize, cancellation, wheatFields), cancellation).ConfigureAwait(false);
             }
             finally { Gate.Release(); }
         }
 
         internal static IslandPreparedMesh[] Prepare(
             IntPtr handle, MotuNative.ExportArea area, int lod, int divisions,
-            byte clampSides, float worldSize, CancellationToken cancellation)
+            byte clampSides, float worldSize, CancellationToken cancellation, WheatField[] wheatFields = null)
         {
             cancellation.ThrowIfCancellationRequested();
             MotuNative.ExportMeshGrid export;
@@ -50,12 +51,31 @@ namespace Motu.Streaming
                     cancellation.ThrowIfCancellationRequested();
                     var source = Marshal.PtrToStructure<MotuNative.ExportMesh>(IntPtr.Add(export.data, index * stride));
                     if (source.handle != IntPtr.Zero && source.triangles.length != 0)
+                    {
                         meshes[index] = IslandMeshInterop.CopyTerrainMeshData(source, lod, worldSize, coverageSources);
+                        PrepareWheat(meshes[index], wheatFields, area, divisions, index, worldSize, lod, cancellation);
+                    }
                 }
                 cancellation.ThrowIfCancellationRequested();
                 return meshes;
             }
             finally { MotuNative.ReleaseMeshGrid(ref export); }
+        }
+
+        internal static void PrepareWheat(IslandPreparedMesh mesh, WheatField[] fields,
+            MotuNative.ExportArea area, int divisions, int index, float worldSize, int lod,
+            CancellationToken cancellation)
+        {
+            if ((fields?.Length ?? 0) == 0) return;
+            var x = index % divisions;
+            var z = index / divisions;
+            float Coordinate(float min, float max, int interval) =>
+                (min + (max - min) * ((float)interval / divisions) - 0.5f) * worldSize;
+
+            var bounds = new WheatTileBounds(
+                Coordinate(area.min.x, area.max.x, x), Coordinate(area.min.y, area.max.y, z),
+                Coordinate(area.min.x, area.max.x, x + 1), Coordinate(area.min.y, area.max.y, z + 1));
+            mesh.wheat = WheatTileGeometry.Build(mesh, fields, lod, cancellation, bounds);
         }
     }
 }

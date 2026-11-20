@@ -52,8 +52,8 @@ width of the street entering from each axis. Water, steep terrain, or excessive 
 can interrupt a ring street. The sections that reach the town centre stay in use.
 A cross road between rings requires a complete span and a junction at each end.
 An outward access road must reach its planned exit. Where a river interrupts a
-street and both banks can support landings, the plan records a candidate for a
-future bridge.
+street and both banks can support an arched bridge, the linked street network
+retains the graded approach on each bank.
 
 Roads have a level cross-section and a constrained grade along their length.
 The same native grade drives the road surface and terrain collision, with
@@ -83,19 +83,66 @@ paving and surrounding ground. The close terrain uses the recipe's height map
 and physical height range for parallax, and height-blends the paving into the
 gravel. The road profile clears grass from the road and drives gravel footsteps.
 
-**Connect Settlements** generates separate cart tracks from completed outward
-street exits. The nearest viable settlement in each exit's direction is tried
-first. Routes follow the terrain mesh and weigh both along-track grade and
+**Connect Settlements** grows one cart-track network from the capital. It visits
+villages in order of distance from the capital. Each branch starts at the closest
+connected settlement. A* compares usable cross-street ends, outermost ring
+corners and ring dead ends at both settlements in one search. A dead end can
+connect straight ahead or from its outer curb. If
+none can reach the destination, the planner tries the next connected settlement
+in distance order. Routes follow the terrain mesh and weigh both along-track grade and
 cross-slope at the wheel lines. Their curves are checked against the original
 ground. Fallen Stones fills each rut and grass or soil can show through the
-center. Cart tracks use a separate render mask and preserve ground heights.
+centre. Where the wheel lines are at different heights, the higher rut is cut
+towards the lower one by at most 30 cm. The cut feathers across the rut and
+fades into paved roads, bridge landings and section seams. Close terrain and
+collision include the depression. Distant terrain retains the painted ruts.
 
-A route can include a prospective bridge over a river or ravine. The report
-records the two landings, and each bank has its own dry track. Game code can
-read the candidates through `IslandGenerator.TryGetCartTrackBridgeCandidate`.
-Adjacent coastal sections choose the same crossing from the shared seam heights
-and normals, with matching wheel spacing across the boundary where both local
-approaches are feasible.
+A route can include a stone bridge over a river or ravine. The report records
+the two landings, where the dry tracks meet the bridge deck. Game code can read
+the landings through `IslandGenerator.TryGetCartTrackBridgeCandidate`.
+Adjacent coastal sections meet at shared dry portals with matching wheel
+spacing. Each bridge belongs to the section containing both of its landings.
+
+The same native generator fits town and cart-track bridges. The deck runs
+straight between the two finished bank elevations. Cart tracks turn on the
+dry approaches to meet the deck in line. The fitter lays out segmental arches
+around the river channel and extends each pier and abutment into the ground
+beneath its footprint. The deck, parapets and arches share the churches'
+weathered exterior stone and render as one mesh per detail level. Unity
+installs a continuous collider and includes the deck in navigation. The
+distant mesh retains the open arch silhouettes.
+
+### Capital pier
+
+The coastal capital has one pier where the closest usable open-ocean shoreline
+can support an Explorer berth. The shared Rust planner checks the resident seabed
+under the whole berth and its approach. It currently fits a 42 by 16 metre berth
+with at least 5 metres of water depth. The timber piles follow the seabed, and
+an existing-vertex gravel path links the stone landing to the town streets.
+
+The pier exports separate meshes for rendering, collision and walking. The same
+plan supplies the berth position and heading, the approach waypoint and
+deterministic cargo prop points. The working deck is clear by default.
+Create an optional catalogue with **Assets → Create → Motu → Capital Pier Clutter Catalogue**
+and save it at `Assets/Resources/Towns/CapitalPierClutterCatalogue.asset`. Add
+prefabs with the `cargo` kind. Place each prefab's origin at its feet and align
+its +Z axis along the deck. Keep its rendered footprint within 0.48 m on either
+side of its origin and 1 m forward or back. The adapter picks a fitting prefab
+deterministically for each point and leaves the walking surface clear.
+
+### Wheat fields
+
+The town planner finds room for fields in the finished street layout after
+placing buildings. The resident terrain trims those plots around steep or wet
+ground, roads, footpaths, cart tracks and bridge approaches. A field coverage mask
+suppresses grass and exposes dirt, and the town's decoration clearance removes
+rocks and wild vegetation from the accepted plots.
+
+LOD0 terrain tiles draw instanced wheat clumps in seeded rows that share the
+island wind. LOD1 and LOD2 tiles carry raised canopies clipped to their finished
+terrain, with mottled colour and row-aligned texture coordinates shared across
+tile seams. The clumps and canopy dissolve during the tile handoff. The canopy
+fades out as the view approaches the LOD3 horizon.
 
 The Unity adapter shares prototype meshes, materials and textures across copies.
 The scene hierarchy groups buildings by capital and village.

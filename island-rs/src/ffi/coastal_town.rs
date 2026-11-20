@@ -1,7 +1,8 @@
 //! Additive owned JSON boundary for engine-independent town terrain and clearance.
 use super::{Island, c_char, c_void};
 use crate::{
-    DecorationClearance, ISLAND_WORLD_METRES, TownProtectedTerrain, Vec2, roads::RoadNetwork,
+    DecorationClearance, ISLAND_WORLD_METRES, TownProtectedTerrain, TownStairFoot, Vec2,
+    roads::RoadNetwork,
 };
 use rayon::prelude::*;
 use serde::Serialize;
@@ -15,7 +16,7 @@ thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(CString::default());
 }
 
-fn error(message: &str) {
+pub(super) fn error(message: &str) {
     let text = message.replace('\0', " ");
     LAST_ERROR.with(|cell| *cell.borrow_mut() = CString::new(text).expect("NUL removed"));
 }
@@ -209,7 +210,7 @@ pub unsafe extern "C" fn HasTerrainRoadCoverage(handle: *const c_void) -> i32 {
 
 /// Mark exported terrain vertices with the road material profile at their XY.
 /// The profile ranges from 0 (natural terrain) through 0.5 (gravel edge)
-/// to 1 (paved road).
+/// to 1 (paved road). Footpaths use the same gravel band.
 ///
 /// # Safety
 /// A non-null handle must reference a live island. The vertex and weight
@@ -231,9 +232,53 @@ pub unsafe extern "C" fn CopyTerrainRoadCoverage(
     let weights = unsafe { std::slice::from_raw_parts_mut(weights, length) };
     let terrain = island.terrain();
     for (weight, vertex) in weights.iter_mut().zip(vertices) {
-        *weight = terrain.road_coverage_at(vertex.truncate());
+        *weight = terrain.town_surface_coverage_at(vertex.truncate());
     }
     1
+}
+
+#[derive(serde::Deserialize)]
+struct TownFootpathRequest {
+    feet: Vec<TownStairFoot>,
+    foundations: Vec<DecorationClearance>,
+}
+
+/// Apply stair footpath paint to existing graded terrain. Returns the number
+/// of marked vertices, or -1 for invalid input.
+/// # Safety
+/// The caller must own exclusive access to a live island and provide a valid,
+/// NUL-terminated UTF-8 buffer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PaintCoastalTownFootpaths(
+    handle: *mut c_void,
+    json: *const c_char,
+) -> i32 {
+    let Some(island) = (unsafe { handle.cast::<Island>().as_mut() }) else {
+        error("town footpaths require a live exclusively owned island");
+        return -1;
+    };
+    if json.is_null() {
+        error("town footpath JSON is null");
+        return -1;
+    }
+    let bytes = unsafe { CStr::from_ptr(json) }.to_bytes();
+    let request = (bytes.len() <= 4 * 1024 * 1024)
+        .then(|| serde_json::from_slice::<TownFootpathRequest>(bytes).ok())
+        .flatten();
+    let Some(request) = request else {
+        error("invalid town footpath JSON request");
+        return -1;
+    };
+    match island.paint_town_footpaths(&request.feet, &request.foundations) {
+        Ok(count) => {
+            error("");
+            i32::try_from(count).unwrap_or(i32::MAX)
+        }
+        Err(reason) => {
+            error(&reason);
+            -1
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -243,6 +288,24 @@ struct CartTrackRequest {
     coast_seams: bool,
     #[serde(default)]
     settlement_count: usize,
+    settlements: Option<Vec<CartTrackSettlement>>,
+}
+
+#[derive(serde::Deserialize)]
+struct CartTrackSettlement {
+    kind: String,
+    #[serde(default)]
+    centre: Option<Vec<f32>>,
+}
+
+impl CartTrackSettlement {
+    fn centre(&self) -> Option<Vec2> {
+        let [x, y] = self.centre.as_deref()? else {
+            return None;
+        };
+        let world = 0. ..=ISLAND_WORLD_METRES;
+        (world.contains(x) && world.contains(y)).then_some(Vec2::new(*x, *y))
+    }
 }
 
 /// Plan tracks after town grading and before terrain and decoration exports.
@@ -270,7 +333,12 @@ pub unsafe extern "C" fn PrepareCoastalCartTracks(
         return ptr::null_mut();
     };
     if request.settlement_count > 512
-        || request.exits.len() > 512
+        || request
+            .settlements
+            .as_ref()
+            .is_some_and(|sites| sites.len() != request.settlement_count)
+        // A single graded strip can now contribute departures at both ends.
+        || request.exits.len() > crate::roads::MAX_ROAD_EDGES * 2
         || request.blockers.len() > 4096
         || request.exits.iter().any(|exit| {
             exit.settlement_index > 512
@@ -293,12 +361,25 @@ pub unsafe extern "C" fn PrepareCoastalCartTracks(
         error("cart-track exits or blockers exceed routing limits");
         return ptr::null_mut();
     }
+    let capital = match &request.settlements {
+        Some(sites) => sites.iter().position(|site| site.kind == "capital"),
+        None if request.settlement_count > 0 => Some(0),
+        None => request.exits.iter().map(|exit| exit.settlement_index).min(),
+    };
+    let centres: Vec<_> = request
+        .settlements
+        .iter()
+        .flatten()
+        .map(CartTrackSettlement::centre)
+        .collect();
     let report = island
         .prepare_cart_tracks(
             &request.exits,
             &request.blockers,
             request.coast_seams,
             request.settlement_count,
+            capital,
+            &centres,
         )
         .and_then(|report| serde_json::to_string(&report).map_err(|err| err.to_string()))
         .and_then(|json| CString::new(json).map_err(|err| err.to_string()));

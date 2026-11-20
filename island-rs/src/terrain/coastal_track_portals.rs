@@ -3,6 +3,8 @@ use super::{ISLAND_WORLD_METRES, Island, Mesh, Vec2};
 impl Island {
     /// Candidate cart-track crossings of a coastal strip's left and right edges,
     /// in native local metres. The town grader preserves the seam collar.
+    /// Neighbouring tracks meet on dry ground here. A bridge requires both
+    /// banks and their approaches in one section.
     #[must_use]
     pub fn coastal_track_portals(&self) -> [Option<Vec2>; 2] {
         // Coastal generation retains the complete pinned seam in every LOD.

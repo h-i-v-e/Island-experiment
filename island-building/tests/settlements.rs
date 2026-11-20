@@ -26,6 +26,8 @@ fn input(outlets: &[f32]) -> TownInput {
                 join: None,
             })
             .collect(),
+        bridge_exclusions: Vec::new(),
+        disable_bridges: false,
         protected_terrain: Vec::new(),
     }
 }
@@ -224,6 +226,25 @@ fn nearby_sites_keep_road_and_building_clearance_and_valid_graded_frontage() {
                 .iter()
                 .any(|area| overlaps(area, village_rect))
         );
+    }
+
+    assert!(!solo.wheat_fields.is_empty());
+    assert!(!output.wheat_fields.is_empty());
+    for (i, field) in output.wheat_fields.iter().enumerate() {
+        assert!(field.half_extents[0] >= 4.5 && field.half_extents[1] >= 3.);
+        assert!(!output.clearance.iter().any(|area| overlaps(area, field)));
+        assert!(
+            !output.wheat_fields[..i]
+                .iter()
+                .any(|other| overlaps(other, field))
+        );
+        let heading = motu::Vec2::from_angle(field.yaw);
+        assert!(roads.strips.iter().any(|strip| {
+            let first = strip.stations.first().unwrap().point;
+            let last = strip.stations.last().unwrap().point;
+            heading.dot((last - first).normalize()).abs() > 0.9999
+                && motu::Vec2::from_array(field.centre).distance((first + last) * 0.5) < 30.
+        }));
     }
 }
 

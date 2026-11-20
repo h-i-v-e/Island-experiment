@@ -229,8 +229,10 @@ namespace Motu.Navigation
                 var padding = build.agentRadius * 2f + build.voxelSize * 3f;
                 Report.chunkSize = chunkWidth;
                 Report.maximumBuildWorkers = (int)build.maxJobWorkers;
+                // Copy static town walkways on Unity's thread before partitioning them with the terrain.
+                var townWalkways = GetComponentInParent<IslandRuntime>(true)?.Town?.CopyTownNavigationMeshes(transform);
                 var partition = await Task.Run(() => IslandNavigationChunks.Prepare(terrain, caves,
-                    chunkWidth, padding, settings.MinimumGroundHeight, settings.ExcludeRiverBeds, token), token);
+                    chunkWidth, padding, settings.MinimumGroundHeight, settings.ExcludeRiverBeds, token, townWalkways), token);
                 Report.sourceTriangles = partition.sourceTriangles;
                 Report.chunkCount = partition.chunks.Count;
                 foreach (var chunk in partition.chunks)

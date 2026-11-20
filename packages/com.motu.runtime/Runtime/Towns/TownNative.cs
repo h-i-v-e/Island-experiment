@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Motu.Towns
 {
-    internal static class TownNative
+    internal static partial class TownNative
     {
         internal const int ApiVersion = 2;
         private const int RoadGeometryRejected = -1;
@@ -22,9 +22,13 @@ namespace Motu.Towns
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern int ApplyCoastalTownRoadsJson(IntPtr island, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int PaintCoastalTownFootpaths(IntPtr island, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
+        [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern int SetCoastalTownClearanceJson(IntPtr island, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr PrepareCoastalCartTracks(IntPtr island, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
+        [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr PrepareCoastalTownBridges(IntPtr island, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr GetLastCoastalTownError();
         [DllImport("motu_building", CallingConvention = CallingConvention.Cdecl)]
@@ -36,6 +40,18 @@ namespace Motu.Towns
         private static extern IntPtr GetLastMotuTownError();
         [DllImport("motu_building", CallingConvention = CallingConvention.Cdecl)]
         private static extern void DestroyMotuTown(IntPtr town);
+
+        [DllImport("motu_building", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr ExportMotuChurchStoneJson();
+
+        private static readonly Lazy<TownMaterial> churchStone = new Lazy<TownMaterial>(() =>
+        {
+            var json = ExportMotuChurchStoneJson();
+            if (json == IntPtr.Zero) throw Error("Church stone export", GetLastMotuTownError());
+            return JsonUtility.FromJson<TownMaterial>(Marshal.PtrToStringUTF8(json));
+        });
+
+        internal static TownMaterial ChurchStone => churchStone.Value;
 
         internal static TownPreparedData Prepare(IntPtr island, string recipeJson, ulong tileSeed,
             TownDependencyData[] dependencies = null, string villageRecipeJson = null,
@@ -49,7 +65,11 @@ namespace Motu.Towns
             string inputJson;
             try { inputJson = Marshal.PtrToStringUTF8(input); }
             finally { FreeCoastalTownJson(input); }
-            var result = Generate(recipeJson, inputJson, dependencies, villageRecipeJson);
+            // Grade only the final network. A sampled height grid can miss a rock or an
+            // undercut at the landing that the precise island surface exposes.
+            var result = PlanPavedBridges(inputJson,
+                inputWithExclusions => Generate(recipeJson, inputWithExclusions, dependencies, villageRecipeJson),
+                town => FitBridges(island, PavedCrossings(town), town.roads_json));
             if (!string.IsNullOrEmpty(result.roads_json))
             {
                 var status = ApplyCoastalTownRoadsJson(island, result.roads_json);
@@ -60,13 +80,38 @@ namespace Motu.Towns
                     return null;
                 }
                 if (status != 1) throw Error("Town road grading", GetLastCoastalTownError());
+                if ((result.stair_feet?.Length ?? 0) > 0)
+                    result.footpath_vertex_count = PaintFootpaths(island, result);
             }
             if (SetCoastalTownClearanceJson(island, result.clearance_json) != 1)
                 throw Error("Town decoration clearance", GetLastCoastalTownError());
             if (connectSettlements && villageRecipeJson != null
                 && ((result.road_exits?.Length ?? 0) > 0 || connectCoastalSeams))
                 result.cartTracks = PrepareCartTracks(island, result, connectCoastalSeams);
+            AppendCartBridges(island, result);
+            if (connectCoastalSeams) PrepareCapitalPier(island, result, tileSeed);
+            if ((result.wheat_fields?.Length ?? 0) != 0)
+                result.wheat_fields = PrepareWheatFields(island, result);
             return result;
+        }
+
+        [Serializable]
+        private sealed class FootpathRequest
+        {
+            public TownStairFoot[] feet;
+            public TownTrackBlocker[] foundations;
+        }
+
+        private static int PaintFootpaths(IntPtr island, TownPreparedData town)
+        {
+            var request = new FootpathRequest
+            {
+                feet = town.stair_feet,
+                foundations = town.footpath_blockers ?? Array.Empty<TownTrackBlocker>(),
+            };
+            var count = PaintCoastalTownFootpaths(island, JsonUtility.ToJson(request));
+            if (count < 0) throw Error("Town stair footpath paint", GetLastCoastalTownError());
+            return count;
         }
 
         [Serializable]
@@ -76,6 +121,7 @@ namespace Motu.Towns
             public TownTrackBlocker[] blockers;
             public bool coast_seams;
             public int settlement_count;
+            public TownSettlement[] settlements;
         }
 
         private static TownCartTrackPlan PrepareCartTracks(IntPtr island, TownPreparedData town, bool coastSeams)
@@ -86,6 +132,7 @@ namespace Motu.Towns
                 blockers = town.routing_blockers ?? Array.Empty<TownTrackBlocker>(),
                 coast_seams = coastSeams,
                 settlement_count = town.settlements?.Length ?? 0,
+                settlements = town.settlements ?? Array.Empty<TownSettlement>(),
             };
             var report = PrepareCoastalCartTracks(island, JsonUtility.ToJson(request));
             if (report == IntPtr.Zero)

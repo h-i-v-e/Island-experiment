@@ -218,6 +218,17 @@ MOTU_EXPORT void ReleaseMotu(void *handle);
 /* Prepare on an exclusive resident island after town grading. Free the JSON
    report with FreeCoastalTownJson. */
 MOTU_EXPORT char *PrepareCoastalCartTracks(void *handle, const char *requestJson);
+/* Fits crossing landings to solid resident terrain. Free the JSON report
+   with FreeCoastalTownJson. The island is borrowed without mutation. */
+MOTU_EXPORT char *PrepareCoastalTownBridges(const void *handle, const char *requestJson);
+/* Fits the capital pier and paints the shore approach on an exclusive island.
+   Call after roads and cart tracks; free the report with FreeCoastalTownJson. */
+MOTU_EXPORT char *PrepareCoastalCapitalPier(void *handle, const char *requestJson);
+/* Validate and trim field rectangles, then clear their decorations. Prepare
+   after roads, footpaths, cart tracks and bridges; free with FreeCoastalTownJson. */
+MOTU_EXPORT char *PrepareCoastalWheatFields(void *handle, const char *requestJson);
+/* Returns the number of painted terrain vertices, or -1 for invalid input. */
+MOTU_EXPORT int32_t PaintCoastalTownFootpaths(void *handle, const char *requestJson);
 MOTU_EXPORT void FreeCoastalTownJson(char *json);
 MOTU_EXPORT int32_t HasTerrainCartTracks(const void *handle);
 MOTU_EXPORT int32_t CopyTerrainCartTrackCoverage(const void *handle, Vector3ExportArray vertices,

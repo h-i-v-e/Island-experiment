@@ -68,6 +68,7 @@ namespace Motu.Islands
                 ? DistanceToCoastalFootprint(worldPosition)
                 : Vector3.Distance(worldPosition, transform.position);
             Navigation?.NoteViewerDistance(distance);
+            TerrainStreamer?.SetWheatHorizonDistance(distance, Lod3DistanceMetres);
             if (lod3Object != null)
             {
                 // A coast horizon shares edges with independently resident sections.

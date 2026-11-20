@@ -1,8 +1,8 @@
 use super::{CartTrackExit, Crossing, Surface, surface::SpatialBins};
-use crate::{Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2};
+use crate::{Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, bridges::MIN_HEADING_DOT};
 use std::{
     cmp::Ordering,
-    collections::{BinaryHeap, HashMap},
+    collections::{BTreeSet, BinaryHeap, HashMap},
 };
 
 #[derive(Clone, Copy)]
@@ -200,9 +200,15 @@ impl<'a> Graph<'a> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Predecessor {
+    Vertex(usize),
+    Exit(usize),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct State {
-    previous: usize,
+    previous: Predecessor,
     node: usize,
 }
 
@@ -243,28 +249,59 @@ struct Arrival {
 }
 
 pub(super) struct Route {
+    pub(super) source: usize,
     pub(super) target: usize,
-    pub(super) stations: Vec<(Vec2, Option<Crossing>)>,
+    pub(super) stations: Vec<(Vec2, Option<RouteCrossing>)>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RouteCrossing {
+    pub(super) kind: Crossing,
+    pub(super) nodes: (usize, usize),
+}
+
+impl Route {
+    pub(super) fn crossings(&self) -> impl Iterator<Item = RouteCrossing> + '_ {
+        self.stations.iter().filter_map(|(_, crossing)| *crossing)
+    }
+}
+
+fn target_anchors(targets: &[usize], entrances: &[Entrance]) -> HashMap<usize, Vec<(usize, f32)>> {
+    let mut ends = HashMap::<_, Vec<_>>::new();
+    for &target in targets {
+        for anchor in &entrances[target].anchors {
+            ends.entry(anchor.node)
+                .or_default()
+                .push((target, anchor.cost));
+        }
+    }
+    ends
+}
+
+fn turn_cost(incoming: Vec2, outward: Vec2, at_bridge_landing: bool) -> Option<f32> {
+    let outward = outward.normalize_or_zero();
+    let alignment = incoming.dot(outward).clamp(-1., 1.);
+    if at_bridge_landing
+        && incoming != Vec2::ZERO
+        && outward != Vec2::ZERO
+        && alignment < MIN_HEADING_DOT
+    {
+        return None;
+    }
+    Some(4.0 * (1.0 - alignment).powi(2))
 }
 
 impl Graph<'_> {
     pub(super) fn route(
         &mut self,
-        source: usize,
+        sources: &[usize],
         targets: &[usize],
         exits: &[CartTrackExit],
         entrances: &[Entrance],
+        rejected_crossings: &BTreeSet<(usize, usize)>,
     ) -> Option<Route> {
-        let origin = &entrances[source];
-        let mut ends = HashMap::<usize, Vec<(usize, f32)>>::new();
-        for &target in targets {
-            for anchor in &entrances[target].anchors {
-                ends.entry(anchor.node)
-                    .or_default()
-                    .push((target, anchor.cost));
-            }
-        }
-        if ends.is_empty() || !origin.usable() {
+        let ends = target_anchors(targets, entrances);
+        if ends.is_empty() || sources.is_empty() {
             return None;
         }
         let heuristic = |p: Vec2| {
@@ -275,24 +312,28 @@ impl Graph<'_> {
         };
         let mut queue = BinaryHeap::new();
         let mut visited = HashMap::new();
-        for anchor in &origin.anchors {
-            let state = State {
-                previous: usize::MAX,
-                node: anchor.node,
-            };
-            visited.insert(
-                state,
-                Arrival {
+        for &source in sources {
+            for anchor in &entrances[source].anchors {
+                // Two exits can attach to the same vertex with different
+                // approach headings. Both arrivals must enter the search.
+                let state = State {
+                    previous: Predecessor::Exit(source),
+                    node: anchor.node,
+                };
+                visited.insert(
+                    state,
+                    Arrival {
+                        cost: anchor.cost,
+                        parent: None,
+                        crossing: None,
+                    },
+                );
+                queue.push(Visit {
+                    state,
                     cost: anchor.cost,
-                    parent: None,
-                    crossing: None,
-                },
-            );
-            queue.push(Visit {
-                state,
-                cost: anchor.cost,
-                estimate: anchor.cost + heuristic(self.positions[state.node]),
-            });
+                    estimate: anchor.cost + heuristic(self.positions[state.node]),
+                });
+            }
         }
         let mut best: Option<(f32, State, usize)> = None;
         while let Some(Visit {
@@ -308,18 +349,20 @@ impl Graph<'_> {
                 continue;
             }
             let at = self.positions[state.node];
-            let prior = self
-                .positions
-                .get(state.previous)
-                .copied()
-                .unwrap_or(origin.lead);
-            let incoming = (at - prior).normalize_or_zero();
-            let turn = |outward: Vec2| {
-                4.0 * (1.0 - incoming.dot(outward.normalize_or_zero()).clamp(-1., 1.)).powi(2)
+            let prior = match state.previous {
+                Predecessor::Vertex(index) => self.positions[index],
+                Predecessor::Exit(index) => entrances[index].lead,
             };
+            let incoming = (at - prior).normalize_or_zero();
+            let arrived_by_bridge = visited[&state].crossing.is_some();
             if let Some(options) = ends.get(&state.node) {
                 for &(target, connector) in options {
-                    let total = cost + connector + turn(entrances[target].lead - at);
+                    let Some(turn_cost) =
+                        turn_cost(incoming, entrances[target].lead - at, arrived_by_bridge)
+                    else {
+                        continue;
+                    };
+                    let total = cost + connector + turn_cost;
                     if best.is_none_or(|(existing, _, _)| total < existing) {
                         best = Some((total, state, target));
                     }
@@ -327,15 +370,25 @@ impl Graph<'_> {
             }
             self.prepare_edges(state.node);
             for edge in self.edges[state.node].as_deref().unwrap_or_default() {
-                if edge.to == state.previous {
+                if state.previous == Predecessor::Vertex(edge.to)
+                    || (edge.crossing.is_some()
+                        && rejected_crossings.contains(&(state.node, edge.to)))
+                {
                     continue;
                 }
                 let p = self.positions[edge.to];
+                let Some(turn_cost) = turn_cost(
+                    incoming,
+                    p - at,
+                    arrived_by_bridge != edge.crossing.is_some(),
+                ) else {
+                    continue;
+                };
                 let next = State {
-                    previous: state.node,
+                    previous: Predecessor::Vertex(state.node),
                     node: edge.to,
                 };
-                let cost = cost + edge.cost + turn(p - at);
+                let cost = cost + edge.cost + turn_cost;
                 if visited.get(&next).is_some_and(|entry| entry.cost <= cost) {
                     continue;
                 }
@@ -355,36 +408,83 @@ impl Graph<'_> {
             }
         }
         let (_, last, target) = best?;
-        Some(self.reconstruct(
-            last,
-            &visited,
-            [
-                (origin.lead, exits[source].xy()),
-                (entrances[target].lead, exits[target].xy()),
-            ],
-            target,
-        ))
+        Some(self.reconstruct(last, &visited, exits, entrances, target))
     }
 
     fn reconstruct(
         &self,
         mut state: State,
         visited: &HashMap<State, Arrival>,
-        endpoints: [(Vec2, Vec2); 2],
+        exits: &[CartTrackExit],
+        entrances: &[Entrance],
         target: usize,
     ) -> Route {
-        let [(source_lead, source_exit), (target_lead, target_exit)] = endpoints;
-        let mut stations = vec![(target_exit, None), (target_lead, None)];
-        loop {
+        let mut stations = vec![(exits[target].xy(), None), (entrances[target].lead, None)];
+        let source = loop {
             let step = visited[&state];
-            stations.push((self.positions[state.node], step.crossing));
-            let Some(parent) = step.parent else {
-                break;
-            };
-            state = parent;
-        }
-        stations.extend([(source_lead, None), (source_exit, None)]);
+            let crossing = step
+                .crossing
+                .zip(step.parent)
+                .map(|(kind, parent)| RouteCrossing {
+                    kind,
+                    nodes: (parent.node, state.node),
+                });
+            stations.push((self.positions[state.node], crossing));
+            if let Predecessor::Exit(source) = state.previous {
+                break source;
+            }
+            state = step.parent.expect("a terrain arrival has a parent");
+        };
+        stations.extend([(entrances[source].lead, None), (exits[source].xy(), None)]);
         stations.reverse();
-        Route { target, stations }
+        Route {
+            source,
+            target,
+            stations,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Vec3;
+
+    #[test]
+    fn exits_sharing_an_anchor_keep_separate_approach_headings() {
+        let island = super::super::tests::fixture(|_| 10.);
+        let surface = Surface::new(&island, &[]);
+        let mut graph = Graph::new(&island.coarser_lods[0], &surface);
+        let y = 140.;
+        graph.positions = vec![Vec2::new(150., y), Vec2::new(170., y)];
+        graph.edges = vec![
+            Some(vec![Edge {
+                to: 1,
+                cost: 20.,
+                crossing: None,
+            }]),
+            Some(Vec::new()),
+        ];
+        let exits = [(155., -1.), (143., 1.), (176., -1.)].map(|(x, dx)| CartTrackExit {
+            settlement_index: usize::from(x > 170.),
+            position: Vec3::new(x, y, 10.).to_array(),
+            direction: [dx, 0.],
+            half_width: 2.,
+            curb: false,
+        });
+        let entrances =
+            [(152., 0, 5.), (146., 0, 7.), (173., 1, 6.)].map(|(x, node, cost)| Entrance {
+                lead: Vec2::new(x, y),
+                anchors: vec![Attachment { node, cost }],
+            });
+        // Exit 0 reaches the shared anchor sooner, but would need a U-turn.
+        for sources in [[0, 1], [1, 0]] {
+            let route = graph
+                .route(&sources, &[2], &exits, &entrances, &BTreeSet::new())
+                .unwrap();
+            assert_eq!(route.source, 1);
+            assert_eq!(route.stations[0].0, exits[1].xy());
+            assert_eq!(route.stations[1].0, entrances[1].lead);
+        }
     }
 }

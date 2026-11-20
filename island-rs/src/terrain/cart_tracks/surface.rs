@@ -1,5 +1,10 @@
-use super::{CartTrackBlocker, Crossing, HALF_WIDTH, WHEEL_OFFSET};
-use crate::{ISLAND_WORLD_METRES, Island, Terrain, Vec2, Vec3};
+use super::{
+    BRIDGE_WIDTH, CartTrackBlocker, Crossing, HALF_WIDTH, WHEEL_OFFSET, cart_bridge_request,
+};
+use crate::{
+    ISLAND_WORLD_METRES, Island, Vec2, Vec3,
+    bridges::{BridgeLayout, BridgeRequest, fit_bridge},
+};
 
 const GRID: usize = 96;
 const GRADE_LIMIT: f32 = 0.60;
@@ -76,6 +81,28 @@ struct Footprint {
 }
 
 impl Footprint {
+    fn from_area(area: &CartTrackBlocker) -> Self {
+        Self {
+            centre: Vec2::from_array(area.centre),
+            half: Vec2::from_array(area.half_extents),
+            axis: Vec2::from_angle(area.yaw),
+        }
+    }
+
+    fn extent(self) -> Vec2 {
+        self.axis.abs() * self.half.x + self.axis.perp().abs() * self.half.y
+    }
+
+    fn intersects(self, other: Self) -> bool {
+        let project = |rect: Self, axis: Vec2| {
+            rect.half.x * rect.axis.dot(axis).abs() + rect.half.y * rect.axis.perp_dot(axis).abs()
+        };
+        let delta = other.centre - self.centre;
+        [self.axis, self.axis.perp(), other.axis, other.axis.perp()]
+            .into_iter()
+            .all(|axis| delta.dot(axis).abs() <= project(self, axis) + project(other, axis))
+    }
+
     fn overlaps(self, a: Vec2, b: Vec2) -> bool {
         let local = |p: Vec2| {
             let d = p - self.centre;
@@ -91,6 +118,64 @@ impl Footprint {
         let normal = (b - a).perp();
         normal.dot(a).abs() <= normal.abs().dot(extent)
     }
+}
+
+#[derive(Debug)]
+pub(super) struct BridgeFootprint {
+    pub(super) nodes: (usize, usize),
+    pub(super) sections: Vec<CartTrackBlocker>,
+    min: Vec2,
+    max: Vec2,
+}
+
+impl BridgeFootprint {
+    pub(super) fn new(nodes: (usize, usize), layout: &BridgeLayout) -> Self {
+        let sections: Vec<_> = bridge_sections(layout).collect();
+        let mut min = Vec2::splat(f32::INFINITY);
+        let mut max = Vec2::splat(f32::NEG_INFINITY);
+        for area in sections.iter().map(Footprint::from_area) {
+            let extent = area.extent();
+            min = min.min(area.centre - extent);
+            max = max.max(area.centre + extent);
+        }
+        Self {
+            nodes,
+            sections,
+            min,
+            max,
+        }
+    }
+
+    pub(super) fn conflicts(&self, other: &Self) -> bool {
+        self.nodes != other.nodes
+            && !self.min.cmpgt(other.max).any()
+            && !other.min.cmpgt(self.max).any()
+            && self.sections.iter().map(Footprint::from_area).any(|a| {
+                other
+                    .sections
+                    .iter()
+                    .map(Footprint::from_area)
+                    .any(|b| a.intersects(b))
+            })
+    }
+}
+
+fn bridge_sections(layout: &BridgeLayout) -> impl Iterator<Item = CartTrackBlocker> + '_ {
+    let count = layout.length.ceil() as u32;
+    (0..count).map(move |i| {
+        let s = layout.length * (i as f32 / count as f32);
+        let t = layout.length * ((i + 1) as f32 / count as f32);
+        let a = layout.point(s, 0.);
+        let b = layout.point(t, 0.);
+        let width = layout.clearance_half_width(s, t);
+        // Leave room along the span for cutwaters that project past a pier.
+        let along = width - layout.width * 0.5;
+        CartTrackBlocker {
+            centre: ((a + b) * 0.5).to_array(),
+            half_extents: [(t - s) * 0.5 + along + 0.12, width + 0.12],
+            yaw: layout.axis.to_angle(),
+        }
+    })
 }
 
 struct WaterFace([Vec2; 3]);
@@ -117,7 +202,7 @@ impl WaterFace {
 }
 
 pub(super) struct Surface<'a> {
-    terrain: &'a Terrain,
+    island: &'a Island,
     shore: SpatialBins<Segment>,
     channels: SpatialBins<Segment>,
     water: SpatialBins<WaterFace>,
@@ -127,7 +212,7 @@ pub(super) struct Surface<'a> {
 impl<'a> Surface<'a> {
     pub(super) fn new(island: &'a Island, blockers: &[CartTrackBlocker]) -> Self {
         let mut surface = Self {
-            terrain: island.terrain(),
+            island,
             shore: SpatialBins::new(),
             channels: SpatialBins::new(),
             water: SpatialBins::new(),
@@ -184,14 +269,12 @@ impl<'a> Surface<'a> {
     }
 
     fn add_blocker(&mut self, blocker: &CartTrackBlocker) {
-        let centre = Vec2::from_array(blocker.centre);
-        let half = Vec2::from_array(blocker.half_extents);
-        let axis = Vec2::from_angle(blocker.yaw);
-        let bounds = axis.abs() * half.x + axis.perp().abs() * half.y + HALF_WIDTH;
+        let footprint = Footprint::from_area(blocker);
+        let bounds = footprint.extent() + HALF_WIDTH;
         self.buildings.insert(
-            centre - bounds,
-            centre + bounds,
-            Footprint { centre, half, axis },
+            footprint.centre - bounds,
+            footprint.centre + bounds,
+            footprint,
         );
     }
 
@@ -200,10 +283,11 @@ impl<'a> Surface<'a> {
         if !uv.is_finite() || uv.min_element() < 0. || uv.max_element() > 1. {
             return None;
         }
-        let mesh = self.terrain.mesh();
+        let terrain = self.island.terrain();
+        let mesh = terrain.mesh();
         // Several final triangles may overhang the same XY. Match the vertical
         // accurate ray's uppermost hit while evaluating only scalar heights.
-        self.terrain
+        terrain
             .triangle_index
             .candidates(uv)
             .iter()
@@ -265,7 +349,10 @@ impl<'a> Surface<'a> {
             }
             // A terminal may start on pavement. Charge for the length actually
             // spent in a graded street so continuing into town is expensive.
-            let pavement = self.terrain.road_coverage_at(p / ISLAND_WORLD_METRES);
+            let pavement = self
+                .island
+                .terrain()
+                .road_coverage_at(p / ISLAND_WORLD_METRES);
             if let Some((prev, previous_pavement)) = previous {
                 cost += spacing * 6. * (pavement + previous_pavement);
                 let grade = (Vec3::from_array(heights) - Vec3::from_array(prev))
@@ -327,13 +414,37 @@ impl<'a> Surface<'a> {
                 valley_length += length / steps as f32;
             }
         }
-        if river {
-            Some(Crossing::River)
+        let kind = if river {
+            Crossing::River
         } else if depth >= 2.5 && valley_length >= 3. {
-            Some(Crossing::Ravine)
+            Crossing::Ravine
         } else {
-            None
+            return None;
+        };
+        let request = cart_bridge_request(
+            a.extend(za).to_array(),
+            b.extend(zb).to_array(),
+            BRIDGE_WIDTH,
+            kind,
+        );
+        self.bridge_layout(request).map(|_| kind)
+    }
+
+    pub(super) fn bridge_layout(&self, mut request: BridgeRequest) -> Option<BridgeLayout> {
+        if request.kind == Crossing::River {
+            request.channel = Some(self.island.bridge_channel(request.start, request.end)?);
         }
+        let layout = fit_bridge(&request, |p| self.height(p)).ok()?;
+        let clear = bridge_sections(&layout).all(|section| {
+            let area = Footprint::from_area(&section);
+            let extent = area.extent();
+            let min = area.centre - extent;
+            let max = area.centre + extent;
+            min.min_element() >= 0.
+                && max.max_element() <= ISLAND_WORLD_METRES
+                && !self.buildings.nearby(min, max).any(|b| area.intersects(*b))
+        });
+        clear.then_some(layout)
     }
 
     pub(super) fn near_river(&self, p: Vec2, radius: f32) -> bool {

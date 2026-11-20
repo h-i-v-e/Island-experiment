@@ -27,6 +27,8 @@ fn input() -> TownInput {
     TownInput {
         tile_seed: 543,
         sea_level: 0.,
+        bridge_exclusions: Vec::new(),
+        disable_bridges: false,
         protected_terrain: vec![],
         terrain: terrain(|_, y| (y * 0.2).clamp(-2., 4.)),
         rivers: vec![RiverPolyline {

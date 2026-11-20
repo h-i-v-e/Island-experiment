@@ -1039,7 +1039,8 @@ impl Island {
                 let v = y as f32 / height.saturating_sub(1).max(1) as f32;
                 for (x, value) in row.iter_mut().enumerate() {
                     let u = x as f32 / width.saturating_sub(1).max(1) as f32;
-                    *value = self.terrain.sample_height_map(u, v);
+                    let height = self.terrain.sample_height_map(u, v);
+                    *value = self.terrain.cart_track_height(Vec2::new(u, v), height);
                 }
             });
         output

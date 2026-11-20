@@ -5,6 +5,7 @@
 
 #![recursion_limit = "512"]
 
+pub mod bridges;
 pub mod caves;
 mod clouds;
 mod clustered_foliage;
@@ -17,6 +18,7 @@ mod mesh;
 mod mesh_clipper;
 mod noise;
 mod png;
+pub mod piers;
 pub mod procedural_textures;
 mod profiling;
 mod raster;
@@ -56,6 +58,7 @@ pub use sea_mask::SeaMask;
 pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 #[cfg(feature = "surface-atlas")]
 pub use terrain::SurfaceAtlas;
+pub use terrain::TownStairFoot;
 pub use terrain::town::{DecorationClearance, DecorationClearanceStats};
 pub use terrain::{
     CoastalStripOptions, Decoration, Decorations, GenerationMethod, Island, IslandOptions,

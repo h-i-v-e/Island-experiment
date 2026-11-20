@@ -4,6 +4,8 @@ Shader "Motu/Terrain Unified"
     {
         [HideInInspector] _MotuTerrainFieldOffset ("Logical terrain field offset", Vector) = (0, 0, 0, 0)
         [HideInInspector] _MotuTerrainSeam ("Coastal half width and baked map collar", Vector) = (0, 0, 0, 0)
+        [NoScaleOffset] [HideInInspector] _MotuWheatGroundMask ("Wheat ground coverage", 2D) = "black" {}
+        [HideInInspector] _MotuWheatGroundUV ("Wheat ground coordinates", Vector) = (0, 0, 0, 0)
         _Color ("Tint", Color) = (1, 1, 1, 1)
         _RockColor ("Exposed Rock", Color) = (0.30, 0.32, 0.29, 1)
         _ForestFloorColor ("Forest Floor Tint", Color) = (1, 1, 1, 1)

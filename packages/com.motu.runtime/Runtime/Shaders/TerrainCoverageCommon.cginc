@@ -1,6 +1,8 @@
 #ifndef MOTU_TERRAIN_COVERAGE_COMMON_INCLUDED
 #define MOTU_TERRAIN_COVERAGE_COMMON_INCLUDED
 
+#include "WheatGroundCommon.hlsl"
+
 #define MOTU_LAYER_DIRT 0
 #define MOTU_LAYER_FOREST_FLOOR 1
 #define MOTU_LAYER_ROCK 2
@@ -249,6 +251,12 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         _StonesEdgeBlendWidth)
         * step(0.0h, elevation);
 
+    // Crop soil replaces grass and the loose organic/stone surface. Paths
+    // and roads use the separate vertex profile below, over the crop soil.
+    half uncultivated = 1.0h - MotuWheatGroundCoverage(localPosition.xz);
+    result.forestFloor *= uncultivated;
+    result.stones *= uncultivated;
+
     // The vertex profile runs from soil through gravel at 0.5 to paving at 1.
     half shoulder = saturate(environment.z * 2.0h);
     result.roadShoulder = smoothstep(0.0h, 1.0h,
@@ -270,7 +278,8 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         max(0.05h, fwidth(grassDistance)),
         grassDistance)
         * step(0.0h, elevation)
-        * (1.0h - result.gravel);
+        * (1.0h - result.gravel)
+        * uncultivated;
 
     float noisySnowLine = _SnowLine
         + result.noise.macro.r * _SnowMacroNoiseMetres

@@ -7,6 +7,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_void},
     path::Path,
     ptr,
+    sync::OnceLock,
 };
 
 thread_local! { static LAST_ERROR: RefCell<CString> = RefCell::new(CString::default()); }
@@ -76,6 +77,22 @@ pub extern "C" fn GetMotuTownApiVersion() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn GetLastMotuTownError() -> *const c_char {
     LAST_ERROR.with(|cell| cell.borrow().as_ptr())
+}
+
+/// The default church's exterior stone maps and weathering, shared by bridges.
+/// The returned UTF-8 string is borrowed for the lifetime of the library.
+#[unsafe(no_mangle)]
+pub extern "C" fn ExportMotuChurchStoneJson() -> *const c_char {
+    static STONE: OnceLock<Result<CString, String>> = OnceLock::new();
+    match STONE
+        .get_or_init(|| CString::new(export::church_stone()?).map_err(|reason| reason.to_string()))
+    {
+        Ok(json) => json.as_ptr(),
+        Err(reason) => {
+            error(reason);
+            ptr::null()
+        }
+    }
 }
 
 /// Borrows UTF-8 strings for this call; owns all output until `DestroyMotuTown`.
@@ -180,6 +197,7 @@ mod tests {
         assert_eq!(exported["roads_json"], "");
         assert_eq!(exported["road_count"], 0);
         assert_eq!(exported["road_exits"], serde_json::json!([]));
+        assert_eq!(exported["wheat_fields"], serde_json::json!([]));
         assert_eq!(exported["instances"].as_array().unwrap().len(), 1);
         assert_eq!(exported["instances"][0]["entry_id"], "hut");
         assert_eq!(exported["instances"][0]["settlement_index"], 0);
@@ -221,6 +239,31 @@ mod tests {
         unsafe {
             DestroyMotuTown(town);
         }
+    }
+
+    #[test]
+    fn native_wheat_plots_are_oriented_xy_rectangles() {
+        let field = crate::town::ClearanceRect {
+            centre: [15., -9.],
+            half_extents: [6.5, 3.],
+            yaw: 0.75,
+        };
+        let output = crate::town::TownOutput {
+            wheat_fields: vec![field],
+            ..crate::town::TownOutput::default()
+        };
+        let exported: serde_json::Value =
+            serde_json::from_str(&export::encode(&output).unwrap()).unwrap();
+        assert_eq!(
+            exported["wheat_fields"],
+            serde_json::json!([{
+                "centre": [15., -9.], "half_extents": [6.5, 3.], "yaw": 0.75
+            }])
+        );
+        let mut old_output = serde_json::to_value(output).unwrap();
+        old_output.as_object_mut().unwrap().remove("wheat_fields");
+        let old_output: crate::town::TownOutput = serde_json::from_value(old_output).unwrap();
+        assert!(old_output.wheat_fields.is_empty());
     }
 
     #[test]

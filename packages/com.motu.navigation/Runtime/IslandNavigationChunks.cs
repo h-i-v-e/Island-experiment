@@ -28,7 +28,8 @@ namespace Motu.Navigation
         internal int sourceTriangles;
 
         internal static IslandNavigationChunks Prepare(IslandPreparedMesh terrain, IslandPreparedCaves caves,
-            float size, float padding, float minimumHeight, bool excludeRiverBeds, CancellationToken cancellation)
+            float size, float padding, float minimumHeight, bool excludeRiverBeds, CancellationToken cancellation,
+            IslandPreparedMesh[] townWalkways = null)
         {
             var result = new IslandNavigationChunks();
             var cells = new Dictionary<Vector2Int, Chunk>();
@@ -85,6 +86,8 @@ namespace Motu.Navigation
                 }
             }
             Add(terrain, excludeRiverBeds);
+            if (townWalkways != null)
+                foreach (var walkway in townWalkways) Add(walkway, false);
             if (caves != null)
                 foreach (var cave in caves.caves)
                     foreach (var mesh in cave.chunks) Add(mesh, false);
