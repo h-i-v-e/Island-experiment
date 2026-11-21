@@ -139,7 +139,7 @@ namespace Motu.Towns
             timber.SetTextureScale("_BaseMap", new Vector2(1f / 4.8f, 1f / .82f));
             timber.SetFloat("_Roughness", .86f);
             timber.SetVector("_Grub0", new Vector4(.24f, .12f, 1.6f, 2.9f));
-            timber.SetVector("_Grub1", new Vector4(.082f, .059f, .037f, 1f));
+            SetGrubDirtColour(timber, new Vector4(.082f, .059f, .037f, 1f));
             timber.SetVector("_Grub2", new Vector4(.095f, .107f, .061f, 1f));
             return timber;
         }

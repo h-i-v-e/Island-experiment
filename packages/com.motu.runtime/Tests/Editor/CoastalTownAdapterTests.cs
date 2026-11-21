@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Motu.Islands;
 using Motu.Settings;
 using Motu.Towns;
@@ -245,6 +246,64 @@ namespace Motu.Tests
                 Assert.That(door.DoorId, Is.EqualTo("entrance"));
                 Assert.That(Quaternion.Angle(door.transform.localRotation,
                     Quaternion.Euler(0f, -1.75f * Mathf.Rad2Deg, 0f)), Is.LessThan(0.001f));
+            }
+            finally { Object.DestroyImmediate(owner); }
+        }
+
+        [Test]
+        public void WeatheredTownMaterialsFollowTheirIslandDirtColour()
+        {
+            var owner = new GameObject("Town weathering palette test");
+            try
+            {
+                var mesh = new TownMesh {
+                    positions = new[] { 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f },
+                    normals = new[] { 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f },
+                    uvs = new[] { 0f, 0f, 1f, 0f, 0f, 1f }, indices = new[] { 0, 1, 2 },
+                };
+                var grub = new[] { .6f, .3f, 1.5f, 1.25f, .07f, .05f, .03f, 1f,
+                    .1f, .2f, .05f, 1f, 1f, 2f, 3f, 0f, .18f, .35f, 0f, 0f };
+                var lod = new TownLod { parts = new[] { new TownPart { material = "wall", mesh = mesh } } };
+                var start = new[] { 1000f, 1000f, 0f };
+                var end = new[] { 1020f, 1000f, 0f };
+                var data = new TownPreparedData {
+                    prototypes = new[] { new TownPrototype { entry_id = "church", is_church = true,
+                        lods = new[] { lod, lod, lod }, materials = new[] { new TownMaterial { slot = "wall", grub_uniform = grub } } } },
+                    instances = new[] { new TownInstance { position = start } },
+                    supports = mesh, support_material = new TownMaterial { grub_uniform = grub },
+                    bridgePlan = new TownBridgePlan { bridges = new[] { new TownBridge { id = "Test bridge",
+                        start = start, end = end, masonry = mesh, dressing = mesh, deck = mesh,
+                        coarse_masonry = mesh, coarse_deck = mesh, collision = mesh } } },
+                    pier = new TownCapitalPier { id = "Test pier", start = start, end = end, width = 4f,
+                        timber = mesh, stone = mesh, metal = mesh, coarse_timber = mesh, coarse_stone = mesh,
+                        collision = mesh, navigation = mesh,
+                        berth = new TownPierBerthDefinition { position = end, approach = end, heading = new[] { 1f, 0f } } },
+                };
+                var firstColour = new Color(.53f, .27f, .16f);
+                var secondColour = new Color(.32f, .23f, .48f);
+                var first = TownRenderer.Install(owner.transform, data, 2000f, terrainDirtColour: firstColour);
+                var second = TownRenderer.Install(owner.transform, data, 2000f, terrainDirtColour: secondColour);
+                var preview = TownRenderer.Install(owner.transform, data, 2000f);
+
+                Material[] Weathered(TownRenderer town) => town.GetComponentsInChildren<MeshRenderer>(true)
+                    .Select(renderer => renderer.sharedMaterial).Distinct()
+                    .Where(material => material.GetVector("_Grub0").x > 0f).ToArray();
+                void CheckIsland(TownRenderer town, Color dirt)
+                {
+                    var expected = (Vector4)(QualitySettings.activeColorSpace == ColorSpace.Linear ? dirt.linear : dirt);
+                    var materials = Weathered(town);
+                    Assert.That(materials.Select(material => material.name),
+                        Is.EquivalentTo(new[] { "church wall", "Town foundation", "Town pier timber" }));
+                    foreach (var material in materials)
+                        Assert.That(material.GetVector("_Grub1"), Is.EqualTo(expected), material.name);
+                }
+                CheckIsland(first, firstColour);
+                CheckIsland(second, secondColour);
+                var previewMaterials = Weathered(preview);
+                Assert.That(previewMaterials.Single(material => material.name == "church wall").GetVector("_Grub1"),
+                    Is.EqualTo(new Vector4(.07f, .05f, .03f, 1f)));
+                Assert.That(previewMaterials.Single(material => material.name == "Town pier timber").GetVector("_Grub1"),
+                    Is.EqualTo(new Vector4(.082f, .059f, .037f, 1f)));
             }
             finally { Object.DestroyImmediate(owner); }
         }

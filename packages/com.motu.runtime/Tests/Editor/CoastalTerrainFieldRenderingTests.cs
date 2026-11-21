@@ -104,6 +104,49 @@ namespace Motu.Tests
         }
 
         [Test]
+        public void DirtRecipeFadesWithSlopeAndKeepsProceduralNormalDetail()
+        {
+            if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat))
+                Assert.Ignore("Terrain projection comparison requires floating-point render targets.");
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Coastal Terrain Field"));
+            var target = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBFloat);
+            var readback = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var noise = new Texture3D(1, 1, 1, TextureFormat.RGBA32, false);
+            var previous = RenderTexture.active;
+            try
+            {
+                noise.SetPixels(new[] { new Color(1f, .5f, 0f, 1f) });
+                noise.Apply();
+                material.SetTexture("_CliffNoise3D", noise);
+                material.SetFloat("_ProbeDirtProjection", 1f);
+
+                Vector4 ProbeSlope(float degrees)
+                {
+                    material.SetFloat("_ProbeNormalUp", Mathf.Cos(degrees * Mathf.Deg2Rad));
+                    return Sample(material, target, readback, 0, 0);
+                }
+
+                var shallow = ProbeSlope(30f);
+                var transition = ProbeSlope(45f);
+                var steep = ProbeSlope(60f);
+                Assert.That(shallow.x, Is.EqualTo(1f).Within(.005f));
+                Assert.That(transition.x, Is.EqualTo(.5f).Within(.01f));
+                Assert.That(steep.x, Is.EqualTo(0f).Within(.005f));
+                Assert.That(steep.w, Is.GreaterThan(.025f));
+                material.SetFloat("_DirtNormalStrength", 0f);
+                Assert.That(ProbeSlope(60f).w, Is.EqualTo(0f).Within(.005f));
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                Object.DestroyImmediate(noise);
+                Object.DestroyImmediate(readback);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(material);
+            }
+        }
+
+        [Test]
         public void EmptyWheatPlotsDoNotAllocateAMask()
         {
             Assert.That(WheatGroundMask.Build(System.Array.Empty<WheatField>(), CancellationToken.None), Is.Null);

@@ -69,7 +69,7 @@ Shader "Motu/Terrain Unified"
         _GrassNormalDetailScale ("Grass Detail Frequency", Range(16, 192)) = 96
         _SandNormalDetailScale ("Sand Detail Frequency", Range(32, 1024)) = 768
         _SnowNormalDetailScale ("Snow Detail Frequency", Range(16, 256)) = 96
-        _DirtNormalStrength ("Bare Dirt Normal Strength", Range(0, 0.5)) = 0.05
+        _DirtNormalStrength ("Bare Dirt Normal Strength", Range(0, 0.5)) = 0.12
         _GrassNormalStrength ("Grass Normal Strength", Range(0, 0.5)) = 0.22
         _SandNormalStrength ("Sand Normal Strength", Range(0, 0.5)) = 0.10
         _SnowNormalStrength ("Snow Normal Strength", Range(0, 0.5)) = 0.08
@@ -508,7 +508,7 @@ Shader "Motu/Terrain Unified"
             // gate and coherent patch mask both contain true zero/one plateaus,
             // leaving full procedural areas, full recipe/parallax areas, and
             // bounded transitions instead of a perpetual fractional mixture.
-            half MotuTopTextureWeight(half localUp, half coherentNoise)
+            half MotuSlopeTextureWeight(half localUp, half coherentNoise)
             {
                 half cutoffDegrees = clamp(
                     _TopTextureFadeOutSlope,
@@ -604,12 +604,8 @@ Shader "Motu/Terrain Unified"
                 baseColor = lerp(baseColor, fixed3(0.82, 0.84, 0.81), coverage.snow);
 
                 float3 noisePosition = fieldPosition / max(_CliffNoisePeriod, 1.0);
-                half3 dirtNormal = PerturbNormal(
-                    geometricNormal,
-                    noisePosition,
-                    _GrassNormalDetailScale,
-                    float3(0.79, 0.17, 0.53),
-                    _DirtNormalStrength);
+                half3 dirtNormal = MotuProceduralDirtNormal(
+                    geometricNormal, fieldPosition, coverage.noise.broad, _DirtNormalStrength);
                 half3 rockNormal = PerturbNormal(
                     geometricNormal,
                     noisePosition,
@@ -788,23 +784,22 @@ Shader "Motu/Terrain Unified"
                         + coverage.noise.detail.r * 0.55h,
                     -1.0h,
                     1.0h);
-                half dirtTextureProjection = MotuTopTextureWeight(
-                    localUp,
-                    dirtPatchNoise);
-                half forestTextureProjection = MotuTopTextureWeight(
+                half dirtTextureProjection = MotuDirtTextureProjection(
+                    1.0h, dirtPatchNoise, localUp);
+                half forestTextureProjection = MotuSlopeTextureWeight(
                     localUp,
                     forestPatchNoise);
-                half rockTextureProjection = MotuTopTextureWeight(
+                half rockTextureProjection = MotuSlopeTextureWeight(
                     localUp,
                     rockPatchNoise);
-                half riverTextureProjection = MotuTopTextureWeight(
+                half riverTextureProjection = MotuSlopeTextureWeight(
                     localUp,
                     riverPatchNoise);
-                half stonesTextureProjection = MotuTopTextureWeight(
+                half stonesTextureProjection = MotuSlopeTextureWeight(
                     localUp,
                     stonesPatchNoise);
                 stonesTextureProjection = max(stonesTextureProjection, coverage.gravel);
-                half beachTextureProjection = MotuTopTextureWeight(
+                half beachTextureProjection = MotuSlopeTextureWeight(
                     localUp,
                     beachPatchNoise);
                 half simpleOverlayPresence = smoothstep(
@@ -1033,12 +1028,8 @@ Shader "Motu/Terrain Unified"
                 baseColor = lerp(baseColor, snowColor, coverage.snow);
 
                 float3 noisePosition = fieldPosition / max(_CliffNoisePeriod, 1.0);
-                half3 simpleDirtNormal = PerturbNormal(
-                    geometricNormal,
-                    noisePosition,
-                    _GrassNormalDetailScale,
-                    float3(0.79, 0.17, 0.53),
-                    _DirtNormalStrength);
+                half3 simpleDirtNormal = MotuProceduralDirtNormal(
+                    geometricNormal, fieldPosition, coverage.noise.broad, _DirtNormalStrength);
                 half3 dirtNormal = normalize(lerp(
                     simpleDirtNormal,
                     ArrayWorldNormal(dirtUv, MOTU_LAYER_DIRT),

@@ -62,7 +62,7 @@ Material:
     - _CliffNormalStrength: 0.12
     - _CoastalWetnessBlendWidth: 0.12
     - _CoastalWetnessNoiseStrength: 0.16
-    - _DirtNormalStrength: 0.05
+    - _DirtNormalStrength: 0.12
     - _ForestFloorEdgeBlendWidth: 0.035
     - _ForestFloorEdgeNoiseStrength: 0.22
     - _GrassColorNoiseWorldSize: 2048

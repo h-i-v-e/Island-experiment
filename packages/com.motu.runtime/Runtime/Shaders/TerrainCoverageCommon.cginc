@@ -358,6 +358,22 @@ half2 MotuSampleTerrainMask(float3 localPosition, int layer)
         float3(MotuLayerUv(localPosition, layer), layer)).rg;
 }
 
+// Authored recipes use top-down XZ projection. Coherent patches leave some
+// of the procedural ground showing through the recipe.
+half MotuTopTextureWeight(half topProjection, half coherentNoise)
+{
+    half patchSignal = coherentNoise + lerp(-0.10h, 0.25h, topProjection);
+    return min(topProjection, smoothstep(-0.22h, 0.22h, patchSignal));
+}
+
+half MotuDirtTextureProjection(half topProjection, half coherentNoise, half normalUp)
+{
+    // Baked dirt weights can intentionally cover steep cut banks. Fade just
+    // the top-down recipe from about 40 to 50 degrees around cos(45 degrees).
+    half slopeFade = smoothstep(0.6471h, 0.7671h, normalUp);
+    return MotuTopTextureWeight(topProjection, coherentNoise) * slopeFade;
+}
+
 MotuBaseWeights MotuHeightBlendBase(
     half4 candidatesA,
     half2 candidatesB,

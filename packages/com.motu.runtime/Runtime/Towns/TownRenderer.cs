@@ -12,6 +12,7 @@ namespace Motu.Towns
     {
         private readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
         private readonly List<TownBuildingLod> buildingLods = new List<TownBuildingLod>();
+        private Vector4? grubDirtColour;
         private MeshRenderer roads;
         private TownBridgeCandidate[] bridgeCandidates = Array.Empty<TownBridgeCandidate>();
         private TownCartTrackBridge[] cartTrackBridges = Array.Empty<TownCartTrackBridge>();
@@ -33,7 +34,7 @@ namespace Motu.Towns
         internal static TownRenderer Install(Transform parent, TownPreparedData data, float worldSize,
             bool includeUnplacedPrototypes = false, Material roadMaterial = null,
             TerrainMaterialTextureArrays terrainTextures = null, bool roadsOnTerrain = false,
-            bool useBuildingLodBudget = false)
+            bool useBuildingLodBudget = false, Color? terrainDirtColour = null)
         {
             if (data == null || (!includeUnplacedPrototypes && (data.instances?.Length ?? 0) == 0
                 && (data.settlements?.Length ?? 0) == 0
@@ -45,6 +46,10 @@ namespace Motu.Towns
             root.transform.SetParent(parent, false);
             root.transform.localScale = Vector3.one * (worldSize / NativeWorldSizeMetres);
             var renderer = root.AddComponent<TownRenderer>();
+            // Grub uses a vector uniform. Match the terrain colour property's
+            // conversion on upload in a linear colour-space project.
+            if (terrainDirtColour is Color dirt)
+                renderer.grubDirtColour = QualitySettings.activeColorSpace == ColorSpace.Linear ? dirt.linear : dirt;
             try { renderer.Build(data, roadMaterial, terrainTextures, roadsOnTerrain, useBuildingLodBudget); return renderer; }
             catch { DestroyUnityObject(root); throw; }
         }
@@ -400,16 +405,20 @@ namespace Motu.Towns
             return material;
         }
 
-        private static void ApplyGrub(Material material, float[] uniform)
+        private void ApplyGrub(Material material, float[] uniform)
         {
             if (uniform == null || uniform.Length != 20) return;
             for (var index = 0; index < 5; index++)
             {
                 var offset = index * 4;
-                material.SetVector("_Grub" + index, new Vector4(uniform[offset],
-                    uniform[offset + 1], uniform[offset + 2], uniform[offset + 3]));
+                var authored = new Vector4(uniform[offset], uniform[offset + 1], uniform[offset + 2], uniform[offset + 3]);
+                if (index == 1) SetGrubDirtColour(material, authored);
+                else material.SetVector("_Grub" + index, authored);
             }
         }
+
+        private void SetGrubDirtColour(Material material, Vector4 authored) =>
+            material.SetVector("_Grub1", grubDirtColour ?? authored);
 
         private Texture2D LoadTexture(string png, bool linear, bool repeat)
         {
