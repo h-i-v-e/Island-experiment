@@ -390,14 +390,24 @@ fn compact_forest_streams(forest: &mut ForestMeshes) {
             .map(|tree| &mut tree.lod1_wood)
             .chain(forest.logs.iter_mut().map(|log| &mut log.ranges[1])),
     );
-    compact_ranges(
-        &mut forest.lod2_wood,
-        forest
-            .trees
-            .iter_mut()
-            .map(|tree| &mut tree.lod2_wood)
-            .chain(forest.logs.iter_mut().map(|log| &mut log.ranges[2])),
-    );
+    let has_later_plantings = forest
+        .trees
+        .last()
+        .zip(forest.logs.first())
+        .is_some_and(|(tree, log)| tree.lod2_wood.vertex_start > log.ranges[2].vertex_start);
+    let wood = forest
+        .trees
+        .iter_mut()
+        .map(|tree| &mut tree.lod2_wood)
+        .chain(forest.logs.iter_mut().map(|log| &mut log.ranges[2]));
+    if has_later_plantings {
+        // Roadside windbreak trunks are appended after the original log ranges.
+        let mut ranges: Vec<_> = wood.collect();
+        ranges.sort_unstable_by_key(|range| range.vertex_start);
+        compact_ranges(&mut forest.lod2_wood, ranges.into_iter());
+    } else {
+        compact_ranges(&mut forest.lod2_wood, wood);
+    }
     compact_ranges(
         &mut forest.lod0_foliage,
         forest

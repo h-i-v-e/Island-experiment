@@ -128,12 +128,6 @@ namespace Motu.Rendering
             material.SetVector(ParallaxNeutralHeightsBId, parallaxNeutralHeightsB);
         }
 
-        internal void BindGrass(Material material)
-        {
-            RequireProperties(material, MaskArrayId);
-            material.SetTexture(MaskArrayId, mask);
-        }
-
         internal void BindRoad(Material material)
         {
             material.SetTexture(AlbedoArrayId, albedo);
@@ -141,7 +135,7 @@ namespace Motu.Rendering
             material.SetFloat("_UseTerrainAlbedo", 1f);
         }
 
-        internal void Unbind(Material terrain, Material grass)
+        internal void UnbindTerrain(Material terrain)
         {
             if (terrain != null)
             {
@@ -149,7 +143,6 @@ namespace Motu.Rendering
                 terrain.SetTexture(NormalArrayId, null);
                 terrain.SetTexture(MaskArrayId, null);
             }
-            if (grass != null) grass.SetTexture(MaskArrayId, null);
         }
 
         public void Dispose()

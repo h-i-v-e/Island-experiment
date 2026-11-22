@@ -10,6 +10,7 @@ namespace Motu.Streaming
     {
         private sealed class CanopyBuilder
         {
+            private const double EdgeTolerance = 1e-7;
             private readonly List<Vector3> vertices = new List<Vector3>();
             private readonly List<Vector3> normals = new List<Vector3>();
             private readonly List<int> triangles = new List<int>();
@@ -27,6 +28,14 @@ namespace Motu.Streaming
                 var hasNormals = paintedNormals.Length == ground.Length;
                 var tint = Unit(space.Field.Seed ^ 0x2c1b3c6du);
                 var half = space.Field.HalfExtents;
+                var patches = space.Field.Outline?.Patches;
+                var rectangle = patches == null ? new[]
+                {
+                    new WheatFieldEdge(1, 0, half.x, true),
+                    new WheatFieldEdge(-1, 0, half.x, true),
+                    new WheatFieldEdge(0, 1, half.y, true),
+                    new WheatFieldEdge(0, -1, half.y, true),
+                } : null;
                 for (int index = 0; index < indices.Length; index += 3)
                 {
                     if ((index & 255) == 0) token.ThrowIfCancellationRequested();
@@ -35,14 +44,13 @@ namespace Motu.Streaming
                     if (!face.Covers(space.Bounds)) continue;
 
                     var normal = Vector3.Cross(face.B - face.A, face.C - face.A).normalized;
-                    polygon[0] = new ClipVertex(space, face.A, hasNormals ? paintedNormals[a] : normal);
-                    polygon[1] = new ClipVertex(space, face.B, hasNormals ? paintedNormals[b] : normal);
-                    polygon[2] = new ClipVertex(space, face.C, hasNormals ? paintedNormals[c] : normal);
-                    int count = Clip(polygon, scratch, 3, true, -half.x, true);
-                    count = Clip(scratch, polygon, count, true, half.x, false);
-                    count = Clip(polygon, scratch, count, false, -half.y, true);
-                    count = Clip(scratch, polygon, count, false, half.y, false);
-                    if (count >= 3) AppendPolygon(space, count, tint);
+                    var va = new ClipVertex(space, face.A, hasNormals ? paintedNormals[a] : normal);
+                    var vb = new ClipVertex(space, face.B, hasNormals ? paintedNormals[b] : normal);
+                    var vc = new ClipVertex(space, face.C, hasNormals ? paintedNormals[c] : normal);
+                    if (patches == null)
+                        Slice(space, va, vb, vc, rectangle, tint);
+                    else
+                        SlicePatches(space, va, vb, vc, patches, tint);
                 }
             }
 
@@ -52,13 +60,42 @@ namespace Motu.Streaming
                     normals.ToArray(), triangles.ToArray(), uv.ToArray(), colours.ToArray(), Array.Empty<Vector2>());
             }
 
-            private void AppendPolygon(FieldSpace space, int count, float tint)
+            private void SlicePatches(FieldSpace space, ClipVertex a, ClipVertex b, ClipVertex c,
+                WheatFieldPatch[] patches, float tint)
+            {
+                double minX = Math.Min(a.X, Math.Min(b.X, c.X)), maxX = Math.Max(a.X, Math.Max(b.X, c.X));
+                double minZ = Math.Min(a.Z, Math.Min(b.Z, c.Z)), maxZ = Math.Max(a.Z, Math.Max(b.Z, c.Z));
+                foreach (var patch in patches)
+                    if (maxX > patch.Min.x && minX < patch.Max.x && maxZ > patch.Min.y && minZ < patch.Max.y)
+                        Slice(space, a, b, c, patch.Edges, tint);
+            }
+
+            private void Slice(FieldSpace space, ClipVertex a, ClipVertex b, ClipVertex c,
+                WheatFieldEdge[] edges, float tint)
+            {
+                var input = polygon;
+                var output = scratch;
+                input[0] = a;
+                input[1] = b;
+                input[2] = c;
+                int count = 3;
+                foreach (var edge in edges)
+                {
+                    count = Clip(input, output, count, edge);
+                    if (count < 3) return;
+                    (input, output) = (output, input);
+                }
+                AppendPolygon(space, input, count, edges, tint);
+            }
+
+            private void AppendPolygon(FieldSpace space, ClipVertex[] clipped, int count,
+                WheatFieldEdge[] edges, float tint)
             {
                 int start = vertices.Count;
                 int previousIndexCount = triangles.Count;
                 for (int i = 1; i < count - 1; i++)
                 {
-                    if (ClipVertex.Area(polygon[0], polygon[i], polygon[i + 1]) <= 1e-8d) continue;
+                    if (ClipVertex.Area(clipped[0], clipped[i], clipped[i + 1]) <= 1e-8d) continue;
                     triangles.Add(start);
                     triangles.Add(start + i);
                     triangles.Add(start + i + 1);
@@ -68,24 +105,30 @@ namespace Motu.Streaming
 
                 for (int i = 0; i < count; i++)
                 {
-                    var vertex = polygon[i];
+                    var vertex = clipped[i];
                     AddVertex(space, vertex, vertex.Normal.normalized, CanopyHeight, tint);
                 }
 
-                var half = space.Field.HalfExtents;
                 for (int i = 0; i < count; i++)
                 {
-                    var a = polygon[i];
-                    var b = polygon[(i + 1) % count];
-                    // The clipper pins field-boundary coordinates exactly. Mesh and tile
-                    // edges inside the rectangle are shared by tops alone.
-                    bool fieldEdge = (a.X == b.X && Math.Abs(a.X) == half.x)
-                        || (a.Z == b.Z && Math.Abs(a.Z) == half.y);
-                    if (!fieldEdge) continue;
+                    var a = clipped[i];
+                    var b = clipped[(i + 1) % count];
+                    if (!OnPerimeter(a, b, edges)) continue;
                     var delta = space.ToIsland(b.X, b.Z, 0) - space.ToIsland(a.X, a.Z, 0);
                     if (delta.sqrMagnitude > 1e-8f)
                         AddWall(space, a, b, new Vector3(-delta.z, 0f, delta.x).normalized, tint);
                 }
+            }
+
+            private static bool OnPerimeter(ClipVertex a, ClipVertex b, WheatFieldEdge[] edges)
+            {
+                // Field walls only belong to the original perimeter, including faces
+                // clipped across a tile seam or an internal triangulation edge.
+                foreach (var edge in edges)
+                    if (edge.Perimeter && Math.Abs(edge.Distance(a.X, a.Z)) <= EdgeTolerance
+                        && Math.Abs(edge.Distance(b.X, b.Z)) <= EdgeTolerance)
+                        return true;
+                return false;
             }
 
             private void AddWall(FieldSpace space, ClipVertex a, ClipVertex b, Vector3 normal, float tint)
@@ -111,33 +154,30 @@ namespace Motu.Streaming
                 colours.Add(new Color(rise / CanopyHeight, tint, 0f, 1f));
             }
 
-            private static int Clip(
-                ClipVertex[] input, ClipVertex[] output, int count, bool xAxis, double limit, bool keepGreater)
+            private static int Clip(ClipVertex[] input, ClipVertex[] output, int count, WheatFieldEdge edge)
             {
-                if (count == 0) return 0;
-
                 int written = 0;
                 var previous = input[count - 1];
-                double previousCoordinate = xAxis ? previous.X : previous.Z;
-                bool previousInside = keepGreater ? previousCoordinate >= limit : previousCoordinate <= limit;
+                double previousDistance = edge.Distance(previous.X, previous.Z);
+                bool previousInside = previousDistance >= 0d;
                 for (int index = 0; index < count; index++)
                 {
                     var current = input[index];
-                    double coordinate = xAxis ? current.X : current.Z;
-                    bool inside = keepGreater ? coordinate >= limit : coordinate <= limit;
+                    double distance = edge.Distance(current.X, current.Z);
+                    bool inside = distance >= 0d;
                     if (inside != previousInside)
                     {
                         // Interpolate in coordinate order so a shared terrain edge yields
                         // the same intersection when processed in either direction.
-                        var intersection = previousCoordinate < coordinate
-                            ? ClipVertex.Intersect(previous, current, previousCoordinate, coordinate, xAxis, limit)
-                            : ClipVertex.Intersect(current, previous, coordinate, previousCoordinate, xAxis, limit);
+                        var intersection = previousDistance < distance
+                            ? ClipVertex.Intersect(previous, current, previousDistance, distance, edge)
+                            : ClipVertex.Intersect(current, previous, distance, previousDistance, edge);
                         Push(output, ref written, intersection);
                     }
                     if (inside) Push(output, ref written, current);
                     previous = current;
                     previousInside = inside;
-                    previousCoordinate = coordinate;
+                    previousDistance = distance;
                 }
                 if (written > 1 && output[written - 1].SamePoint(output[0])) written--;
                 return written;
@@ -172,14 +212,17 @@ namespace Motu.Streaming
             }
 
             internal static ClipVertex Intersect(
-                ClipVertex from, ClipVertex to, double lower, double upper, bool xAxis, double limit)
+                ClipVertex from, ClipVertex to, double lower, double upper, WheatFieldEdge edge)
             {
-                if (limit == lower) return from;
-                if (limit == upper) return to;
-                double t = (limit - lower) / (upper - lower);
+                if (lower == 0d) return from;
+                if (upper == 0d) return to;
+                double t = -lower / (upper - lower);
+                double x = from.X + (to.X - from.X) * t;
+                double z = from.Z + (to.Z - from.Z) * t;
+                double residual = edge.Distance(x, z);
                 return new ClipVertex(
-                    xAxis ? limit : from.X + (to.X - from.X) * t,
-                    xAxis ? from.Z + (to.Z - from.Z) * t : limit,
+                    x - residual * edge.X,
+                    z - residual * edge.Z,
                     from.Height + (to.Height - from.Height) * t,
                     Vector3.LerpUnclamped(from.Normal, to.Normal, (float)t));
             }

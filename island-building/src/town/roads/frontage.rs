@@ -196,7 +196,7 @@ pub(in crate::town) fn lots(
             (reach - TOE_PAST_EDGE, Some(steps))
         })
     });
-    let min_setback = config.shoulder + building.foundation.outset + 1.35;
+    let min_setback = config.shoulder_width() + building.foundation.outset + 1.35;
     let max_setback = config.max_frontage_distance;
     let setback = [
         min_setback,

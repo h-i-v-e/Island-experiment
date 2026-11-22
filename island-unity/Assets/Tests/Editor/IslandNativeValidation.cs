@@ -404,8 +404,7 @@ namespace Motu.Editor
                         "_TerrainParallaxDepthsA", "_TerrainParallaxDepthsB",
                         "_TerrainParallaxNeutralHeightsA", "_TerrainParallaxNeutralHeightsB",
                         "_TerrainOcclusionStrengthsA", "_TerrainOcclusionStrengthsB",
-                        "_TerrainHeightBlendDepth", "_TopTextureFadeOutSlope",
-                        "_SteepStoneBlendWidth",
+                        "_TerrainHeightBlendDepth",
                         "_WorldNormal", "_WorldNormalWeight",
                         "_Occlusion", "_RockColor", "_ForestFloorColor",
                         "_StonesColor", "_GroundDirtColor", "_SandColor", "_CliffNoise3D",
@@ -414,7 +413,7 @@ namespace Motu.Editor
                         "_StonesEdgeBlendWidth", "_BeachEdgeNoiseStrength",
                         "_BeachEdgeBlendWidth", "_RiverEdgeNoiseStrength",
                         "_RiverEdgeBlendWidth", "_RockBoundaryNoiseStrength",
-                        "_SandRockSlopeThreshold", "_RockPatchNoiseDetailScale",
+                        "_RockPatchNoiseDetailScale",
                         "_CliffNormalStrength", "_GrassNormalDetailScale",
                         "_SandNormalDetailScale", "_SnowNormalDetailScale",
                         "_DirtNormalStrength", "_GrassNormalStrength",
@@ -522,7 +521,7 @@ namespace Motu.Editor
                             throw new InvalidOperationException(
                                 "The runtime terrain parallax neutral heights do not match the baked recipes.");
                         }
-                        textureArrays.Unbind(terrainMaterial, null);
+                        textureArrays.UnbindTerrain(terrainMaterial);
                     }
                     var cliffNoise = CreateCliffNoiseTexture();
                     try
@@ -712,10 +711,6 @@ namespace Motu.Editor
                 {
                     var requiredGrassProperties = new[]
                     {
-                        "_TerrainMaskArray", "_TerrainLayerWorldSizesA",
-                        "_TerrainLayerWorldSizesB", "_TerrainHeightInfluencesA",
-                        "_TerrainHeightInfluencesB", "_TerrainHeightBlendDepth",
-                        "_TopTextureFadeOutSlope", "_SteepStoneBlendWidth",
                         "_CliffNoise3D", "_ForestFloorEdgeNoiseStrength",
                         "_ForestFloorEdgeBlendWidth", "_StonesEdgeNoiseStrength",
                         "_StonesEdgeBlendWidth", "_BeachEdgeNoiseStrength",

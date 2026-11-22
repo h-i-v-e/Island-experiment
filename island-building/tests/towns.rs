@@ -128,6 +128,10 @@ fn working_streets_face_the_resolved_ground_floor_doors() {
     );
     let roads = output.roads.unwrap();
     assert!(!roads.strips.is_empty());
+    assert!((roads.shoulder - 4. / 3.).abs() < 0.001);
+    assert!(roads.strips.iter().all(|strip| {
+        (strip.half_width - 1.5).abs() < 0.001 || (strip.half_width - 2.).abs() < 0.001
+    }));
     for instance in &output.instances {
         let frontage = instance.frontage.as_ref().unwrap();
         let prototype = &output.prototypes[instance.prototype_index];

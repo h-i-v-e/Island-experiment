@@ -8,7 +8,7 @@ use std::mem::{offset_of, size_of};
 /// Increment when field meanings, layouts, or ownership contracts change incompatibly.
 #[unsafe(no_mangle)]
 pub extern "C" fn GetMotuAbiVersion() -> u32 {
-    2
+    3
 }
 
 /// Zero means unknown type. IDs are stable across ABI versions.
@@ -56,8 +56,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn version_two_extends_generation_and_preserves_forest_layout() {
-        assert_eq!(GetMotuAbiVersion(), 2);
+    fn version_three_preserves_layout_with_explicit_terrain_weights() {
+        assert_eq!(GetMotuAbiVersion(), 3);
         assert_eq!(GetMotuAbiTypeSize(0), 84);
         assert_eq!(GetMotuAbiTypeSize(1), 32);
         assert_eq!(GetMotuAbiTypeSize(10), 48);

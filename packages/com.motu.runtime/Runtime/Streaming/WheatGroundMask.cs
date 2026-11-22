@@ -130,8 +130,7 @@ namespace Motu.Streaming
                     float horizontal = origin.x + (x + 0.5f) * texel - field.Centre.x;
                     float along = horizontal * axis.x + z * axis.y;
                     float across = z * axis.x - horizontal * axis.y;
-                    float inward = Mathf.Min(field.HalfExtents.x - Mathf.Abs(along),
-                        field.HalfExtents.y - Mathf.Abs(across));
+                    var inward = (float)field.InwardDistance(along, across);
                     byte coverage = (byte)Mathf.RoundToInt(Mathf.Clamp01(inward * inverseFeather) * 255f);
                     int index = y * width + x;
                     if (coverage > pixels[index]) pixels[index] = coverage;

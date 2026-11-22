@@ -13,6 +13,27 @@ namespace Motu.Tests
 {
     public sealed class CoastalTownAdapterTests
     {
+        [TestCase("no_paved_road_approach")]
+        [TestCase("no_usable_explorer_berth")]
+        public void MissingCapitalPierDoesNotSupplyAWheatClearance(string reason)
+        {
+            var town = new TownPreparedData();
+            TownNative.ApplyCapitalPierReport(town, $"{{\"pier\":null,\"reason\":\"{reason}\"}}");
+            Assert.That(town.pierDiagnostic, Is.EqualTo(reason));
+            Assert.That(town.pier, Is.Null);
+        }
+
+        [Test]
+        public void PreparedCapitalPierKeepsItsWheatClearance()
+        {
+            var town = new TownPreparedData();
+            TownNative.ApplyCapitalPierReport(town,
+                "{\"pier\":{\"id\":\"capital-pier-test\",\"berth\":{\"position\":[10,20,0]},"
+                + "\"clearance\":{\"centre\":[12,24],\"half_extents\":[3,4],\"yaw\":0.5}},\"reason\":\"\"}");
+            Assert.That(town.pier.clearance.centre, Is.EqualTo(new[] { 12f, 24f }));
+            Assert.That(town.pier.clearance.half_extents, Is.EqualTo(new[] { 3f, 4f }));
+        }
+
         [TestCase("Towns/TownBuilding")]
         [TestCase("Towns/TownRoad")]
         public void PackagedTownShadersImportWithoutErrors(string path)

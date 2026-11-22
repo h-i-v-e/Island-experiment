@@ -13,14 +13,10 @@
 
 sampler3D _CliffNoise3D;
 sampler2D _GrassPatchNoise;
-UNITY_DECLARE_TEX2DARRAY(_TerrainMaskArray);
 
 float _CliffNoisePeriod;
 half _RockPatchNoiseDetailScale;
-half _CliffNormalCutoff;
-half _CliffBoundaryNoiseStrength;
 half _RockBoundaryNoiseStrength;
-half _SandRockSlopeThreshold;
 half _RiverEdgeNoiseStrength;
 half _RiverEdgeBlendWidth;
 half _ForestFloorEdgeNoiseStrength;
@@ -41,8 +37,6 @@ float4 _MotuTerrainSeam;
 half4 _TerrainHeightInfluencesA;
 half4 _TerrainHeightInfluencesB;
 half _TerrainHeightBlendDepth;
-half _TopTextureFadeOutSlope;
-half _SteepStoneBlendWidth;
 
 // Coastal sections use a common logical metre field. Geometry, map UVs and
 // sea-level height stay island-local, including after a floating-origin move.
@@ -72,18 +66,17 @@ struct MotuTerrainNoise
 struct MotuTerrainCoverage
 {
     MotuTerrainNoise noise;
+    half dirt;
     half rock;
     half river;
     half beach;
     half forestFloor;
     half stones;
     half road;
-    half roadShoulder;
-    half cartTrack;
     half gravel;
     half grass;
     half snow;
-    half cliff;
+    half topProjection;
     half coastalNoise;
 };
 
@@ -110,6 +103,16 @@ half MotuCoherentMask(
     return smoothstep(-transition, transition, distance);
 }
 
+half MotuTerrainWeightPatch(half weight, half noise, half blendWidth)
+{
+    // A coherent threshold breaks up partial coverage. Both endpoints keep
+    // their full strength, even where the interpolated input changes quickly.
+    half interior = 4.0h * weight * (1.0h - weight);
+    half signal = saturate(weight + noise * interior);
+    half transition = min(max(blendWidth, fwidth(signal)), 0.5h);
+    return smoothstep(0.5h - transition, 0.5h + transition, signal);
+}
+
 MotuTerrainNoise MotuSampleTerrainNoise(float3 localPosition)
 {
     float3 position = MotuTerrainFieldPosition(localPosition) / max(_CliffNoisePeriod, 1.0);
@@ -130,72 +133,37 @@ MotuTerrainNoise MotuSampleTerrainNoise(float3 localPosition)
 
 MotuTerrainCoverage MotuBuildTerrainCoverage(
     float3 localPosition,
-    half3 worldNormal,
     half4 material,
     half4 environment)
 {
     MotuTerrainCoverage result;
     result.noise = MotuSampleTerrainNoise(localPosition);
     half elevation = localPosition.y;
-    half slope = 1.0h - saturate(worldNormal.y);
-    half hardness = saturate(material.r);
-    half looseCover = saturate(material.g);
-    half riverBed = saturate(material.b);
 
-    half cliffNoise = clamp(
-        result.noise.broad.r * 0.65h + result.noise.macro.g * 0.35h,
-        -1.0h,
-        1.0h);
-    half cutoffNormal = worldNormal.y
-        - cliffNoise * _CliffBoundaryNoiseStrength;
-    result.cliff = MotuAntialiasedMask(_CliffNormalCutoff - cutoffNormal);
-
-    half forcedRockNoise = clamp(
-        (result.noise.patch.b * 2.0h - 1.0h) * 0.35h
-            + result.noise.detail.r * 0.65h,
-        -1.0h,
-        1.0h);
-    half forcedRockBlendWidth = max(_RiverEdgeBlendWidth, 0.001h);
-    half forcedRockBlendStart = saturate(
-        1.0h
-            - forcedRockBlendWidth
-            + forcedRockNoise * forcedRockBlendWidth * 0.75h);
-    half forcedRock = smoothstep(
-        forcedRockBlendStart,
-        1.0h,
-        hardness);
-    half geologyStrength = saturate(slope * lerp(1.3h, 3.0h, hardness));
-    half geologyNoise = result.noise.patch.r * 0.65h
-        + result.noise.patch.g * 0.35h;
-    half geologyDistance = geologyNoise - (1.0h - geologyStrength);
-    half geologyRock = smoothstep(
-        -max(0.20h, fwidth(geologyDistance)),
-        max(0.20h, fwidth(geologyDistance)),
-        geologyDistance)
-        * smoothstep(0.0h, 0.20h, geologyStrength);
-    // Hardness describes the underlying geology, not exposed stone. Loose
-    // cover suppresses that material-driven rock while leaving explicit
-    // slope thresholds free to expose cliffs through the soil cover.
-    half exposedGeologyRock = max(geologyRock, forcedRock)
-        * (1.0h - looseCover);
+    // Native vertex weights are dirt in the substrate, grass, river bed,
+    // and sand. Exposed stone is the complement of the dirt blend.
+    half dirtStrength = saturate(material.r);
+    half dirtPatch = dot(result.noise.patch.rg, half2(0.65h, 0.35h));
+    result.dirt = MotuTerrainWeightPatch(
+        dirtStrength,
+        (dirtPatch * 2.0h - 1.0h) * _RockBoundaryNoiseStrength,
+        0.18h);
+    result.rock = 1.0h - result.dirt;
+    result.topProjection = smoothstep(0.0h, 0.30h, dirtStrength);
 
     half riverNoise = clamp(
         dot(result.noise.broad, half3(0.577h, -0.577h, 0.577h)),
         -1.0h,
         1.0h);
     result.river = MotuCoherentMask(
-        riverBed,
+        material.b,
         riverNoise,
         _RiverEdgeNoiseStrength,
         _RiverEdgeBlendWidth);
 
-    half seaProximity = saturate(material.a);
-    half sandAltitude = 1.0h - smoothstep(2.0h, 4.0h, elevation);
-    half sandRichness = looseCover
-        * seaProximity
-        * sandAltitude
-        * (1.0h - result.river);
-    float2 sandUv = MotuTerrainFieldPosition(localPosition).xz / max(_SandPatchNoiseWorldSize, 0.1)
+    float2 fieldXZ = MotuTerrainFieldPosition(localPosition).xz;
+    half sandStrength = saturate(material.a) * (1.0h - result.river);
+    float2 sandUv = fieldXZ / max(_SandPatchNoiseWorldSize, 0.1)
         + float2(0.37, 0.73);
     half2 sandLayers = tex2D(_GrassPatchNoise, sandUv).rg;
     half sandPatch = sandLayers.r * 0.40h + sandLayers.g * 0.60h;
@@ -205,7 +173,7 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         -1.0h,
         1.0h);
     half beachDistance = sandPatch
-        - (1.0h - sandRichness)
+        - (1.0h - sandStrength)
         + beachNoise * _BeachEdgeNoiseStrength;
     half beachTransition = max(
         max(_BeachEdgeBlendWidth, fwidth(beachDistance)),
@@ -214,20 +182,10 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         -beachTransition,
         beachTransition,
         beachDistance)
-        * step(1.0e-4h, sandRichness);
+        * step(1.0e-4h, sandStrength);
     result.beach = max(
         result.beach,
-        step(elevation, 0.0h) * seaProximity * (1.0h - result.river));
-
-    half rockBoundaryNoise = clamp(
-        result.noise.broad.b * 0.55h + result.noise.macro.b * 0.45h,
-        -1.0h,
-        1.0h);
-    half sandRockThreshold = _SandRockSlopeThreshold
-        + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25h;
-    half beachRock = result.beach
-        * MotuAntialiasedMask(slope - sandRockThreshold);
-    result.rock = max(exposedGeologyRock, max(result.cliff, beachRock));
+        step(elevation, 0.0h) * sandStrength);
 
     half forestNoise = clamp(
         result.noise.detail.g * 0.70h + result.noise.detail.b * 0.30h,
@@ -252,79 +210,39 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         * step(0.0h, elevation);
 
     // Crop soil replaces grass and the loose organic/stone surface. Paths
-    // and roads use the separate vertex profile below, over the crop soil.
+    // and roads use the vertex profiles below, over the crop soil.
     half uncultivated = 1.0h - MotuWheatGroundCoverage(localPosition.xz);
-    result.forestFloor *= uncultivated;
-    result.stones *= uncultivated;
+    result.forestFloor *= uncultivated * result.topProjection;
+    result.stones *= uncultivated * result.topProjection;
 
-    // The vertex profile runs from soil through gravel at 0.5 to paving at 1.
-    half shoulder = saturate(environment.z * 2.0h);
-    result.roadShoulder = smoothstep(0.0h, 1.0h,
-        shoulder + result.noise.detail.r * shoulder * (1.0h - shoulder) * 0.3h);
+    // Paving blends into the underlying soil. Stair paths and ruts share the gravel mask.
     result.road = smoothstep(0.5h, 1.0h, environment.z);
-    result.cartTrack = saturate(1.0h - environment.w) * (1.0h - result.roadShoulder);
-    result.gravel = result.roadShoulder + result.cartTrack;
-
-    float2 grassUv = MotuTerrainFieldPosition(localPosition).xz / max(_GrassPatchNoiseWorldSize, 0.1);
-    half2 grassLayers = tex2D(_GrassPatchNoise, grassUv).rg;
-    half grassPatch = grassLayers.r * 0.65h + grassLayers.g * 0.35h;
-    // Soil richness closes bare patches on fertile ground. Bias poor soil
-    // toward grass too, while retaining fully bare patches where soil is thin.
-    // Match Planet's response; noise shapes patches only in soil-poor regions.
-    half bareThreshold = 0.41h * (1.0h - smoothstep(0.0h, 0.35h, looseCover));
-    half grassDistance = grassPatch - bareThreshold;
-    result.grass = smoothstep(
-        -max(0.05h, fwidth(grassDistance)),
-        max(0.05h, fwidth(grassDistance)),
-        grassDistance)
-        * step(0.0h, elevation)
-        * (1.0h - result.gravel)
-        * uncultivated;
+    result.gravel = saturate(1.0h - environment.w) * (1.0h - result.road);
 
     float noisySnowLine = _SnowLine
         + result.noise.macro.r * _SnowMacroNoiseMetres
         + result.noise.broad.g * _SnowEdgeNoiseMetres;
     result.snow = MotuAntialiasedMask(elevation - noisySnowLine)
-        * (1.0h - result.cliff);
+        * result.topProjection;
+
+    float2 grassUv = fieldXZ / max(_GrassPatchNoiseWorldSize, 0.1);
+    half2 grassLayers = tex2D(_GrassPatchNoise, grassUv).rg;
+    half grassPatch = grassLayers.r * 0.65h + grassLayers.g * 0.35h;
+    half grassObstruction = max(max(result.river, result.beach),
+        max(result.forestFloor, result.stones));
+    result.grass = MotuTerrainWeightPatch(
+        saturate(material.g), grassPatch - 0.5h, 0.05h)
+        * step(0.0h, elevation)
+        * (1.0h - grassObstruction)
+        * (1.0h - max(result.gravel, result.road))
+        * (1.0h - result.snow)
+        * uncultivated;
+
     result.coastalNoise = clamp(
         result.noise.detail.g * 0.65h
             + (result.noise.patch.r * 2.0h - 1.0h) * 0.35h,
         -1.0h,
         1.0h);
-
-    // Build a coherent shoulder on the shallower side of the cutoff. The
-    // perturbation vanishes at both ends, so the blend starts cleanly and
-    // still converges to exclusive procedural stone at the exact cutoff.
-    half stoneCutoffDegrees = clamp(_TopTextureFadeOutSlope, 1.0h, 89.0h);
-    half stoneBlendStartDegrees = max(
-        stoneCutoffDegrees - max(_SteepStoneBlendWidth, 0.1h),
-        0.0h);
-    half stoneCutoffUp = cos(radians(stoneCutoffDegrees));
-    half stoneBlendStartUp = max(
-        cos(radians(stoneBlendStartDegrees)),
-        stoneCutoffUp + 1.0e-4h);
-    half stoneSlopeProgress = 1.0h - smoothstep(
-        stoneCutoffUp,
-        stoneBlendStartUp,
-        saturate(worldNormal.y));
-    half stoneSlopeInterior = 4.0h
-        * stoneSlopeProgress
-        * (1.0h - stoneSlopeProgress);
-    half coherentStoneProgress = saturate(
-        stoneSlopeProgress
-            + cliffNoise
-                * _CliffBoundaryNoiseStrength
-                * stoneSlopeInterior);
-    half steepStone = smoothstep(0.0h, 1.0h, coherentStoneProgress);
-    half nonSteep = 1.0h - steepStone;
-    result.rock = max(result.rock, steepStone);
-    result.river *= nonSteep;
-    result.beach *= nonSteep;
-    result.forestFloor *= nonSteep;
-    result.stones *= nonSteep;
-    result.grass *= nonSteep;
-    result.snow *= nonSteep;
-    result.cliff = max(result.cliff, steepStone);
     return result;
 }
 
@@ -337,25 +255,9 @@ float MotuLayerWorldSize(int layer)
     return _TerrainLayerWorldSizesB[layer - 4];
 }
 
-half MotuLayerHeightInfluence(int layer)
-{
-    if (layer < 4)
-    {
-        return _TerrainHeightInfluencesA[layer];
-    }
-    return _TerrainHeightInfluencesB[layer - 4];
-}
-
 float2 MotuLayerUv(float3 localPosition, int layer)
 {
     return MotuTerrainFieldPosition(localPosition).xz / max(MotuLayerWorldSize(layer), 0.01);
-}
-
-half2 MotuSampleTerrainMask(float3 localPosition, int layer)
-{
-    return UNITY_SAMPLE_TEX2DARRAY(
-        _TerrainMaskArray,
-        float3(MotuLayerUv(localPosition, layer), layer)).rg;
 }
 
 // Authored recipes use top-down XZ projection. Coherent patches leave some
@@ -411,51 +313,26 @@ MotuBaseWeights MotuHeightBlendBase(
     return result;
 }
 
-MotuBaseWeights MotuResolveBaseWeights(
+void MotuTerrainBaseCandidates(
     MotuTerrainCoverage coverage,
-    half4 heightsA,
-    half2 heightsB)
+    out half4 candidatesA,
+    out half2 candidatesB)
 {
-    half strongest = max(
-        max(max(coverage.forestFloor, coverage.rock), coverage.river),
+    half overlay = max(max(coverage.forestFloor, coverage.river),
         max(coverage.beach, coverage.stones));
-    half dirt = saturate(1.0h - strongest);
-    return MotuHeightBlendBase(
-        half4(dirt, coverage.forestFloor, coverage.rock, coverage.river),
-        half2(coverage.beach, coverage.stones),
-        heightsA,
-        heightsB);
+    half substrate = 1.0h - overlay;
+    candidatesA = half4(substrate * coverage.dirt, coverage.forestFloor,
+        substrate * coverage.rock, coverage.river);
+    candidatesB = half2(coverage.beach, coverage.stones);
 }
 
-half MotuGrassEligibleDirtWeight(
-    float3 localPosition,
-    MotuTerrainCoverage coverage)
+MotuBaseWeights MotuTerrainUnderlyingWeights(MotuTerrainCoverage coverage)
 {
-    half hardExclusion = max(
-        max(coverage.rock, coverage.river),
-        max(coverage.beach, coverage.snow));
-    if (hardExclusion >= 0.5h)
-    {
-        return 0.0h;
-    }
-
-    half dirtHeight = MotuSampleTerrainMask(
-        localPosition,
-        MOTU_LAYER_DIRT).r;
-    half forestHeight = MotuSampleTerrainMask(
-        localPosition,
-        MOTU_LAYER_FOREST_FLOOR).r;
-    half stonesHeight = MotuSampleTerrainMask(
-        localPosition,
-        MOTU_LAYER_STONES).r;
-    half dirt = saturate(
-        1.0h - max(coverage.forestFloor, coverage.stones));
-    MotuBaseWeights weights = MotuHeightBlendBase(
-        half4(dirt, coverage.forestFloor, 0.0h, 0.0h),
-        half2(0.0h, coverage.stones),
-        half4(dirtHeight, forestHeight, 0.5h, 0.5h),
-        half2(0.5h, stonesHeight));
-    return weights.a.x;
+    half substrate = 1.0h - coverage.beach;
+    MotuBaseWeights weights;
+    weights.a = half4(substrate * coverage.dirt, 0.0h, substrate * coverage.rock, 0.0h);
+    weights.b = half2(coverage.beach, 0.0h);
+    return weights;
 }
 
 #endif

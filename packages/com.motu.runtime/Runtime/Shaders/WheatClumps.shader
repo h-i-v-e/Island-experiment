@@ -6,16 +6,19 @@ Shader "Motu/Wheat Clumps"
         _StrawTip ("Straw Tip", Color) = (0.75, 0.57, 0.26, 1)
         _GrainColour ("Grain Colour", Color) = (0.89, 0.67, 0.30, 1)
         [PerRendererData] _WheatInstanceData ("Wheat Variation and Visibility", Vector) = (0.5, 1, 0, 0)
+        [HideInInspector] _WheatDetailBlend ("Detail Fade", Vector) = (0, 0, 0, 0)
     }
 
     HLSLINCLUDE
     #include "MotuUrp.hlsl"
     #include "WeatherWindCommon.cginc"
+    #include "WheatDetailBlend.hlsl"
 
     CBUFFER_START(UnityPerMaterial)
         half4 _StrawBase;
         half4 _StrawTip;
         half4 _GrainColour;
+        float4 _WheatDetailBlend;
     CBUFFER_END
 
     UNITY_INSTANCING_BUFFER_START(Wheat)
@@ -51,7 +54,10 @@ Shader "Motu/Wheat Clumps"
 
     half2 WheatData()
     {
-        return saturate(UNITY_ACCESS_INSTANCED_PROP(Wheat, _WheatInstanceData).xy);
+        half2 data = saturate(UNITY_ACCESS_INSTANCED_PROP(Wheat, _WheatInstanceData).xy);
+        float3 rootWS = TransformObjectToWorld(float3(0, 0, 0));
+        data.y *= MotuWheatDetailCoverage(rootWS.xz, _WheatDetailBlend);
+        return data;
     }
 
     float3 WheatWindPosition(float3 positionOS, float variation)

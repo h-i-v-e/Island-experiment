@@ -32,7 +32,6 @@ namespace Motu.Islands
         private NativeIslandHandle nativeHandle;
         private TerrainMaterialTextureArrays terrainTextureArrays;
         private Material textureArrayTerrainMaterial;
-        private Material textureArrayGrassMaterial;
         private WorldEnvironmentController coastalWaveEnvironment;
         private Texture coastalWaveMask;
         private float coastalWaveWorldSize;
@@ -118,8 +117,7 @@ namespace Motu.Islands
 
         internal void OwnTerrainTextureArrays(
             TerrainMaterialTextureArrays value,
-            Material terrainMaterial,
-            Material grassMaterial)
+            Material terrainMaterial)
         {
             RequireInstalling();
             if (terrainTextureArrays != null)
@@ -130,7 +128,6 @@ namespace Motu.Islands
             terrainTextureArrays = value
                 ?? throw new ArgumentNullException(nameof(value));
             textureArrayTerrainMaterial = terrainMaterial;
-            textureArrayGrassMaterial = grassMaterial;
         }
 
         internal void SetTerrainStreamer(TerrainTileStreamer value)
@@ -238,6 +235,7 @@ namespace Motu.Islands
             UnregisterCoastalWaveMask();
             if (destroyRoot)
             {
+                Town?.ReleaseDetailedBuildingLods();
                 gameObject.SetActive(false);
             }
 
@@ -253,13 +251,10 @@ namespace Motu.Islands
             coastalWaveMask = null;
             coastalWaveWorldSize = 0f;
 
-            terrainTextureArrays?.Unbind(
-                textureArrayTerrainMaterial,
-                textureArrayGrassMaterial);
+            terrainTextureArrays?.UnbindTerrain(textureArrayTerrainMaterial);
             terrainTextureArrays?.Dispose();
             terrainTextureArrays = null;
             textureArrayTerrainMaterial = null;
-            textureArrayGrassMaterial = null;
 
             nativeHandle?.Dispose();
             nativeHandle = null;

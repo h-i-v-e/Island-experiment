@@ -9,31 +9,16 @@ namespace Motu.Streaming
     public sealed partial class TerrainTileStreamer
     {
         private static readonly int WheatFadeId = Shader.PropertyToID("_WheatFade");
-        private static readonly int WheatTileFadeId = Shader.PropertyToID("_WheatTileFade");
-        private const float WheatHandoffSeconds = 0.18f;
-        private readonly Dictionary<Vector2Int, WheatHandoff> wheatHandoffs = new Dictionary<Vector2Int, WheatHandoff>();
-        private readonly List<Vector2Int> completedWheatHandoffs = new List<Vector2Int>();
+        private static readonly int WheatDetailBlendId = Shader.PropertyToID("_WheatDetailBlend");
+        private static readonly int WheatDetailPresenceId = Shader.PropertyToID("_WheatDetailPresence");
+        private const float WheatRevealSeconds = 0.18f;
+        private readonly Dictionary<Vector2Int, float> wheatReveals = new Dictionary<Vector2Int, float>();
+        private readonly List<Vector2Int> finishedWheatReveals = new List<Vector2Int>();
         private MaterialPropertyBlock wheatFadeProperties;
         private WheatField[] wheatFields;
         private Material wheatCanopyMaterial;
         private Texture2D wheatMaskTexture;
         private WheatClumpRenderer wheatClumps;
-
-        private readonly struct WheatHandoff
-        {
-            internal readonly MeshRenderer Canopy;
-            internal readonly Mesh Mesh;
-            internal readonly bool ToPlants;
-            internal readonly float StartTime;
-
-            internal WheatHandoff(MeshRenderer canopy, Mesh mesh, bool toPlants)
-            {
-                Canopy = canopy;
-                Mesh = mesh;
-                ToPlants = toPlants;
-                StartTime = Time.unscaledTime;
-            }
-        }
 
         private void InstallWheat(IslandPreparedWheat wheat)
         {
@@ -48,107 +33,101 @@ namespace Motu.Streaming
             wheatClumps = new WheatClumpRenderer(transform, clumps);
         }
 
-        private void InstallWheatTile(Tile tile, WheatTileData data)
+        private void InstallWheatTile(Tile tile, WheatTileData data, int lod)
         {
             if (data == null) return;
             tile.wheatPlants = data.Plants;
             if (data.Canopy == null) return;
             var mesh = IslandMeshInterop.CreateGeneratedMesh(data.Canopy);
             tile.wheatCanopy = mesh;
-            tile.wheatRenderer = CreateCanopyRenderer(tile.gameObject.transform, mesh);
-        }
-
-        private MeshRenderer CreateCanopyRenderer(Transform parent, Mesh mesh)
-        {
-            var host = new GameObject("Wheat field canopy") { layer = parent.gameObject.layer };
+            // LOD1 wheat stays with its group while the terrain tile switches to LOD0.
+            var tileTransform = tile.gameObject.transform;
+            var parent = lod == 1 ? tileTransform.parent : tileTransform;
+            var host = new GameObject("Wheat field canopy") { layer = tile.gameObject.layer };
             host.transform.SetParent(parent, false);
             host.AddComponent<MeshFilter>().sharedMesh = mesh;
             var renderer = host.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = wheatCanopyMaterial;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
-            return renderer;
+            tile.wheatRenderer = renderer;
         }
 
-        private Tile FindWheatCanopy(Vector2Int key)
+        private void SetWheatFocus(Vector3 worldPosition)
+        {
+            if (wheatCanopyMaterial == null) return;
+            // Even from the edge of the centre tile, the surrounding LOD0 ring
+            // extends one tile farther. Finish fading inside that distance.
+            float tileWidth = worldSize / Lod1Resolution;
+            var blend = new Vector4(worldPosition.x, worldPosition.z, tileWidth * .55f, tileWidth * .95f);
+            wheatCanopyMaterial.SetVector(WheatDetailBlendId, blend);
+            wheatClumps.DetailBlend = blend;
+        }
+
+        private MeshRenderer FindWheatCanopy(Vector2Int key)
         {
             var parent = new Vector2Int(key.x / Divisions, key.y / Divisions);
             if (!lod1Groups.TryGetValue(parent, out var group)) return null;
-            return group.tiles[(key.y % Divisions) * Divisions + key.x % Divisions];
+            return group.tiles[(key.y % Divisions) * Divisions + key.x % Divisions]?.wheatRenderer;
         }
 
-        private void ShowWheatPlants(Vector2Int key, WheatPlant[] plants, bool fromCanopy)
+        private void ShowWheatPlants(Vector2Int key, WheatPlant[] plants, bool newTile)
         {
             if (wheatClumps == null) return;
-            FinishWheatHandoff(key);
             wheatClumps.SetTile(key, plants);
-            if (!fromCanopy || !Application.isPlaying || (plants?.Length ?? 0) == 0) return;
-            var tile = FindWheatCanopy(key);
-            if (tile?.wheatCanopy == null) return;
-            // Borrow the outgoing mesh for the dissolve. The terrain tile can
-            // retire on schedule and the canopy uses the same island transform.
-            var renderer = CreateCanopyRenderer(transform, tile.wheatCanopy);
-            wheatHandoffs.Add(key, new WheatHandoff(renderer, tile.wheatCanopy, true));
-            wheatClumps.SetTileFade(key, 0);
+            if ((plants?.Length ?? 0) > 0 && newTile && Application.isPlaying && FindWheatCanopy(key) != null)
+                wheatReveals[key] = Time.unscaledTime;
         }
 
-        private void HideWheatPlants(Vector2Int key, WheatPlant[] plants)
+        private void HideWheatPlants(Vector2Int key)
+        {
+            wheatReveals.Remove(key);
+            wheatClumps?.SetTile(key, null);
+        }
+
+        private void SyncWheatCanopy(Vector2Int key, MeshRenderer canopy, bool hasDetail)
         {
             if (wheatClumps == null) return;
-            FinishWheatHandoff(key);
-            var tile = FindWheatCanopy(key);
-            if (!Application.isPlaying || (plants?.Length ?? 0) == 0 || tile?.wheatRenderer == null)
+            bool blend = canopy != null && hasDetail && lod0Groups.TryGetValue(key, out var group)
+                && (group.tiles[0]?.wheatPlants?.Length ?? 0) > 0;
+            wheatClumps.SetTileBlend(key, blend);
+            if (!blend)
             {
-                wheatClumps.SetTile(key, null);
+                if (hasDetail)
+                {
+                    wheatReveals.Remove(key);
+                    wheatClumps.SetTileFade(key, 1f);
+                }
+                canopy?.SetPropertyBlock(null);
                 return;
             }
-            wheatHandoffs.Add(key, new WheatHandoff(tile.wheatRenderer, tile.wheatCanopy, false));
-            SetWheatTileFade(tile.wheatRenderer, 0);
+            float presence = wheatReveals.TryGetValue(key, out var start) ? WheatRevealProgress(start) : 1f;
+            SetWheatPresence(key, canopy, presence);
         }
 
-        private void UpdateWheatHandoffs()
+        private void UpdateWheatReveals()
         {
-            if (wheatHandoffs.Count == 0) return;
-            completedWheatHandoffs.Clear();
-            foreach (var entry in wheatHandoffs)
+            if (wheatReveals.Count == 0) return;
+            finishedWheatReveals.Clear();
+            foreach (var entry in wheatReveals)
             {
-                var handoff = entry.Value;
-                var progress = (Time.unscaledTime - handoff.StartTime) / WheatHandoffSeconds;
-                if (progress >= 1 || handoff.Mesh == null || handoff.Canopy == null)
-                {
-                    completedWheatHandoffs.Add(entry.Key);
-                    continue;
-                }
-                var plants = handoff.ToPlants ? progress : 1f - progress;
-                wheatClumps.SetTileFade(entry.Key, plants);
-                SetWheatTileFade(handoff.Canopy, 1f - plants);
+                var canopy = FindWheatCanopy(entry.Key);
+                float progress = canopy == null ? 1f : WheatRevealProgress(entry.Value);
+                if (canopy == null) wheatClumps.SetTileBlend(entry.Key, false);
+                SetWheatPresence(entry.Key, canopy, progress);
+                if (progress >= 1f) finishedWheatReveals.Add(entry.Key);
             }
-            foreach (var key in completedWheatHandoffs) FinishWheatHandoff(key);
+            foreach (var key in finishedWheatReveals) wheatReveals.Remove(key);
         }
 
-        private void SetWheatTileFade(MeshRenderer canopy, float fade)
+        private static float WheatRevealProgress(float start) => Mathf.Clamp01((Time.unscaledTime - start) / WheatRevealSeconds);
+
+        private void SetWheatPresence(Vector2Int key, MeshRenderer canopy, float presence)
         {
+            wheatClumps.SetTileFade(key, presence);
+            if (canopy == null) return;
             wheatFadeProperties ??= new MaterialPropertyBlock();
-            wheatFadeProperties.SetFloat(WheatTileFadeId, fade);
+            wheatFadeProperties.SetFloat(WheatDetailPresenceId, presence);
             canopy.SetPropertyBlock(wheatFadeProperties);
-        }
-
-        private void FinishWheatHandoff(Vector2Int key)
-        {
-            if (!wheatHandoffs.Remove(key, out var handoff)) return;
-            if (handoff.ToPlants)
-            {
-                if (handoff.Canopy != null)
-                {
-                    handoff.Canopy.enabled = false;
-                    DestroyUnityObject(handoff.Canopy.gameObject);
-                }
-                wheatClumps.SetTileFade(key, 1f);
-            }
-            else
-            {
-                if (handoff.Canopy != null) handoff.Canopy.SetPropertyBlock(null);
-                wheatClumps.SetTile(key, null);
-            }
         }
 
         internal void SetWheatHorizonDistance(float distance, float switchDistance)
@@ -160,11 +139,8 @@ namespace Motu.Streaming
 
         private void ClearWheatFocus()
         {
-            if (wheatClumps == null) return;
-            completedWheatHandoffs.Clear();
-            completedWheatHandoffs.AddRange(wheatHandoffs.Keys);
-            foreach (var key in completedWheatHandoffs) FinishWheatHandoff(key);
-            wheatClumps.Clear();
+            wheatReveals.Clear();
+            wheatClumps?.Clear();
         }
 
         private void DisposeWheat()

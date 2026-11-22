@@ -1,5 +1,6 @@
-use super::{CartTrackExit, Crossing, Surface, surface::SpatialBins};
-use crate::{Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, bridges::MIN_HEADING_DOT};
+use super::{CartTrackExit, CartTrackRun, Crossing, Surface, surface::PAVED_TRAVEL_FACTOR};
+use crate::terrain::spatial_bins::SpatialBins;
+use crate::{Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, bridges::MIN_HEADING_DOT};
 use std::{
     cmp::Ordering,
     collections::{BTreeSet, BinaryHeap, HashMap},
@@ -16,6 +17,72 @@ struct Edge {
 struct Attachment {
     node: usize,
     cost: f32,
+}
+
+struct TrackAnchor {
+    point: Vec2,
+    attachment: Attachment,
+    exit: usize,
+}
+
+#[derive(Clone, Copy)]
+struct DiscountBand {
+    start: f32,
+    end: f32,
+    preceding_length: f32,
+}
+
+struct TravelMetric {
+    bands: [Vec<DiscountBand>; 2],
+}
+
+impl TravelMetric {
+    fn new(surface: &Surface<'_>) -> Self {
+        Self {
+            bands: [0, 1].map(|axis| {
+                let mut intervals: Vec<_> = surface
+                    .discounted_bounds()
+                    .map(|(min, max)| (min[axis], max[axis]))
+                    .collect();
+                intervals.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+                let mut bands: Vec<DiscountBand> = Vec::new();
+                for (start, end) in intervals {
+                    let preceding_length = if let Some(last) = bands.last_mut() {
+                        if start <= last.end {
+                            last.end = end.max(last.end);
+                            continue;
+                        }
+                        last.preceding_length + last.end - last.start
+                    } else {
+                        0.
+                    };
+                    bands.push(DiscountBand {
+                        start,
+                        end,
+                        preceding_length,
+                    });
+                }
+                bands
+            }),
+        }
+    }
+
+    fn point(&self, point: Vec2) -> Vec2 {
+        // An optimistic distance field: discount each axis wherever pavement
+        // could project onto it. Each actual edge earns at most that discount,
+        // so Euclidean distance here remains a lower bound for A*.
+        Vec2::from_array([0, 1].map(|axis| {
+            let value = point[axis];
+            let bands = &self.bands[axis];
+            let upper = bands.partition_point(|band| band.start <= value);
+            if upper == 0 {
+                return value;
+            }
+            let band = bands[upper - 1];
+            let length = band.preceding_length + value.min(band.end) - band.start;
+            value - length * (1. - PAVED_TRAVEL_FACTOR)
+        }))
+    }
 }
 
 pub(super) struct Entrance {
@@ -36,6 +103,8 @@ pub(super) struct Graph<'a> {
     adjacency: Adjacency,
     edges: Vec<Option<Vec<Edge>>>,
     costs: HashMap<(usize, usize), Option<f32>>,
+    track_anchors: Vec<TrackAnchor>,
+    travel_metric: TravelMetric,
 }
 
 impl<'a> Graph<'a> {
@@ -56,6 +125,44 @@ impl<'a> Graph<'a> {
             adjacency: mesh.adjacency(),
             surface,
             costs: HashMap::new(),
+            track_anchors: Vec::new(),
+            travel_metric: TravelMetric::new(surface),
+        }
+    }
+
+    pub(super) fn register_track(&mut self, run: &CartTrackRun, exit: usize) {
+        const SPACING: f32 = 6.;
+        const REACH: f32 = 15.;
+        let mut last = None::<Vec2>;
+        let mut near = Vec::new();
+        for &station in &run.points {
+            let point = Vec3::from_array(station).truncate();
+            if last.is_some_and(|p| p.distance_squared(point) < SPACING * SPACING) {
+                continue;
+            }
+            last = Some(point);
+            near.clear();
+            near.extend(
+                self.bins
+                    .nearby(point - REACH, point + REACH)
+                    .filter_map(|&node| {
+                        let distance = self.positions[node].distance_squared(point);
+                        (distance <= REACH * REACH).then_some((distance, node))
+                    }),
+            );
+            near.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            // Attach to an actual point on the finished curve. The original
+            // graph vertex may have been cut away while smoothing the route.
+            if let Some(attachment) = near.iter().find_map(|&(_, node)| {
+                let cost = self.surface.dry_cost(point, self.positions[node])?;
+                Some(Attachment { node, cost })
+            }) {
+                self.track_anchors.push(TrackAnchor {
+                    point,
+                    attachment,
+                    exit,
+                });
+            }
         }
     }
 
@@ -204,6 +311,7 @@ impl<'a> Graph<'a> {
 enum Predecessor {
     Vertex(usize),
     Exit(usize),
+    Track(usize),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -250,6 +358,7 @@ struct Arrival {
 
 pub(super) struct Route {
     pub(super) source: usize,
+    pub(super) starts_on_track: bool,
     pub(super) target: usize,
     pub(super) stations: Vec<(Vec2, Option<RouteCrossing>)>,
 }
@@ -299,41 +408,32 @@ impl Graph<'_> {
         exits: &[CartTrackExit],
         entrances: &[Entrance],
         rejected_crossings: &BTreeSet<(usize, usize)>,
+        capital: Vec2,
     ) -> Option<Route> {
         let ends = target_anchors(targets, entrances);
-        if ends.is_empty() || sources.is_empty() {
+        if ends.is_empty() || (sources.is_empty() && self.track_anchors.is_empty()) {
             return None;
         }
-        let heuristic = |p: Vec2| {
-            targets
-                .iter()
-                .map(|&i| exits[i].xy().distance(p))
-                .fold(f32::INFINITY, f32::min)
-        };
+        let goals: Vec<_> = targets
+            .iter()
+            .map(|&i| self.travel_metric.point(exits[i].xy()))
+            .collect();
         let mut queue = BinaryHeap::new();
         let mut visited = HashMap::new();
-        for &source in sources {
-            for anchor in &entrances[source].anchors {
-                // Two exits can attach to the same vertex with different
-                // approach headings. Both arrivals must enter the search.
-                let state = State {
-                    previous: Predecessor::Exit(source),
-                    node: anchor.node,
-                };
-                visited.insert(
-                    state,
-                    Arrival {
-                        cost: anchor.cost,
-                        parent: None,
-                        crossing: None,
-                    },
-                );
-                queue.push(Visit {
-                    state,
-                    cost: anchor.cost,
-                    estimate: anchor.cost + heuristic(self.positions[state.node]),
-                });
-            }
+        for (state, cost) in self.source_arrivals(sources, exits, entrances, capital) {
+            visited.insert(
+                state,
+                Arrival {
+                    cost,
+                    parent: None,
+                    crossing: None,
+                },
+            );
+            queue.push(Visit {
+                state,
+                cost,
+                estimate: cost + self.remaining_distance(self.positions[state.node], &goals),
+            });
         }
         let mut best: Option<(f32, State, usize)> = None;
         while let Some(Visit {
@@ -352,6 +452,7 @@ impl Graph<'_> {
             let prior = match state.previous {
                 Predecessor::Vertex(index) => self.positions[index],
                 Predecessor::Exit(index) => entrances[index].lead,
+                Predecessor::Track(index) => self.track_anchors[index].point,
             };
             let incoming = (at - prior).normalize_or_zero();
             let arrived_by_bridge = visited[&state].crossing.is_some();
@@ -403,12 +504,59 @@ impl Graph<'_> {
                 queue.push(Visit {
                     state: next,
                     cost,
-                    estimate: cost + heuristic(p),
+                    estimate: cost + self.remaining_distance(p, &goals),
                 });
             }
         }
         let (_, last, target) = best?;
         Some(self.reconstruct(last, &visited, exits, entrances, target))
+    }
+
+    fn remaining_distance(&self, point: Vec2, goals: &[Vec2]) -> f32 {
+        let point = self.travel_metric.point(point);
+        goals
+            .iter()
+            .map(|&goal| goal.distance_squared(point))
+            .fold(f32::INFINITY, f32::min)
+            .sqrt()
+    }
+
+    fn source_arrivals<'a>(
+        &'a self,
+        sources: &'a [usize],
+        exits: &'a [CartTrackExit],
+        entrances: &'a [Entrance],
+        capital: Vec2,
+    ) -> impl Iterator<Item = (State, f32)> + 'a {
+        // Charge a small travel allowance for using the existing network to
+        // reach the departure. All other cost represents the new link.
+        const TRACK_TRAVEL_FACTOR: f32 = 0.18;
+        let from_exit = sources.iter().flat_map(move |&exit| {
+            let approach = capital.distance(exits[exit].xy()) * PAVED_TRAVEL_FACTOR;
+            entrances[exit].anchors.iter().map(move |anchor| {
+                (
+                    State {
+                        previous: Predecessor::Exit(exit),
+                        node: anchor.node,
+                    },
+                    approach + anchor.cost,
+                )
+            })
+        });
+        let from_track = self
+            .track_anchors
+            .iter()
+            .enumerate()
+            .map(move |(index, track)| {
+                (
+                    State {
+                        previous: Predecessor::Track(index),
+                        node: track.attachment.node,
+                    },
+                    capital.distance(track.point) * TRACK_TRAVEL_FACTOR + track.attachment.cost,
+                )
+            });
+        from_exit.chain(from_track)
     }
 
     fn reconstruct(
@@ -420,7 +568,7 @@ impl Graph<'_> {
         target: usize,
     ) -> Route {
         let mut stations = vec![(exits[target].xy(), None), (entrances[target].lead, None)];
-        let source = loop {
+        let (source, starts_on_track) = loop {
             let step = visited[&state];
             let crossing = step
                 .crossing
@@ -430,15 +578,27 @@ impl Graph<'_> {
                     nodes: (parent.node, state.node),
                 });
             stations.push((self.positions[state.node], crossing));
-            if let Predecessor::Exit(source) = state.previous {
-                break source;
+            if let Some(parent) = step.parent {
+                state = parent;
+                continue;
             }
-            state = step.parent.expect("a terrain arrival has a parent");
+            match state.previous {
+                Predecessor::Exit(source) => {
+                    stations.extend([(entrances[source].lead, None), (exits[source].xy(), None)]);
+                    break (source, false);
+                }
+                Predecessor::Track(index) => {
+                    let track = &self.track_anchors[index];
+                    stations.push((track.point, None));
+                    break (track.exit, true);
+                }
+                Predecessor::Vertex(_) => unreachable!("a terrain arrival has a parent"),
+            }
         };
-        stations.extend([(entrances[source].lead, None), (exits[source].xy(), None)]);
         stations.reverse();
         Route {
             source,
+            starts_on_track,
             target,
             stations,
         }
@@ -448,7 +608,47 @@ impl Graph<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vec3;
+
+    #[test]
+    fn paved_metric_is_a_lower_bound_for_mixed_segments() {
+        use crate::{
+            ForestOptions, Island,
+            roads::{RoadNetwork, RoadStation, RoadStrip},
+        };
+
+        let mut island = Island::shared_forest_fixture(ForestOptions::default());
+        let strip = |source, y| RoadStrip {
+            source,
+            start: 2 * source,
+            end: 2 * source + 1,
+            half_width: 2.,
+            stations: [635., 685.]
+                .map(|x| RoadStation {
+                    point: Vec2::new(x, y),
+                    height: 40.,
+                })
+                .to_vec(),
+        };
+        island
+            .apply_town_roads(&RoadNetwork {
+                strips: vec![strip(0, 650.), strip(1, 670.)],
+                junctions: Vec::new(),
+                shoulder: 2.,
+            })
+            .unwrap();
+        let surface = Surface::new(&island, &[]);
+        let metric = TravelMetric::new(&surface);
+        for (a, b) in [
+            (Vec2::new(640., 650.), Vec2::new(680., 650.)),
+            (Vec2::new(640., 648.), Vec2::new(680., 672.)),
+            (Vec2::new(695., 645.), Vec2::new(725., 675.)),
+        ] {
+            assert!(
+                metric.point(a).distance(metric.point(b))
+                    <= surface.dry_cost(a, b).unwrap() + 0.001
+            );
+        }
+    }
 
     #[test]
     fn exits_sharing_an_anchor_keep_separate_approach_headings() {
@@ -480,7 +680,14 @@ mod tests {
         // Exit 0 reaches the shared anchor sooner, but would need a U-turn.
         for sources in [[0, 1], [1, 0]] {
             let route = graph
-                .route(&sources, &[2], &exits, &entrances, &BTreeSet::new())
+                .route(
+                    &sources,
+                    &[2],
+                    &exits,
+                    &entrances,
+                    &BTreeSet::new(),
+                    Vec2::new(150., y),
+                )
                 .unwrap();
             assert_eq!(route.source, 1);
             assert_eq!(route.stations[0].0, exits[1].xy());

@@ -143,6 +143,9 @@ pub struct Terrain {
     pub(super) footpaths: Option<super::town_footpaths::FootpathPaint>,
     #[serde(skip)]
     pub(super) cart_tracks: Option<super::cart_track_install::InstalledCartTracks>,
+    /// LOD0 disturbed ground: 0 is natural ground, 1 is bare dirt.
+    #[serde(skip)]
+    pub(super) disturbed_ground: Vec<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,7 +216,12 @@ impl Terrain {
             road_coverage: None,
             footpaths: None,
             cart_tracks: None,
+            disturbed_ground: Vec::new(),
         }
+    }
+
+    pub(super) fn ground_disturbance(&self, vertex: usize) -> f32 {
+        self.disturbed_ground.get(vertex).copied().unwrap_or(0.)
     }
 
     pub(super) fn road_precision_at(&self, point: Vec2) -> bool {

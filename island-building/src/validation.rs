@@ -153,6 +153,7 @@ pub(crate) fn validate_structure(recipe: &BuildingRecipe) -> Result<(), Building
         checks.unique(&mut ids, &partition.id);
         partition_rules(recipe, partition, index, &mut checks);
     }
+    decoration_anchor_rules(recipe, &mut checks);
     palette(recipe, &mut checks);
     grub(recipe, &mut checks);
     chimney_rules(recipe, &mut checks);
@@ -167,6 +168,34 @@ pub(crate) fn validate_structure(recipe: &BuildingRecipe) -> Result<(), Building
         })
     }
 }
+
+fn decoration_anchor_rules(recipe: &BuildingRecipe, checks: &mut Checks) {
+    let mut ids = BTreeSet::new();
+    for anchor in &recipe.decoration_anchors {
+        checks.unique(&mut ids, &anchor.id);
+        checks.require(
+            !anchor.label.trim().is_empty() && anchor.label.chars().count() <= 128,
+            &anchor.id,
+            "decoration label must contain 1 to 128 characters",
+        );
+        checks.require(
+            anchor.position.iter().all(|value| value.is_finite()),
+            &anchor.id,
+            "decoration position must be finite",
+        );
+        checks.require(
+            anchor.unit_normal().is_some(),
+            &anchor.id,
+            "decoration normal must be finite and normalizable",
+        );
+        checks.require(
+            anchor.twist_degrees.is_finite(),
+            &anchor.id,
+            "decoration twist must be finite",
+        );
+    }
+}
+
 fn structure(r: &BuildingRecipe, c: &mut Checks) {
     c.require(
         r.schema_version == SCHEMA_VERSION,

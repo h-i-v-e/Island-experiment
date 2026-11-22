@@ -26,7 +26,7 @@ Shader "Motu/Planar Reflection Simplified"
     HLSLINCLUDE
     #include "MotuUrp.hlsl"
     #include "ForestShadowCommon.hlsl"
-    #include "WheatGroundCommon.hlsl"
+    #include "TerrainCoverageCommon.cginc"
 
     #include "WeatherWindCommon.cginc"
     #include "TreeLodCommon.cginc"
@@ -59,17 +59,14 @@ Shader "Motu/Planar Reflection Simplified"
     fixed4 _GrassColorA;
     fixed4 _GrassColorB;
     fixed4 _StonesColor;
-    float4 _TerrainLayerWorldSizesB;
     fixed4 _PackedRoadTint;
     float4 _PackedRoadTileMetres;
-    float4 _MotuTerrainFieldOffset;
     UNITY_DECLARE_TEX2DARRAY(_TerrainAlbedoArray);
     fixed4 _BaseColor;
     fixed4 _LightColor;
     fixed4 _EndGrainColor;
     fixed4 _TipColor;
     fixed4 _RockTint;
-    float _SnowLine;
     half _Cutoff;
     float _ReedFadeStart;
     float _ReedFadeEnd;
@@ -132,50 +129,32 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 TerrainFragment(ReflectionVertexOutput input) : SV_Target
     {
-        half up = saturate(normalize(input.worldNormal).y);
-        half slope = 1.0h - up;
-        half looseCover = saturate(input.material.g);
-        half materialRock = saturate(input.material.r) * (1.0h - looseCover);
-        half rockWeight = max(
-            materialRock,
-            smoothstep(0.18h, 0.58h, slope));
-        rockWeight = max(rockWeight, saturate(input.environment.y) * 0.65h);
+        MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
+            input.localPosition, input.material, input.environment);
+        fixed3 albedo = lerp(_GroundDirtColor.rgb, _RockColor.rgb, coverage.rock);
+        albedo = lerp(albedo, _SandColor.rgb, coverage.beach);
+        albedo *= 1.0h - max(coverage.forestFloor * 0.28h, coverage.river * 0.18h);
+        albedo = lerp(albedo, _RockColor.rgb, coverage.stones * 0.35h);
         fixed3 grass = lerp(_GrassColorA.rgb, _GrassColorB.rgb, 0.45h);
-        fixed3 albedo = lerp(
-            _GroundDirtColor.rgb,
-            grass,
-            smoothstep(0.12h, 0.72h, looseCover)
-                * (1.0h - MotuWheatGroundCoverage(input.localPosition.xz)));
-        half sandWeight = (1.0h - smoothstep(0.5h, 4.0h, input.localPosition.y))
-            * (1.0h - rockWeight);
-        albedo = lerp(albedo, _SandColor.rgb, sandWeight);
-        albedo = lerp(albedo, _RockColor.rgb, rockWeight);
-        half shoulder = smoothstep(0.0h, 0.5h, input.environment.z);
-        half roadWeight = smoothstep(0.5h, 1.0h, input.environment.z);
-        half cartTrack = saturate(1.0h - input.environment.w) * (1.0h - shoulder);
-        float2 fieldXZ = input.localPosition.xz + _MotuTerrainFieldOffset.xz;
-        albedo = lerp(albedo, lerp(_GroundDirtColor.rgb, _RockColor.rgb, 0.35h), shoulder);
+        albedo = lerp(albedo, grass, coverage.grass);
         UNITY_BRANCH
-        if (cartTrack > 0.0h)
+        if (coverage.gravel > 0.0h)
         {
-            float2 stonesUv = fieldXZ / max(_TerrainLayerWorldSizesB.y, 0.01);
-            // Fallen Stones layer from the terrain texture arrays.
-            fixed3 gravel = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray, float3(stonesUv, 5)).rgb;
-            albedo = lerp(albedo, gravel * _StonesColor.rgb, cartTrack);
+            float2 stonesUv = MotuLayerUv(input.localPosition, MOTU_LAYER_STONES);
+            fixed3 gravel = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray,
+                float3(stonesUv, MOTU_LAYER_STONES)).rgb;
+            albedo = lerp(albedo, gravel * _StonesColor.rgb, coverage.gravel);
         }
         UNITY_BRANCH
-        if (roadWeight > 0.0h)
+        if (coverage.road > 0.0h)
         {
+            float2 fieldXZ = MotuTerrainFieldPosition(input.localPosition).xz;
             float2 roadUv = fieldXZ / max(_PackedRoadTileMetres.xy, 0.01);
-            // Road layer from the terrain texture arrays.
-            fixed3 road = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray, float3(roadUv, 6)).rgb;
-            albedo = lerp(albedo, road * _PackedRoadTint.rgb, roadWeight);
+            fixed3 road = UNITY_SAMPLE_TEX2DARRAY(_TerrainAlbedoArray,
+                float3(roadUv, MOTU_LAYER_ROAD)).rgb;
+            albedo = lerp(albedo, road * _PackedRoadTint.rgb, coverage.road);
         }
-        half snowWeight = smoothstep(
-            _SnowLine,
-            _SnowLine + 8.0,
-            input.localPosition.y) * smoothstep(0.12h, 0.55h, up);
-        albedo = lerp(albedo, fixed3(0.82h, 0.84h, 0.81h), snowWeight);
+        albedo = lerp(albedo, fixed3(0.82h, 0.84h, 0.81h), coverage.snow);
         // Simplified reflections have no live shadow pass. Use the overhead
         // canopy throughout rather than reflecting brightly lit forest floors.
         return fixed4(ReflectionLighting(albedo * _Color.rgb, input.worldNormal,
@@ -184,7 +163,9 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 GrassFragment(ReflectionVertexOutput input) : SV_Target
     {
-        clip(0.5h - MotuWheatGroundCoverage(input.localPosition.xz));
+        MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
+            input.localPosition, input.material, input.environment);
+        clip(coverage.grass - 0.5h);
         fixed3 albedo = lerp(_GrassColorA.rgb, _GrassColorB.rgb, 0.45h);
         return FinishReflection(albedo, input);
     }

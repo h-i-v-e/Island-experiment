@@ -22,14 +22,6 @@ Shader "Motu/Terrain Grass"
         [HideInInspector] _GrassLightColor ("Light Color", Color) = (1, 1, 1, 1)
         [HideInInspector] _GrassAmbientColor ("Ambient Color", Color) = (0.42, 0.46, 0.52, 1)
         [NoScaleOffset] _CliffNoise3D ("Terrain 3D Noise", 3D) = "gray" {}
-        [HideInInspector][NoScaleOffset] _TerrainMaskArray ("Runtime Terrain Height + Occlusion Array", 2DArray) = "" {}
-        [HideInInspector] _TerrainLayerWorldSizesA ("Layer Sizes: Dirt Forest Rock River", Vector) = (2, 2, 4, 2)
-        [HideInInspector] _TerrainLayerWorldSizesB ("Layer Sizes: Beach Stones", Vector) = (3, 2, 0, 0)
-        [HideInInspector] _TerrainHeightInfluencesA ("Height Influence: Dirt Forest Rock River", Vector) = (1, 1, 1, 1)
-        [HideInInspector] _TerrainHeightInfluencesB ("Height Influence: Beach Stones", Vector) = (0.65, 0.65, 0, 0)
-        [HideInInspector] _TerrainHeightBlendDepth ("Height Blend Depth", Float) = 0.18
-        [HideInInspector] _TopTextureFadeOutSlope ("Procedural Stone Slope (degrees)", Float) = 45
-        [HideInInspector] _SteepStoneBlendWidth ("Stone Slope Blend Width (degrees)", Float) = 8
         [HideInInspector] _ForestFloorEdgeNoiseStrength ("Forest Floor Edge Noise Strength", Float) = 0.22
         [HideInInspector] _ForestFloorEdgeBlendWidth ("Forest Floor Edge Blend Width", Float) = 0.035
         [HideInInspector] _StonesEdgeNoiseStrength ("Fallen Stones Edge Noise Strength", Float) = 0.22
@@ -42,10 +34,7 @@ Shader "Motu/Terrain Grass"
         _SandPatchNoiseWorldSize ("Sand Patch Repeat (metres)", Float) = 32
         _RiverEdgeNoiseStrength ("River Edge Noise Strength", Range(0, 0.45)) = 0.20
         _RiverEdgeBlendWidth ("River Edge Blend Width", Range(0.01, 0.5)) = 0.20
-        _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
-        _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
-        _RockBoundaryNoiseStrength ("Sand Rock Edge Noise Strength", Range(0, 0.4)) = 0.18
-        _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
+        _RockBoundaryNoiseStrength ("Dirt and Stone Edge Noise Strength", Range(0, 0.4)) = 0.18
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
         _RockPatchNoiseDetailScale ("Rock Mask Detail Frequency", Range(1, 32)) = 8
     }

@@ -100,8 +100,11 @@ impl Island {
         let corridor = CorridorIndex::new(roads, min, max);
         self.validate_road_corridor(&corridor)?;
 
-        let GradedMesh { mesh, additions } =
-            grade_mesh(self.terrain.mesh(), roads, &corridor, true)?;
+        let GradedMesh {
+            mesh,
+            additions,
+            mut disturbance,
+        } = grade_mesh(self.terrain.mesh(), roads, &corridor, true)?;
         let [first, second] = &self.coarser_lods;
         let lod1 = grade_mesh(first, roads, &corridor, false)?.mesh;
         let lod2 = grade_mesh(second, roads, &corridor, false)?.mesh;
@@ -110,6 +113,14 @@ impl Island {
         let mut terrain = Terrain::with_index(mesh, index);
         terrain.road_sampling_bounds = Some(bounds);
         terrain.road_coverage = Some(corridor);
+        let mut previous_wear = std::mem::take(&mut self.terrain.disturbed_ground);
+        if !previous_wear.is_empty() {
+            extend_field(&mut previous_wear, &additions);
+            for (ground, wear) in disturbance.iter_mut().zip(previous_wear) {
+                *ground = ground.max(wear);
+            }
+        }
+        terrain.disturbed_ground = disturbance;
 
         extend_field(&mut self.material.values, &additions);
         extend_field(&mut self.environment.values, &additions);
@@ -159,6 +170,7 @@ impl Island {
 struct GradedMesh {
     mesh: Mesh,
     additions: Vec<EdgeSplitStencil>,
+    disturbance: Vec<f32>,
 }
 
 fn grade_mesh(
@@ -184,7 +196,12 @@ fn grade_mesh(
             additions.extend(splits);
         }
     }
-    for point in &mut mesh.vertices {
+    let mut disturbance = if validate_grade {
+        vec![0.; mesh.vertices.len()]
+    } else {
+        Vec::new()
+    };
+    for (index, point) in mesh.vertices.iter_mut().enumerate() {
         let location = point.truncate() * ISLAND_WORLD_METRES;
         if !corridor.overlaps(location, location, false) {
             continue;
@@ -208,6 +225,16 @@ fn grade_mesh(
                     location.x, location.y
                 ));
             }
+            if natural > 0. && graded > 0. {
+                // Paint the dry shoulder into the base ground. Excavations
+                // can extend beyond that band and expose bare earth as well.
+                let shoulder = (2. * corridor.material_profile(location)).min(1.);
+                disturbance[index] = if natural - graded > 0.005 {
+                    1.
+                } else {
+                    shoulder * shoulder * (3. - 2. * shoulder)
+                };
+            }
         }
         if (natural > 0. || !validate_grade)
             && graded > 0.
@@ -228,7 +255,11 @@ fn grade_mesh(
             *normal = original;
         }
     }
-    Ok(GradedMesh { mesh, additions })
+    Ok(GradedMesh {
+        mesh,
+        additions,
+        disturbance,
+    })
 }
 
 fn refinement_edges(mesh: &Mesh, corridor: &CorridorIndex) -> BTreeMap<(u32, u32), f32> {
@@ -352,7 +383,7 @@ impl Corridor {
         let edge_distance = if self.length > 0. {
             let along = offset.dot(self.axis);
             // Overlap the paint where a strip meets another paved section
-            // so the shared edge cannot cut a gravel stripe across it.
+            // so the shared edge cannot cut a dirt stripe across it.
             let [start, end] = self
                 .joined_ends
                 .map(|joined| if joined { inner_width * 2. } else { 0. });
@@ -382,7 +413,7 @@ pub(super) struct CorridorIndex {
 
 impl Terrain {
     /// Sample the road material profile at normalized terrain XY.
-    /// 0 is natural terrain, 0.5 is the gravel edge, and 1 is the paved core.
+    /// 0 is natural terrain, 0.5 is the paving edge, and 1 is the paved core.
     #[must_use]
     pub fn road_coverage_at(&self, point: Vec2) -> f32 {
         self.road_coverage.as_ref().map_or(0., |corridor| {
@@ -399,6 +430,19 @@ impl Terrain {
         self.road_coverage
             .as_ref()
             .is_some_and(|corridor| corridor.overlaps(min, max, false))
+    }
+
+    pub(super) fn paved_road_overlaps(&self, min: Vec2, max: Vec2) -> bool {
+        self.road_coverage
+            .as_ref()
+            .is_some_and(|corridor| corridor.overlaps(min, max, true))
+    }
+
+    pub(super) fn paved_road_bounds(&self) -> impl Iterator<Item = (Vec2, Vec2)> + '_ {
+        self.road_coverage
+            .iter()
+            .flat_map(|index| index.roads.iter())
+            .map(|road| road.bounds(road.core_radius))
     }
 }
 
@@ -557,6 +601,33 @@ mod tests {
     }
 
     #[test]
+    fn road_shoulders_expose_dirt_on_level_ground_and_in_rock_cuts() {
+        for (road_height, minimum_dirt) in [(39., 0.99), (40., 0.85)] {
+            let mut island = fixture();
+            island.material.values.fill(crate::Vec4::X);
+            island
+                .apply_town_roads(&road(
+                    Vec2::new(645., 650.),
+                    Vec2::new(675., 650.),
+                    road_height,
+                ))
+                .unwrap();
+            let terrain = island.terrain();
+            let mesh = terrain.mesh();
+            let weights = island.surface_weights_for(mesh);
+            let bank = (Vec2::new(660., 652.15) / ISLAND_WORLD_METRES).clamp(Vec2::ZERO, Vec2::ONE);
+            assert!((0.39..0.5).contains(&terrain.road_coverage_at(bank)));
+            let material = island.material.sample_surface_weights(terrain, bank);
+            assert!(
+                material.x > minimum_dirt && material.y < 0.01,
+                "{material} at {road_height} m"
+            );
+            assert_eq!(terrain.footpath_coverage_at(bank), 0.);
+            assert_eq!(weights[0], crate::Vec4::ZERO);
+        }
+    }
+
+    #[test]
     fn a_junction_does_not_add_a_gravel_stripe_across_the_road() {
         let mut route = road(Vec2::new(652., 650.), Vec2::new(680., 650.), 39.);
         route.junctions.push(RoadJunction {
@@ -710,19 +781,19 @@ mod tests {
         assert_eq!(terrain.vertices().len(), vertex_count);
         assert_eq!(terrain.mesh().triangles.len(), triangle_count);
         let point = |x, y| Vec2::new(x, y) / ISLAND_WORLD_METRES;
-        assert_eq!(terrain.town_surface_coverage_at(point(660., 650.)), 1.);
-        assert_eq!(terrain.town_surface_coverage_at(point(660., 645.)), 0.);
+        assert_eq!(terrain.road_coverage_at(point(660., 650.)), 1.);
+        assert_eq!(terrain.footpath_coverage_at(point(660., 645.)), 0.);
         let painted_gravel = terrain.vertices().iter().any(|vertex| {
             let xy = vertex.truncate();
             let metres = xy * ISLAND_WORLD_METRES;
             metres.y > 652.5
                 && metres.distance(Vec2::from_array(foot.position)) <= 6.
                 && terrain.road_coverage_at(xy) < 0.3
-                && terrain.town_surface_coverage_at(xy) > 0.49
+                && terrain.footpath_coverage_at(xy) > 0.98
         });
         assert!(
             painted_gravel,
-            "a marked vertex must use the road gravel material"
+            "a marked vertex must use the gravel material"
         );
     }
 

@@ -48,6 +48,17 @@ namespace Motu.Towns
 
         internal string CaptureJson() => CaptureJson(out _);
 
+        internal string CaptureBuildingPreview(string buildingJson, out TownDependencyData[] dependencies)
+        {
+            var captured = new Dictionary<string, TownDependencyData>(StringComparer.Ordinal);
+            var entry = new Entry {
+                id = "preview-building", building_json = BindMaterials(buildingJson, captured),
+                min_count = 1, max_count = 1, placement = "centre",
+            };
+            dependencies = new List<TownDependencyData>(captured.Values).ToArray();
+            return JsonUtility.ToJson(new Recipe { catalogue = new[] { entry } });
+        }
+
         internal string CaptureJson(out TownDependencyData[] dependencies, bool preview = false,
             TownRoadSettings roads = null)
         {
@@ -166,9 +177,12 @@ namespace Motu.Towns
     public sealed class TownRoadSettings
     {
         [Range(12f, 60f), InspectorName("Ring Spacing (m)")] public float ring_spacing = 24f;
-        [Range(1f, 6f), InspectorName("Street Half Width (m)")] public float half_width = 2f;
-        [Range(1f, 6f), InspectorName("Access Road Half Width (m)")] public float access_half_width = 3f;
-        [Range(0.5f, 5f), InspectorName("Shoulder Width (m)")] public float shoulder = 2f;
+        [Range(1f, 6f), InspectorName("Street Half Width (m)"), Tooltip("Generated streets use three-quarters of this width. The default gives a 3 m paved street.")]
+        public float half_width = 2f;
+        [Range(1f, 6f), InspectorName("Access Road Half Width (m)"), Tooltip("Generated access roads use two-thirds of this width.")]
+        public float access_half_width = 3f;
+        [Range(0.5f, 5f), InspectorName("Shoulder Width (m)"), Tooltip("Generated dirt shoulders use two-thirds of this width.")]
+        public float shoulder = 2f;
         [Range(0.03f, 0.25f), InspectorName("Maximum Grade (rise/run)")] public float max_grade = 0.22f;
         [Range(0.1f, 3f), InspectorName("Maximum Cut (m)")] public float max_cut = 3f;
         [Range(4f, 12f), InspectorName("Maximum Door Distance (m)")] public float max_frontage_distance = 8f;
@@ -197,10 +211,14 @@ namespace Motu.Towns
         public TownRecipeCatalogue capitalCatalogue;
         [Tooltip("Building catalogue and placement settings shared by all villages. Empty uses the packaged village catalogue.")]
         public TownRecipeCatalogue villageCatalogue;
+        [Tooltip("Prefab variants for labelled Building Studio anchors in the capital and villages.")]
+        public TownDecorationCatalogue decorationCatalogue;
         [Tooltip("Plan streets, place buildings along them and cut roadbeds into the native terrain.")]
         public bool roadsEnabled = true;
         [Tooltip("Connect settlement roads with terrain-following cart tracks and record prospective bridge crossings.")]
         public bool connectSettlements = true;
+        [Tooltip("Prevailing wind travel direction in world X/Z, used when siting field windbreaks.")]
+        public Vector2 roadsideFieldWind = new Vector2(1f, 0.25f);
         public TownRoadSettings roads = new TownRoadSettings();
         [HideInInspector] // Retain the serialized reference for older scenes.
         public Material roadMaterial;

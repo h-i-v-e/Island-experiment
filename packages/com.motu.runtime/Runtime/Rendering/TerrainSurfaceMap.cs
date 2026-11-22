@@ -26,7 +26,6 @@ namespace Motu.Rendering
             material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             material.CopyPropertiesFromMaterial(terrainMaterial);
             material.SetFloat("_SurfaceWorldSize", worldSize);
-            material.SetFloat("_SurfaceUseNormalMap", terrainMaterial.GetTexture("_WorldNormal") != null ? 1f : 0f);
             target = new RenderTexture(Resolution, Resolution, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
             { hideFlags = HideFlags.HideAndDontSave };
             target.Create();

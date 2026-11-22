@@ -194,6 +194,20 @@ impl Default for TownRoadSettings {
 }
 
 impl TownRoadSettings {
+    const WIDTH_SCALE: f32 = 2. / 3.;
+
+    pub(super) fn street_half_width(self) -> f32 {
+        self.half_width * 0.75
+    }
+
+    pub(super) fn access_road_half_width(self) -> f32 {
+        self.access_half_width * Self::WIDTH_SCALE
+    }
+
+    pub(super) fn shoulder_width(self) -> f32 {
+        self.shoulder * Self::WIDTH_SCALE
+    }
+
     fn valid(self) -> bool {
         [
             (self.ring_spacing, 12., 60.),

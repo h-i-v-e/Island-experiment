@@ -148,7 +148,7 @@ pub unsafe extern "C" fn CreateTerrainAtlasMeshGrid(
                 // as islandXY. Temporarily remove atlas coordinates so the same
                 // authoritative samplers fall back to each vertex's islandXY.
                 let atlas_uv = std::mem::take(&mut tile.uv);
-                let material = island.material_values_for(&tile);
+                let material = island.surface_weights_for(&tile);
                 let environment = island.environment_values_for(&tile);
                 tile.uv = atlas_uv;
                 super::export_mesh(tile, material, environment)
@@ -390,7 +390,7 @@ mod tests {
                 let owner = &*tile.handle.cast::<super::super::ExportedMesh>();
                 let mut physical_mesh = owner.mesh.clone();
                 physical_mesh.uv.clear();
-                assert_eq!(owner.material, island.material_values_for(&physical_mesh));
+                assert_eq!(owner.material, island.surface_weights_for(&physical_mesh));
                 assert_eq!(
                     owner.environment,
                     island.environment_values_for(&physical_mesh)

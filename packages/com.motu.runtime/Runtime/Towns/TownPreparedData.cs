@@ -19,6 +19,7 @@ namespace Motu.Towns
         public TownMesh road_mesh;
         public int road_count;
         public TownBridgeCandidate[] bridge_candidates;
+        public string pier_layout_json;
         public string[] diagnostics;
         public float[] mouth;
         public TownSettlement[] settlements;
@@ -26,6 +27,7 @@ namespace Motu.Towns
         public TownTrackBlocker[] routing_blockers;
         public TownTrackBlocker[] wheat_fields;
         public TownCartTrackPlan cartTracks;
+        [NonSerialized] public TownRoadsideFieldPlan roadsideFields;
         [NonSerialized] public TownBridgePlan bridgePlan;
         [NonSerialized] public TownCapitalPier pier;
         [NonSerialized] public string pierDiagnostic;
@@ -46,6 +48,30 @@ namespace Motu.Towns
     {
         public float[] centre, half_extents;
         public float yaw;
+    }
+    [Serializable] internal sealed class TownRoadsideFieldPlan
+    {
+        public TownRoadsideField[] fields;
+        public TownRoadsideWall[] walls;
+        public TownRoadsideGate[] gates;
+        public TownRoadsideWindbreak[] windbreaks;
+    }
+    [Serializable] internal sealed class TownRoadsideField
+    {
+        public uint id;
+        public float[] outline;
+        public bool wheat;
+    }
+    [Serializable] internal sealed class TownRoadsideWall { public float[] points; }
+    [Serializable] internal sealed class TownRoadsideGate
+    {
+        public uint field_id;
+        public float[] left, right;
+    }
+    [Serializable] internal sealed class TownRoadsideWindbreak
+    {
+        public float[] position;
+        public float yaw, scale;
     }
     [Serializable] internal sealed class TownCartTrackPlan
     {
@@ -83,9 +109,15 @@ namespace Motu.Towns
         public bool is_church;
         public TownLod[] lods;
         public TownDoorData[] doors;
+        public TownDecorationAnchorData[] decoration_anchors;
         public TownBox[] colliders, support_colliders;
         public TownMaterial[] materials;
         public TownMaterial atlas;
+    }
+    [Serializable] internal sealed class TownDecorationAnchorData
+    {
+        public string id, label;
+        public float[] position, normal, forward;
     }
     [Serializable] internal sealed class TownLod { public TownPart[] parts; }
     [Serializable] internal sealed class TownPart { public string material; public TownMesh mesh; }

@@ -1,12 +1,15 @@
 use super::{
-    TownCatalogueEntry, TownError, TownInput, TownOutput, TownRecipe, TownSettings, TownSettlement,
-    TownSettlementKind, input,
+    TownCatalogueEntry, TownError, TownInput, TownMouth, TownOutput, TownRecipe, TownSettings,
+    TownSettlement, TownSettlementKind, input,
     placement::{self, Random, Site, entry_seed},
     prototypes::PrototypePool,
     rivers, roads, wheat,
 };
 use crate::BuildingRecipe;
-use motu::roads::{MAX_ROAD_EDGES, RoadNetwork};
+use motu::{
+    piers::PierLayout,
+    roads::{MAX_ROAD_EDGES, RoadNetwork},
+};
 use std::{borrow::Cow, path::Path};
 
 struct Catalogue<'a> {
@@ -49,10 +52,11 @@ impl<'a> Catalogue<'a> {
     }
 }
 
-pub(super) fn generate(
+pub(crate) fn generate(
     capital: &TownRecipe,
     village: Option<&TownRecipe>,
     input: &TownInput,
+    piers: &[PierLayout],
     base: &Path,
     cancelled: &impl Fn() -> bool,
 ) -> Result<TownOutput, TownError> {
@@ -66,11 +70,7 @@ pub(super) fn generate(
         tile_seed: input.tile_seed,
         ..TownOutput::default()
     };
-    let mouths = if village.is_some() {
-        rivers::settlement_mouths(input)
-    } else {
-        rivers::longest_mouth(input).into_iter().collect()
-    };
+    let mouths = mouths(input, village.is_some());
     let Some(capital_mouth) = mouths.first() else {
         return Ok(output);
     };
@@ -119,6 +119,7 @@ pub(super) fn generate(
             base,
             cancelled,
             prototype_indices: &catalogue.prototype_indices,
+            piers: if index == 0 { piers } else { &[] },
         };
         let mut planned = placement::generate(&site, &mut pool)?;
         if cancelled() {
@@ -143,6 +144,7 @@ pub(super) fn generate(
         });
         if index == 0 {
             output.centre = planned.centre;
+            output.pier_layout = planned.pier_layout;
         }
         field_sites.push(wheat::Site {
             settings: &catalogue.settings,
@@ -156,6 +158,22 @@ pub(super) fn generate(
     pool.finish(&mut output);
     output.wheat_fields = wheat::generate(&output, &field_sites, input, cancelled)?;
     Ok(output)
+}
+
+fn mouths(input: &TownInput, multiple: bool) -> Vec<TownMouth> {
+    if multiple {
+        rivers::settlement_mouths(input)
+    } else {
+        rivers::longest_mouth(input).into_iter().collect()
+    }
+}
+
+pub(crate) fn capital_mouth(
+    input: &TownInput,
+    multiple: bool,
+) -> Result<Option<TownMouth>, TownError> {
+    input::validate_terrain(input)?;
+    Ok(mouths(input, multiple).into_iter().next())
 }
 
 fn fits_terrain_limits(output: &TownOutput, site: &TownOutput) -> bool {

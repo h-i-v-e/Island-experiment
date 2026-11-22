@@ -36,6 +36,7 @@ impl CartTrackExit {
 
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct CartTrackPlan {
+    #[serde(skip)]
     pub(crate) runs: Vec<CartTrackRun>,
     pub(crate) bridges: Vec<CartTrackBridge>,
     pub(crate) links: Vec<CartTrackLink>,
@@ -56,6 +57,8 @@ impl CartTrackPlan {
 pub(crate) struct CartTrackRun {
     pub(crate) link_index: usize,
     pub(crate) points: Vec<[f32; 3]>,
+    #[serde(skip)]
+    pub(crate) joins_track: bool,
 }
 
 fn cart_bridge_request(
@@ -104,6 +107,8 @@ pub(crate) struct CartTrackLink {
     pub(crate) to_settlement: usize,
     pub(crate) from_exit: usize,
     pub(crate) to_exit: usize,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) from_track: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,7 +166,10 @@ impl<'a> CartTrackPlanner<'a> {
             sites: &sites,
             graph,
             result: CartTrackPlan::default(),
-            attempted: BTreeSet::new(),
+            origin: capital
+                .and_then(|id| sites.get(&id).map(|site| site.centre))
+                .or_else(|| exits.get(first_portal).map(CartTrackExit::xy))
+                .unwrap_or_default(),
         };
         let (mut villages, portals): (Vec<_>, Vec<_>) = sites
             .keys()
@@ -262,6 +270,7 @@ impl<'a> CartTrackPlanner<'a> {
         Some(CartTrackRun {
             link_index,
             points: self.ground_points(&path)?,
+            joins_track: false,
         })
     }
 
@@ -362,12 +371,12 @@ struct Network<'a, 'b> {
     sites: &'a BTreeMap<usize, Site>,
     graph: Graph<'a>,
     result: CartTrackPlan,
-    attempted: BTreeSet<(usize, usize)>,
+    origin: Vec2,
 }
 
 impl Network<'_, '_> {
     fn order_by_distance(&self, sites: &mut [usize], target: Vec2) {
-        // Stable ties preserve the capital as the first possible parent.
+        // Stable ties preserve settlement order.
         sites.sort_by(|a, b| {
             self.sites[a]
                 .centre
@@ -376,35 +385,29 @@ impl Network<'_, '_> {
         });
     }
 
-    fn join(&mut self, target: usize, connected: &[usize]) -> bool {
-        if !self.sites[&target]
+    fn join(&mut self, site: usize, connected: &[usize]) -> bool {
+        if !self.sites[&site]
             .exits
             .iter()
             .any(|&i| self.entrances[i].usable())
         {
             return false;
         }
-        let centre = self.sites[&target].centre;
-        let mut sources = connected.to_vec();
-        self.order_by_distance(&mut sources, centre);
-        sources.into_iter().any(|site| self.try_link(site, target))
-    }
-
-    fn try_link(&mut self, origin: usize, site: usize) -> bool {
-        if !self.attempted.insert((origin, site)) {
-            return false;
-        }
-        let sources = &self.sites[&origin].exits;
+        let sources: Vec<_> = connected
+            .iter()
+            .flat_map(|id| self.sites[id].exits.iter().copied())
+            .collect();
         // A span may fit without room for a dry approach on both banks.
         // Retry without that directed edge for this connection.
         let mut rejected = BTreeSet::new();
-        let (source, target, mut runs, mut bridges, mut footprints) = 'search: loop {
+        let (route, mut runs, mut bridges, mut footprints) = 'search: loop {
             let Some(route) = self.graph.route(
-                sources,
+                &sources,
                 &self.sites[&site].exits,
                 self.exits,
                 self.entrances,
                 &rejected,
+                self.origin,
             ) else {
                 return false;
             };
@@ -443,13 +446,22 @@ impl Network<'_, '_> {
                 }
             }
             runs.retain(|run| run.points.len() >= 2);
-            break (route.source, route.target, runs, bridges, footprints);
+            break (route, runs, bridges, footprints);
         };
+        if route.starts_on_track
+            && let Some(first) = runs.first_mut()
+        {
+            first.joins_track = true;
+        }
+        for run in &runs {
+            self.graph.register_track(run, route.target);
+        }
         self.result.links.push(CartTrackLink {
-            from_settlement: origin,
+            from_settlement: self.exits[route.source].settlement_index,
             to_settlement: site,
-            from_exit: source,
-            to_exit: target,
+            from_exit: route.source,
+            to_exit: route.target,
+            from_track: route.starts_on_track,
         });
         self.result.runs.append(&mut runs);
         self.result.bridges.append(&mut bridges);

@@ -53,9 +53,11 @@ mod gpu_generation;
 mod lod;
 mod material;
 mod road_grade;
+mod roadside_fields;
 mod sampling;
 pub use road_grade::TownProtectedTerrain;
 mod snapshot;
+mod spatial_bins;
 #[cfg(feature = "surface-atlas")]
 mod surface_atlas;
 mod surface_maps;
@@ -63,6 +65,7 @@ pub(crate) mod town;
 mod town_bridges;
 mod town_footpaths;
 pub(crate) mod town_pier;
+mod town_wear;
 mod town_wheat;
 #[cfg(feature = "surface-atlas")]
 pub use surface_atlas::SurfaceAtlas;

@@ -5,7 +5,7 @@ pub(super) use frontage::{
     Access, Lot, Lots, PAVED_TREAD_OVERLAP, Row, approach, central_approach, entrance, field_rows,
     lots, stair_access, stair_target,
 };
-pub(super) use network::{Streets, layout};
+pub(super) use network::{StreetLayout, Streets, layout};
 
 use super::{BridgeCandidate, ClearanceRect, TownInput, TownRoadExit, TownSettings, placement};
 use motu::{

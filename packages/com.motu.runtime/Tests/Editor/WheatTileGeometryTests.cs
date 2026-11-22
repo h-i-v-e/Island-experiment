@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Motu.Islands;
 using Motu.Streaming;
+using Motu.Towns;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -122,6 +123,84 @@ namespace Motu.Tests
             Assert.That(plants.Select(p => p.Root), Is.EqualTo(roots.Select(p => p.Root)));
             foreach (var plant in west.Concat(east))
                 Assert.That(plant.Root.y, Is.EqualTo(Ground(plant.Root.x, plant.Root.z)).Within(1e-6f));
+        }
+
+        [TestCase(1, false)]
+        [TestCase(2, true)]
+        public void ConcaveRoadsideCropFollowsTerrainAndLeavesTheNotchOpen(int lod, bool reversed)
+        {
+            var left = new WheatTileBounds(-6f, -6f, 0f, 6f);
+            var right = new WheatTileBounds(0f, -6f, 6f, 6f);
+            var corners = new[] { new Vector2(-4f, -3f), new Vector2(-2f, -3f), new Vector2(0f, -3f),
+                new Vector2(3f, -3f), new Vector2(3f, -1f), new Vector2(-1f, -1f), new Vector2(-1f, 1f),
+                new Vector2(-1f, 3f), new Vector2(-4f, 3f), new Vector2(-4f, 0f) };
+            if (reversed) Array.Reverse(corners, 1, corners.Length - 1);
+            var outline = corners.SelectMany(point => new[] { 1000f + point.x, 1000f + point.y, 99f }).ToArray();
+            var field = WheatFieldOutline.FromNative(outline, 1f, 127);
+            var leftTerrain = Terrain(left, Ground);
+            var rightTerrain = Terrain(right, Ground);
+            var fields = new[] { field };
+            var plants = WheatTileGeometry.Build(leftTerrain, fields, 0, default, left).Plants
+                .Concat(WheatTileGeometry.Build(rightTerrain, fields, 0, default, right).Plants).ToArray();
+            Assert.That(plants.Length, Is.GreaterThan(230));
+            foreach (var plant in plants)
+            {
+                Assert.That(plant.Root.x > -1f && plant.Root.z > -1f, Is.False);
+                Assert.That(plant.Root.y, Is.EqualTo(Ground(plant.Root.x, plant.Root.z)).Within(1e-5f));
+            }
+
+            var west = WheatTileGeometry.Build(leftTerrain, fields, lod, default, left).Canopy;
+            var east = WheatTileGeometry.Build(rightTerrain, fields, lod, default, right).Canopy;
+            float topArea = 0f, wallArea = 0f;
+            foreach (var mesh in new[] { west, east })
+            {
+                for (int i = 0; i < mesh.triangles.Length; i += 3)
+                {
+                    var first = mesh.triangles[i];
+                    var a = mesh.vertices[first];
+                    var b = mesh.vertices[mesh.triangles[i + 1]];
+                    var c = mesh.vertices[mesh.triangles[i + 2]];
+                    var cross = Vector3.Cross(b - a, c - a);
+                    if (mesh.normals[first].y > 0f)
+                    {
+                        var centre = (a + b + c) / 3f;
+                        Assert.That(centre.x > -1f && centre.z > -1f, Is.False);
+                        Assert.That(centre.y, Is.EqualTo(Ground(centre.x, centre.z)
+                            + WheatTileGeometry.CanopyHeight).Within(1e-5f));
+                        topArea += cross.y * .5f;
+                    }
+                    else wallArea += cross.magnitude * .5f;
+                }
+            }
+            Assert.That(topArea, Is.EqualTo(26f).Within(1e-4f));
+            Assert.That(wallArea, Is.EqualTo(26f * WheatTileGeometry.CanopyHeight).Within(1e-4f));
+        }
+
+        [Test]
+        public void PreparationAddsRoadsideCropsAlongsideTownWheatAndLeavesPastureAlone()
+        {
+            var outline = new[] { 1000f, 1000f, 0f, 1004f, 1000f, 1f, 1004f, 1006f, 2f, 1000f, 1006f, 3f };
+            var town = new TownPreparedData
+            {
+                wheat_fields = new[] { new TownTrackBlocker
+                {
+                    centre = new[] { 1100f, 1100f }, half_extents = new[] { 4f, 4f }
+                } },
+                roadsideFields = new TownRoadsideFieldPlan { fields = new[]
+                {
+                    new TownRoadsideField { id = 1, wheat = true, outline = outline },
+                    new TownRoadsideField { id = 2, wheat = false }
+                } }
+            };
+
+            var preparation = IslandPreparedWheat.Prepare(town, 42, 1000f, default);
+            Assert.That(preparation.Fields.Length, Is.EqualTo(2));
+            Assert.That(preparation.Fields[0].Outline, Is.Null);
+            var crop = preparation.Fields[1];
+            Assert.That(crop.Centre, Is.EqualTo(new Vector2(1f, 1.5f)));
+            Assert.That(crop.InwardDistance(0, 0), Is.EqualTo(1f));
+            Assert.That(crop.InwardDistance(1.1, 0), Is.Zero);
+            Assert.That(preparation.Mask, Is.Not.Null);
         }
 
         [Test]

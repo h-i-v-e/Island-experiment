@@ -1,6 +1,9 @@
 //! Create-only portable packages. A failed write never publishes a partial package.
 
-use crate::{BuildingMesh, BuildingPrototype, BuildingRecipe, MaterialSlot};
+use crate::{
+    BuildingMesh, BuildingPrototype, BuildingRecipe, MaterialSlot,
+    decoration_anchors::DecorationAnchorPoses,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -151,6 +154,14 @@ fn write_package(
     };
     write_json(root, "prototype.json", &portable, &mut files)?;
     write_json(root, "doors.json", &prototype.doors, &mut files)?;
+    if !recipe.decoration_anchors.is_empty() {
+        write_json(
+            root,
+            "decoration-anchors.json",
+            &DecorationAnchorPoses(&recipe.decoration_anchors),
+            &mut files,
+        )?;
+    }
     write_json(root, "collision.json", &prototype.colliders, &mut files)?;
     write_json(
         root,
@@ -769,6 +780,13 @@ mod tests {
         recipe.materials.foundation_recipe = Some("chimney.json".into());
         recipe.materials.stone_slab_recipe = Some("chimney.json".into());
         recipe.grub_filter.enabled = true;
+        recipe.decoration_anchors.push(crate::DecorationAnchor {
+            id: "floor-bench".into(),
+            label: "Bench".into(),
+            position: [-2., 2., 0.],
+            normal: [0., 0., 1.],
+            twist_degrees: 0.,
+        });
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         let manifest = export_package(&prototype, &target, &source).unwrap();
         fs::remove_dir_all(&source).unwrap();
@@ -778,6 +796,23 @@ mod tests {
         }
         let loaded: crate::BuildingRecipe =
             serde_json::from_slice(&fs::read(target.join("recipe.json")).unwrap()).unwrap();
+        assert_eq!(loaded.decoration_anchors, recipe.decoration_anchors);
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.path == "decoration-anchors.json")
+        );
+        let anchors: serde_json::Value =
+            serde_json::from_slice(&fs::read(target.join("decoration-anchors.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            anchors,
+            serde_json::json!([{
+                "id": "floor-bench", "label": "Bench", "position": [-2., 2., 0.],
+                "normal": [0., 0., 1.], "forward": [0., 1., 0.]
+            }])
+        );
         let regenerated = crate::generate_with_base(&loaded, &target).unwrap();
         assert_eq!(regenerated.hash, prototype.hash);
         assert_eq!(regenerated.atlas, prototype.atlas);

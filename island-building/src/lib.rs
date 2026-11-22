@@ -4,6 +4,7 @@ pub mod bake;
 pub mod church;
 pub mod collision;
 pub use church::{ChurchLayout, ChurchRecipe, ChurchTowerStyle};
+mod decoration_anchors;
 pub mod document;
 pub mod export;
 pub mod extensions;

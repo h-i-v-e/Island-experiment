@@ -1223,9 +1223,8 @@ impl Island {
         Some(tiles)
     }
 
-    /// Per-vertex material weights for `mesh`: x = bedrock hardness or forced
-    /// rock, y = loose cover, z = river bed, w = sea proximity. Sampled through
-    /// each vertex's UV, so any mesh derived from this island is accepted.
+    /// Per-vertex simulation signals for legacy clients: bedrock hardness,
+    /// loose cover, river bed and sea proximity. UVs are physical island XY.
     pub fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec4> {
         mesh.vertices
             .iter()
@@ -1245,6 +1244,31 @@ impl Island {
                     value.y = 0.0;
                 }
                 value
+            })
+            .collect()
+    }
+
+    /// Ground weights sampled from the same LOD0 vertices for each rendered
+    /// mesh. RGBA holds dirt in the exposed substrate, grass, river bed and
+    /// coastal sand. Stone is the complement of dirt in that substrate.
+    #[must_use]
+    pub fn surface_weights_for(&self, mesh: &Mesh) -> Vec<Vec4> {
+        mesh.vertices
+            .iter()
+            .enumerate()
+            .map(|(index, vertex)| {
+                if self.caves.excludes(*vertex * ISLAND_WORLD_METRES, 0.5) {
+                    return Vec4::ZERO;
+                }
+                let point = mesh
+                    .uv
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| vertex.truncate())
+                    .clamp(Vec2::ZERO, Vec2::ONE);
+                self.material
+                    .sample_surface_weights(&self.terrain, point)
+                    .clamp(Vec4::ZERO, Vec4::ONE)
             })
             .collect()
     }

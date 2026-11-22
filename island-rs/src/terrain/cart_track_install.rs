@@ -1,12 +1,13 @@
+use std::sync::Arc;
 #[cfg(feature = "surface-atlas")]
 use std::sync::OnceLock;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 use super::{
     Island, Terrain,
     cart_track_surface::CartTrackSurface,
-    cart_tracks::{CartTrackBlocker, CartTrackExit, CartTrackPlan, CartTrackPlanner},
+    cart_tracks::{CartTrackBlocker, CartTrackExit, CartTrackPlan, CartTrackPlanner, CartTrackRun},
     town::DecorationClearance,
 };
 use crate::{Mesh, Vec2};
@@ -14,6 +15,7 @@ use crate::{Mesh, Vec2};
 #[derive(Clone, Debug)]
 pub(super) struct InstalledCartTracks {
     surface: CartTrackSurface,
+    runs: Arc<[CartTrackRun]>,
     detail: Option<Mesh>,
     #[cfg(feature = "surface-atlas")]
     atlas: [OnceLock<Option<Mesh>>; 2],
@@ -29,13 +31,23 @@ impl PartialEq for InstalledCartTracks {
 pub(crate) struct CartTrackReport {
     #[serde(flatten)]
     plan: CartTrackPlan,
+    #[serde(serialize_with = "serialize_runs")]
+    runs: Arc<[CartTrackRun]>,
     run_count: usize,
     portals: Vec<CartTrackExit>,
+}
+
+fn serialize_runs<S: Serializer>(runs: &[CartTrackRun], serializer: S) -> Result<S::Ok, S::Error> {
+    runs.serialize(serializer)
 }
 
 impl Terrain {
     pub(crate) fn has_cart_tracks(&self) -> bool {
         self.cart_tracks.is_some()
+    }
+
+    pub(crate) fn cart_track_runs(&self) -> &[CartTrackRun] {
+        self.cart_tracks.as_ref().map_or(&[], |tracks| &tracks.runs)
     }
 
     pub(crate) fn cart_track_coverage(&self, xy: Vec2) -> f32 {
@@ -135,10 +147,11 @@ impl Island {
                 .iter_mut()
                 .filter(|run| run.link_index == link_index);
             let Some(first) = runs.next() else { continue };
-            if let Some(approach) = link
-                .from_exit
-                .checked_sub(exits.len())
-                .and_then(|i| approaches.get(i))
+            if !link.from_track
+                && let Some(approach) = link
+                    .from_exit
+                    .checked_sub(exits.len())
+                    .and_then(|i| approaches.get(i))
             {
                 first
                     .points
@@ -155,21 +168,24 @@ impl Island {
             }
         }
         let surface = CartTrackSurface::new(&plan.runs, &plan.bridges);
+        let clearance = cart_track_clearance(&plan);
+        let runs = Arc::from(std::mem::take(&mut plan.runs));
         if !surface.is_empty() {
             let detail = surface.rutted_mesh(&self.terrain)?;
-            let clearance = cart_track_clearance(&plan);
             for batch in clearance.chunks(4096) {
-                self.clear_decorations(batch)?;
+                self.clear_settlement_ground(batch)?;
             }
             self.terrain.cart_tracks = Some(InstalledCartTracks {
                 surface,
+                runs: Arc::clone(&runs),
                 detail,
                 #[cfg(feature = "surface-atlas")]
                 atlas: Default::default(),
             });
         }
         Ok(CartTrackReport {
-            run_count: plan.runs.len(),
+            run_count: runs.len(),
+            runs,
             plan,
             portals: inputs.split_off(exits.len()),
         })

@@ -117,16 +117,9 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     float3 fieldPosition = MotuTerrainFieldPosition(localPosition);
     MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
         localPosition,
-        normal,
         input.material,
         input.environment);
-    half eligibleDirt = MotuGrassEligibleDirtWeight(localPosition, coverage);
-    half grassBoundary = smoothstep(0.35h, 0.65h, coverage.grass);
-    half grassCoverage = grassBoundary
-        * eligibleDirt
-        * (1.0h - coverage.snow);
-    clip(localPosition.y);
-    clip(grassCoverage - 0.5h);
+    clip(coverage.grass - 1.0e-4h);
 
     float2 regularCoordinate = fieldPosition.xz * max(_GrassDensity, 0.1);
     float2 warpCoordinate = regularCoordinate * 0.18;
@@ -135,6 +128,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         GrassValueNoise(warpCoordinate + float2(2.1, 19.4))) - 0.5;
     float2 grassCoordinate = regularCoordinate + domainWarp * 1.65;
     float2 cell = floor(grassCoordinate);
+    clip(coverage.grass - max(GrassHash(cell + 67.3), 1.0e-4));
     float2 cellOffset = float2(
         GrassHash(cell + 11.3),
         GrassHash(cell + 29.7)) - 0.5;

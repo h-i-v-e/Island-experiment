@@ -24,10 +24,7 @@ namespace Motu.Editor
                 var pixels = new Color[8]; for (int i = 0; i < 8; i++) pixels[i] = new Color(.5f, .5f, .5f, 1);
                 noise.SetPixels(pixels); noise.Apply();
                 Material.SetTexture("_CliffNoise3D", noise);
-                // The same patch value is bare on poor soil and grassy on rich
-                // soil, exercising the shared terrain/query/grass response.
-                grassPatches.SetPixels(new[] { Color.gray * .4f, Color.gray * .4f,
-                    Color.gray * .4f, Color.gray * .4f });
+                grassPatches.SetPixels(new[] { Color.gray, Color.gray, Color.gray, Color.gray });
                 grassPatches.Apply();
                 Material.SetTexture("_GrassPatchNoise", grassPatches);
                 Material.SetFloat("_SnowLine", 1000);
@@ -56,13 +53,14 @@ namespace Motu.Editor
         public void BakedGroundUsesTheTerrainShaderSurfaceCoverage(TerrainSurfaceKind kind)
         {
             using var ground = new Ground();
-            Color attributes = Color.clear; Vector2 environment = Vector2.zero;
+            var attributes = new Color(1, 0, 0, 0);
+            var environment = Vector2.zero;
             float height = kind == TerrainSurfaceKind.Snow ? 1500 : kind == TerrainSurfaceKind.Sand ? 1 : 10;
             switch (kind)
             {
                 case TerrainSurfaceKind.Grass: attributes.g = 1; break;
-                case TerrainSurfaceKind.Stone: attributes.r = 1; break;
-                case TerrainSurfaceKind.Sand: attributes.g = attributes.a = 1; break;
+                case TerrainSurfaceKind.Stone: attributes.r = 0; break;
+                case TerrainSurfaceKind.Sand: attributes.a = 1; break;
                 case TerrainSurfaceKind.Gravel: environment.y = 1; break;
                 case TerrainSurfaceKind.Mud: attributes.b = 1; break;
             }
@@ -81,24 +79,44 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void TerrainRoadProfileClassifiesTheGravelShoulderAndPavedCore()
+        public void TerrainRoadProfileClassifiesDirtShoulderAndPavedCore()
         {
             using var ground = new Ground();
-            var mesh = Ground.Quad(10, new Color(0, 1, 0, 0), Vector2.zero);
+            var mesh = Ground.Quad(10, new Color(1, 0, 0, 0), Vector2.zero);
             try
             {
                 mesh.SetUVs(1, new[] { Vector3.zero, Vector3.zero, Vector3.forward, Vector3.forward });
                 using var map = new TerrainSurfaceMap(ground.Root.transform, 2000, ground.Material);
                 map.Bake(() => Graphics.DrawMeshNow(mesh, Matrix4x4.identity));
                 AsyncGPUReadback.WaitAllRequests();
-                Assert.That(map.TryGetSample(Vector3.left * 750f, out var grass), Is.True);
                 Assert.That(map.TryGetSample(Vector3.zero, out var shoulder), Is.True);
                 Assert.That(map.TryGetSample(Vector3.right * 750f, out var road), Is.True);
-                Assert.That(grass.Kind, Is.EqualTo(TerrainSurfaceKind.Grass));
-                Assert.That(shoulder.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
+                Assert.That(shoulder.Kind, Is.EqualTo(TerrainSurfaceKind.Dirt));
                 Assert.That(road.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
             }
             finally { Object.DestroyImmediate(mesh); }
+        }
+
+        [Test]
+        public void GravelFootpathCanMeetPavingAcrossADirtShoulder()
+        {
+            using var ground = new Ground();
+            var source = Ground.Quad(10, new Color(1, 0, 0, 0), Vector2.zero);
+            var prepared = new IslandPreparedMesh(source.vertices, source.normals, source.triangles,
+                Array.Empty<Vector2>(), source.colors, source.uv2,
+                roadCoverage: new[] { .4f, .4f, 1f, 1f }, gravelCoverage: new[] { 1f, 1f, 0f, 0f });
+            var mesh = IslandMeshInterop.CreateTerrainMesh(prepared, 0);
+            try
+            {
+                using var map = new TerrainSurfaceMap(ground.Root.transform, 2000, ground.Material);
+                map.Bake(() => Graphics.DrawMeshNow(mesh, Matrix4x4.identity));
+                AsyncGPUReadback.WaitAllRequests();
+                Assert.That(map.TryGetSample(Vector3.left * 920f, out var footpath), Is.True);
+                Assert.That(map.TryGetSample(Vector3.right * 920f, out var paving), Is.True);
+                Assert.That(footpath.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
+                Assert.That(paving.Kind, Is.EqualTo(TerrainSurfaceKind.Gravel));
+            }
+            finally { Object.DestroyImmediate(mesh); Object.DestroyImmediate(source); }
         }
 
         [Test]
@@ -118,7 +136,7 @@ namespace Motu.Editor
                 vertices[vertex] = new Vector3(offsets[index], 10, -4);
                 vertices[vertex + 1] = new Vector3(offsets[index], 10, 4);
                 normals[vertex] = normals[vertex + 1] = Vector3.up;
-                materials[vertex] = materials[vertex + 1] = new Color(0, 1, 0, 0);
+                materials[vertex] = materials[vertex + 1] = new Color(1, 1, 0, 0);
                 rutCoverage[vertex] = rutCoverage[vertex + 1] = Mathf.Abs(offsets[index]) == 1f ? 1f : 0f;
                 if (index == offsets.Length - 1) break;
                 var triangle = index * 6;
@@ -131,7 +149,7 @@ namespace Motu.Editor
             }
 
             var prepared = new IslandPreparedMesh(vertices, normals, triangles, Array.Empty<Vector2>(),
-                materials, environment, cartTrackCoverage: rutCoverage);
+                materials, environment, gravelCoverage: rutCoverage);
             var mesh = IslandMeshInterop.CreateTerrainMesh(prepared, 0);
             try
             {
@@ -153,8 +171,8 @@ namespace Motu.Editor
         public void MapCoordinatesFollowTranslatedRotatedIslandsAndRejectUncoveredSpace()
         {
             using var ground = new Ground();
-            var south = Ground.Quad(10, Color.clear, Vector2.zero, -1000, 0);
-            var north = Ground.Quad(40, new Color(0, 1, 0, 0), Vector2.zero, 0, 1000);
+            var south = Ground.Quad(10, new Color(1, 0, 0, 0), Vector2.zero, -1000, 0);
+            var north = Ground.Quad(40, new Color(1, 1, 0, 0), Vector2.zero, 0, 1000);
             try
             {
                 using var map = new TerrainSurfaceMap(ground.Root.transform, 2000, ground.Material);
@@ -176,7 +194,7 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void SharedTerrainNormalTextureControlsExposedRockAsItDoesInTheRenderer()
+        public void SurfaceClassificationUsesVertexWeightsRegardlessOfLightingNormals()
         {
             using var ground = new Ground();
             var normal = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
@@ -186,12 +204,13 @@ namespace Motu.Editor
                 // World-normal texture stores X,Z,Y; this encodes a vertical rock face.
                 normal.SetPixel(0, 0, new Color(1, .5f, .5f, 1)); normal.Apply();
                 ground.Material.SetTexture("_WorldNormal", normal);
+                mesh.normals = new[] { Vector3.right, Vector3.right, Vector3.right, Vector3.right };
                 using var map = new TerrainSurfaceMap(ground.Root.transform, 2000, ground.Material);
                 map.Bake(() => Graphics.DrawMeshNow(mesh, Matrix4x4.identity));
                 AsyncGPUReadback.WaitAllRequests();
                 Assert.IsTrue(map.TryGetSample(Vector3.zero, out var sample));
-                Assert.That(sample.Kind, Is.EqualTo(TerrainSurfaceKind.Stone),
-                    "Rendered steep rock must override the loose grass attributes on the mesh.");
+                Assert.That(sample.Kind, Is.EqualTo(TerrainSurfaceKind.Grass),
+                    "The grass weight controls coverage on a stone substrate with steep normals.");
             }
             finally { Object.DestroyImmediate(mesh); Object.DestroyImmediate(normal); }
         }

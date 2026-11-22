@@ -51,6 +51,82 @@ fn upward_surface(mesh: &BuildingMesh, point: [f32; 3]) -> bool {
     })
 }
 
+fn exterior_surface(mesh: &BuildingMesh, point: [f32; 3], direction: [f32; 2]) -> bool {
+    let along = usize::from(direction[1].abs() > direction[0].abs());
+    let across = 1 - along;
+    let outward = [direction[1], -direction[0]][across].signum();
+    mesh.indices.chunks_exact(3).any(|triangle| {
+        if mesh.normals[triangle[0] as usize][across] * outward < 0.99 {
+            return false;
+        }
+        let [a, b, c] =
+            [triangle[0], triangle[1], triangle[2]].map(|index| mesh.positions[index as usize]);
+        if [a, b, c]
+            .iter()
+            .any(|vertex| (vertex[across] - point[across]).abs() > 0.00001)
+        {
+            return false;
+        }
+        let sides = [(a, b), (b, c), (c, a)].map(|(from, to)| {
+            (to[along] - from[along]) * (point[2] - from[2])
+                - (to[2] - from[2]) * (point[along] - from[along])
+        });
+        sides.iter().all(|value| *value >= -0.00001) || sides.iter().all(|value| *value <= 0.00001)
+    })
+}
+
+#[test]
+fn exterior_masonry_covers_every_floor_edge_at_every_lod() {
+    for mut recipe in [
+        BuildingRecipe::gothic_church(),
+        BuildingRecipe::parish_church(),
+    ] {
+        recipe.atlas_size = 128;
+        recipe.foundation.stairs = false;
+        let prototype = generate(&recipe).unwrap();
+        let floor = &prototype.lods[0]
+            .parts
+            .iter()
+            .find(|part| part.material == MaterialSlot::Floor)
+            .unwrap()
+            .mesh;
+        let shell = terrain_support::supportless_shell(&prototype);
+        let bearing = terrain_support::foundation_footprints(&recipe)[0].max[2];
+        let outline = &shell.layout.church.as_ref().unwrap().outline;
+        for (level, lod) in shell.lods.iter().enumerate() {
+            let slot = if level == 2 {
+                MaterialSlot::Atlas
+            } else {
+                MaterialSlot::Wall
+            };
+            let mesh = &lod
+                .parts
+                .iter()
+                .find(|part| part.material == slot)
+                .unwrap()
+                .mesh;
+            for (start, end) in outline.iter().zip(outline.iter().cycle().skip(1)) {
+                let direction = [end[0] - start[0], end[1] - start[1]];
+                for along in [0.01, 0.5, 0.99] {
+                    for z in [-recipe.floor_thickness * 0.5, bearing + 0.0005] {
+                        let point = [
+                            start[0] + along * direction[0],
+                            start[1] + along * direction[1],
+                            z,
+                        ];
+                        assert!(
+                            exterior_surface(mesh, point, direction),
+                            "{} LOD{level} lacks outward-facing masonry at {point:?}",
+                            recipe.name
+                        );
+                    }
+                }
+            }
+        }
+        assert!(floor.normals.iter().all(|normal| normal[2].abs() > 0.99));
+    }
+}
+
 #[test]
 fn standalone_church_has_masonry_and_collision_bearing_every_pier_corner() {
     for reach in [1.5, 3., 5.] {

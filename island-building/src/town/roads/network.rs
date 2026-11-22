@@ -1,3 +1,5 @@
+mod pier;
+
 use super::{CurbExits, corridor, strip_ends};
 use crate::{
     collision::BoxCollider,
@@ -23,8 +25,10 @@ pub(in crate::town) struct StreetLayout {
     components: Vec<Option<usize>>,
     edge_to_section: Vec<usize>,
     bridges: Vec<StreetBridge>,
+    pier: Option<motu::piers::PierLayout>,
 }
 
+#[derive(Clone)]
 struct StreetBridge {
     nodes: [usize; 2],
     candidate: BridgeCandidate,
@@ -38,9 +42,14 @@ pub(in crate::town) struct Streets {
     pub ring_length: f32,
     pub ring_count: usize,
     pub rows: Vec<Vec<super::frontage::Row>>,
+    pub pier: Option<motu::piers::PierLayout>,
 }
 
 impl StreetLayout {
+    pub fn same_component(&self, first: usize, second: usize) -> bool {
+        self.components[first] == self.components[second]
+    }
+
     pub fn inner_strips(&self) -> impl Iterator<Item = &RoadStrip> {
         self.roads.strips.iter().filter(|strip| {
             self.edge_to_section[strip.source] < self.plan.inner_section_count
@@ -89,6 +98,7 @@ impl StreetLayout {
             ring_length,
             ring_count,
             rows,
+            pier: self.pier,
         }
     }
 
@@ -248,14 +258,16 @@ enum RouteKind {
     Ring(usize),
     Cross(usize),
     Exit(usize),
+    Pier(usize),
 }
 
+#[derive(Clone)]
 struct Route {
     sections: Range<usize>,
     kind: RouteKind,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Plan {
     nodes: Vec<Vec2>,
     lookup: HashMap<[u32; 2], usize>,
@@ -266,11 +278,14 @@ struct Plan {
 }
 
 impl Plan {
-    fn node(&mut self, point: Vec2) -> usize {
-        let key = point
+    fn key(point: Vec2) -> [u32; 2] {
+        point
             .to_array()
-            .map(|v| if v == 0. { 0 } else { v.to_bits() });
-        *self.lookup.entry(key).or_insert_with(|| {
+            .map(|v| if v == 0. { 0 } else { v.to_bits() })
+    }
+
+    fn node(&mut self, point: Vec2) -> usize {
+        *self.lookup.entry(Self::key(point)).or_insert_with(|| {
             self.nodes.push(point);
             self.nodes.len() - 1
         })
@@ -314,9 +329,10 @@ impl Plan {
                     _ => None,
                 },
                 frontage_ring: match kind {
-                    RouteKind::Ring(index) | RouteKind::Cross(index) | RouteKind::Exit(index) => {
-                        index
-                    }
+                    RouteKind::Ring(index)
+                    | RouteKind::Cross(index)
+                    | RouteKind::Exit(index)
+                    | RouteKind::Pier(index) => index,
                 },
             });
             start = end;
@@ -325,11 +341,16 @@ impl Plan {
 }
 
 fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Option<(Plan, f32)> {
-    let width = roads.half_width.max(roads.access_half_width);
+    let width = roads
+        .street_half_width()
+        .max(roads.access_road_half_width());
     let extent = [bounds.max[0], bounds.max[1], -bounds.min[0], -bounds.min[1]]
         .into_iter()
         .fold(0., f32::max);
-    let inner = extent + roads.shoulder + roads.half_width.hypot(roads.access_half_width) + 2.;
+    let corner = roads
+        .street_half_width()
+        .hypot(roads.access_road_half_width());
+    let inner = extent + roads.shoulder_width() + corner + 2.;
     let mut plan = Plan {
         min_span: width * 2. + 0.5,
         ..Plan::default()
@@ -345,7 +366,7 @@ fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Opti
                     direction * radius,
                     (direction + tangent) * radius,
                 ],
-                roads.half_width,
+                roads.street_half_width(),
                 RouteKind::Ring(index),
             );
         }
@@ -353,7 +374,7 @@ fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Opti
             for direction in DIRECTIONS {
                 plan.route(
                     [direction * prior, direction * radius],
-                    roads.access_half_width,
+                    roads.access_road_half_width(),
                     RouteKind::Cross(index),
                 );
             }
@@ -371,7 +392,7 @@ fn plan(bounds: BoxCollider, roads: TownRoadSettings, ring_count: usize) -> Opti
     for direction in DIRECTIONS {
         plan.route(
             [direction * last, direction * exit],
-            roads.access_half_width,
+            roads.access_road_half_width(),
             RouteKind::Exit(ring_count - 1),
         );
     }
@@ -397,17 +418,26 @@ pub(in crate::town) fn layout(
         let world = pose.world_point([point.x, point.y, 0.]);
         *point = Vec2::new(world[0], world[1]);
     }
+    plan.lookup = plan
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(node, &point)| (Plan::key(point), node))
+        .collect();
     let mut eligible = vec![false; plan.sections.len()];
     let mut river_sections = vec![false; plan.sections.len()];
-    let min_height = input.sea_level + settings.min_dry_height;
     for (index, section) in plan.sections.iter().enumerate() {
         if cancelled() {
             return Err(TownError::Cancelled);
         }
         let edge = section.edge;
         let (from, to) = (plan.nodes[edge.start], plan.nodes[edge.end]);
-        let radius = config.half_width.max(config.access_half_width) * std::f32::consts::SQRT_2;
-        let corridor = corridor(from, to, radius + config.shoulder, radius + config.shoulder);
+        let radius = config
+            .street_half_width()
+            .max(config.access_road_half_width())
+            * std::f32::consts::SQRT_2;
+        let reach = radius + config.shoulder_width();
+        let corridor = corridor(from, to, reach, reach);
         if placement::protected(&corridor, input)
             || placement::overlaps_any(&corridor, reservations)
         {
@@ -422,16 +452,7 @@ pub(in crate::town) fn layout(
     let (roads, edge_to_section) = grade_complete_access(
         &plan,
         eligible,
-        RoadGradeOptions {
-            min_height,
-            max_grade: config.max_grade,
-            max_cut: config.max_cut,
-            shoulder: config.shoulder,
-            sample_spacing: settings
-                .sample_spacing
-                .min(input.terrain.spacing * 0.5)
-                .max(0.25),
-        },
+        grade_options(settings, input),
         &|point: Vec2| {
             (!cancelled())
                 .then(|| input.terrain.sample(point.x, point.y))
@@ -462,7 +483,24 @@ pub(in crate::town) fn layout(
             components,
             edge_to_section,
             bridges,
+            pier: None,
         }))
+}
+
+fn grade_options(settings: &TownSettings, input: &TownInput) -> RoadGradeOptions {
+    let config = settings
+        .roads
+        .expect("street layout requires configured roads");
+    RoadGradeOptions {
+        min_height: input.sea_level + settings.min_dry_height,
+        max_grade: config.max_grade,
+        max_cut: config.max_cut,
+        shoulder: config.shoulder_width(),
+        sample_spacing: settings
+            .sample_spacing
+            .min(input.terrain.spacing * 0.5)
+            .max(0.25),
+    }
 }
 
 fn grade_complete_access(
@@ -518,7 +556,7 @@ fn disable_incomplete_access(plan: &Plan, surviving: &[bool], eligible: &mut [bo
         let from = plan.sections[sections.start].edge.start;
         let to = plan.sections[sections.end - 1].edge.end;
         let complete = on_ring[from]
-            && (matches!(route.kind, RouteKind::Exit(_)) || on_ring[to])
+            && (matches!(route.kind, RouteKind::Exit(_) | RouteKind::Pier(_)) || on_ring[to])
             && surviving[sections.clone()].iter().all(|&kept| kept);
         if !complete {
             let requested = &mut eligible[sections];
@@ -750,6 +788,74 @@ mod tests {
     }
 
     #[test]
+    fn pier_approach_is_straight_and_part_of_the_frontage_network() {
+        use motu::{
+            Vec3,
+            piers::{PierBerth, PierLayout},
+        };
+
+        let input = dry_land();
+        let settings = settings();
+        let streets = layout(
+            bounds(),
+            PlacementPose::default(),
+            &settings,
+            &input,
+            &[],
+            1,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
+        let root = streets.inner_strips().next().unwrap().start;
+        let pier = PierLayout {
+            shore: Vec2::new(12., -66.),
+            start: Vec3::new(12., -60., 10.),
+            end: Vec2::new(12., -110.),
+            axis: Vec2::NEG_Y,
+            deck_height: 1.2,
+            width: 4.5,
+            berth_side: 1.,
+            berth: PierBerth {
+                position: Vec3::new(22., -90., 0.),
+                approach: Vec3::new(22., -130., 0.),
+                heading: Vec2::Y,
+                min_depth: 5.,
+                length: 42.,
+                width: 16.,
+            },
+        };
+        let streets = streets
+            .with_pier(root, Vec2::ZERO, &[pier], &settings, &input, &|| false)
+            .unwrap()
+            .expect("straight route to the open shore");
+        let route = streets.plan.routes.last().unwrap();
+        assert!(matches!(route.kind, RouteKind::Pier(0)));
+        let start = streets.plan.nodes[streets.plan.sections[route.sections.start].edge.start];
+        let end = pier.start.truncate();
+        for section in &streets.plan.sections[route.sections.clone()] {
+            let point = streets.plan.nodes[section.edge.end];
+            assert!((end - start).normalize().perp_dot(point - start).abs() < 0.001);
+        }
+        let finished = streets.finish(root);
+        assert!(finished.network.validate().is_ok());
+        assert!(finished.network.surface_height(end).is_some());
+        assert!(
+            finished.rows[0]
+                .iter()
+                .any(|row| row.end.distance(end) < 0.001)
+        );
+        assert!(
+            super::super::field_rows(&finished.network)
+                .iter()
+                .any(|row| row.end.distance(end) < 0.001)
+        );
+        assert!(!finished.exits.iter().any(|exit| {
+            Vec2::from_array([exit.position[0], exit.position[1]]).distance(end) < 0.001
+        }));
+    }
+
+    #[test]
     fn squares_share_nodes_with_four_access_roads_even_when_wide() {
         let input = dry_land();
         let settings = TownSettings {
@@ -804,7 +910,7 @@ mod tests {
             &input,
             &settings,
         );
-        let corner_radius = inner + config.ring_spacing + config.half_width;
+        let corner_radius = inner + config.ring_spacing + config.street_half_width();
         assert_eq!(corners.len(), 4);
         for corner in corners {
             let point = Vec2::new(corner.position[0], corner.position[1]);
@@ -821,7 +927,7 @@ mod tests {
             let [x, y, height] = exit.position;
             assert!(Vec2::from_array(exit.direction).distance(axis) < 0.001);
             assert!(Vec2::new(x, y).distance(axis * (inner + config.ring_spacing * 1.60)) < 0.001);
-            assert!((exit.half_width - config.access_half_width).abs() < 0.001);
+            assert!((exit.half_width - config.access_road_half_width()).abs() < 0.001);
             assert!((roads.surface_height(Vec2::new(x, y)).unwrap() - height).abs() < 0.001);
             assert!(
                 roads.surface_height(axis * (inner - 4.05)).is_none(),
@@ -912,7 +1018,7 @@ mod tests {
         let root = layout.inner_strips().next().unwrap().start;
         let streets = layout.finish(root);
         assert!(streets.exits.is_empty());
-        let curb_radius = outer + config.half_width;
+        let curb_radius = outer + config.street_half_width();
         let occupied = crate::town::ClearanceRect {
             centre: [-curb_radius - 2., 0.],
             half_extents: [2., outer + 1.],

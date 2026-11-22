@@ -3,7 +3,7 @@
 use super::{Island, c_char, c_void, coastal_bridges::MeshPayload, coastal_town::error};
 use crate::{
     DecorationClearance, ISLAND_WORLD_METRES, Vec2, Vec3,
-    piers::{PierBerth, PierPropPoint},
+    piers::{PierBerth, PierLayout, PierPropPoint},
     terrain::town_pier::CapitalPier,
 };
 use serde::{Deserialize, Serialize};
@@ -162,4 +162,72 @@ fn prepare_report(island: &mut Island, bytes: &[u8]) -> Result<CString, String> 
     };
     let json = serde_json::to_string(&report).map_err(|reason| reason.to_string())?;
     CString::new(json).map_err(|reason| reason.to_string())
+}
+
+/// Survey exact terrain before grading. Release the returned JSON with `FreeCoastalTownJson`.
+///
+/// # Safety
+/// The handle must reference a live island for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SurveyCoastalCapitalPiers(
+    handle: *const c_void,
+    mouth_x: f32,
+    mouth_y: f32,
+) -> *mut c_char {
+    let Some(island) = (unsafe { super::island_ref(handle) }) else {
+        error("capital pier survey requires a live island");
+        return ptr::null_mut();
+    };
+    let mouth = Vec2::new(mouth_x, mouth_y);
+    let layouts = island.survey_capital_piers(mouth, Some(mouth), &[], 16);
+    export_json(&layouts)
+}
+
+/// Build the selected surveyed pier against the finished paved approach.
+///
+/// # Safety
+/// The handle must be live and the layout JSON must be readable and NUL-terminated.
+/// Release the returned JSON with `FreeCoastalTownJson`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ExportPavedCapitalPier(
+    handle: *const c_void,
+    json: *const c_char,
+    seed: u64,
+) -> *mut c_char {
+    let (Some(island), false) = (unsafe { super::island_ref(handle) }, json.is_null()) else {
+        error("paved pier export requires a live island and surveyed layout");
+        return ptr::null_mut();
+    };
+    let layout: PierLayout =
+        match serde_json::from_slice(unsafe { CStr::from_ptr(json) }.to_bytes()) {
+            Ok(layout) => layout,
+            Err(reason) => {
+                error(&reason.to_string());
+                return ptr::null_mut();
+            }
+        };
+    let pier = island.paved_capital_pier(layout);
+    export_json(&Report {
+        pier: pier.as_ref().map(|pier| PreparedPier::new(pier, seed)),
+        reason: if pier.is_some() {
+            ""
+        } else {
+            "no_paved_road_approach"
+        },
+    })
+}
+
+fn export_json(value: &impl Serialize) -> *mut c_char {
+    match serde_json::to_string(value)
+        .and_then(|json| CString::new(json).map_err(serde::ser::Error::custom))
+    {
+        Ok(json) => {
+            error("");
+            json.into_raw()
+        }
+        Err(reason) => {
+            error(&reason.to_string());
+            ptr::null_mut()
+        }
+    }
 }

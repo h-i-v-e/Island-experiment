@@ -22,7 +22,7 @@ pub(super) fn show(viewport: &mut egui::Ui, context: &egui::Context, state: &mut
             if church
                 && !matches!(
                     state.tab,
-                    Tab::Structure | Tab::Materials | Tab::Grub | Tab::Bake
+                    Tab::Structure | Tab::Decorations | Tab::Materials | Tab::Grub | Tab::Bake
                 )
             {
                 state.tab = Tab::Structure;
@@ -41,6 +41,15 @@ pub(super) fn show(viewport: &mut egui::Ui, context: &egui::Context, state: &mut
                 Tab::Openings => super::openings::show(ui, &mut draft, state.serial, dimensions),
                 Tab::Roof => roof(ui, &mut draft, dimensions),
                 Tab::Chimney => super::chimney::show(ui, &mut draft, state, dimensions),
+                Tab::Decorations => {
+                    let ready = state.decoration_preview_ready();
+                    super::super::anchors::inspector(
+                        ui,
+                        &mut draft.decoration_anchors,
+                        &mut state.anchors,
+                        ready,
+                    );
+                }
                 Tab::Materials => materials(ui, &mut draft, state),
                 Tab::Grub => super::grub::show(ui, &mut draft.grub_filter),
                 Tab::Bake => bake(ui, &mut draft, state),
@@ -66,6 +75,7 @@ fn tabs(ui: &mut egui::Ui, tab: &mut Tab, church: bool) {
             (Tab::Openings, "Openings"),
             (Tab::Roof, "Roof"),
             (Tab::Chimney, "Chimney"),
+            (Tab::Decorations, "Decorations"),
             (Tab::Materials, "Materials"),
             (Tab::Grub, "Grub"),
             (Tab::Bake, "LOD / Bake"),
@@ -73,7 +83,7 @@ fn tabs(ui: &mut egui::Ui, tab: &mut Tab, church: bool) {
             if !church
                 || matches!(
                     candidate,
-                    Tab::Structure | Tab::Materials | Tab::Grub | Tab::Bake
+                    Tab::Structure | Tab::Decorations | Tab::Materials | Tab::Grub | Tab::Bake
                 )
             {
                 ui.selectable_value(tab, candidate, label);
@@ -724,7 +734,7 @@ fn bake(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) 
         choose_export(state);
     }
     ui.label(
-        egui::RichText::new(if state.baked_serial == Some(state.serial) {
+        egui::RichText::new(if state.baked_revision == Some(state.export_revision()) {
             "Final bake matches this revision"
         } else {
             "Final atlas is not baked for this revision"

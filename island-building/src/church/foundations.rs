@@ -7,7 +7,7 @@ use crate::{BuildingRecipe, collision::BoxCollider};
 /// pads meeting the pier underside instead of filling the cruciform recesses.
 pub(crate) fn footprints(recipe: &BuildingRecipe) -> Vec<BoxCollider> {
     let plan = Plan::new(recipe);
-    let floor_top = -recipe.floor_thickness - 0.002;
+    let floor_top = floor_bearing_height(recipe);
     plan.floors()
         .map(|floor| floor.bounds(floor_top, floor_top))
         .chain(plan.buttresses().map(|layout| BoxCollider {
@@ -22,4 +22,8 @@ pub(crate) fn footprints(recipe: &BuildingRecipe) -> Vec<BoxCollider> {
             bounds
         })
         .collect()
+}
+
+pub(super) fn floor_bearing_height(recipe: &BuildingRecipe) -> f32 {
+    -recipe.floor_thickness - 0.002
 }

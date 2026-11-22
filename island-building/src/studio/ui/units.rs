@@ -50,7 +50,7 @@ pub(super) fn panel(ui: &mut egui::Ui, state: &mut StudioState) -> Dimensions {
         Tab::Openings => 2,
         Tab::Roof => 3,
         Tab::Chimney => 4,
-        Tab::Materials | Tab::Grub | Tab::Bake => return Dimensions::default(),
+        Tab::Decorations | Tab::Materials | Tab::Grub | Tab::Bake => return Dimensions::default(),
     };
     let editor = &mut state.units;
     ui.horizontal(|ui| {

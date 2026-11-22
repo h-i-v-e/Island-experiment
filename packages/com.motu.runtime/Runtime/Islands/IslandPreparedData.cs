@@ -16,7 +16,7 @@ namespace Motu.Islands
         internal readonly Vector2[] environment;
         internal readonly Vector2[] caveAttributes;
         internal readonly float[] roadCoverage;
-        internal readonly float[] cartTrackCoverage;
+        internal readonly float[] gravelCoverage;
         // Derived from these exact terrain triangles during terrain preparation.
         internal WheatTileData wheat;
 
@@ -29,7 +29,7 @@ namespace Motu.Islands
             Vector2[] environment,
             Vector2[] caveAttributes = null,
             float[] roadCoverage = null,
-            float[] cartTrackCoverage = null)
+            float[] gravelCoverage = null)
         {
             this.vertices = vertices;
             this.normals = normals;
@@ -39,7 +39,7 @@ namespace Motu.Islands
             this.environment = environment;
             this.caveAttributes = caveAttributes ?? Array.Empty<Vector2>();
             this.roadCoverage = roadCoverage ?? Array.Empty<float>();
-            this.cartTrackCoverage = cartTrackCoverage ?? Array.Empty<float>();
+            this.gravelCoverage = gravelCoverage ?? Array.Empty<float>();
         }
     }
 

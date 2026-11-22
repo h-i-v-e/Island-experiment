@@ -20,6 +20,8 @@ struct Request {
     recipe: serde_json::Value,
     village: Option<serde_json::Value>,
     input: TownInput,
+    #[serde(default)]
+    pier_candidates: Vec<motu::piers::PierLayout>,
 }
 
 fn error(message: &str) {
@@ -31,20 +33,56 @@ fn error(message: &str) {
 fn generate(request: &str, base: &Path) -> Result<CString, String> {
     let request: Request = serde_json::from_str(request).map_err(|e| e.to_string())?;
     let capital = parse_recipe(request.recipe)?;
-    let output = if let Some(village) = request.village {
-        let village = parse_recipe(village).map_err(|error| format!("village recipe: {error}"))?;
-        crate::town::generate_settlements_with_base(
-            &capital,
-            &village,
-            &request.input,
-            base,
-            &|| false,
-        )
-    } else {
-        crate::town::generate_town_with_base(&capital, &request.input, base, &|| false)
+    let village = request
+        .village
+        .map(parse_recipe)
+        .transpose()
+        .map_err(|error| format!("village recipe: {error}"))?;
+    if request.pier_candidates.len() > 16 {
+        return Err("at most 16 surveyed pier candidates are supported".into());
     }
+    let output = crate::town::generate_with_piers(
+        &capital,
+        village.as_ref(),
+        &request.input,
+        &request.pier_candidates,
+        base,
+        &|| false,
+    )
     .map_err(|e| e.to_string())?;
     CString::new(export::encode(&output)?).map_err(|e| e.to_string())
+}
+
+/// Get the selected outlet before grading roads or generating building prototypes.
+///
+/// # Safety
+/// The input must be NUL-terminated UTF-8 and the output writable for two floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FindMotuCapitalMouth(
+    input: *const c_char,
+    multiple: u8,
+    position: *mut [f32; 2],
+) -> i32 {
+    let (false, Some(position)) = (input.is_null(), unsafe { position.as_mut() }) else {
+        error("capital outlet query needs town terrain and an output position");
+        return -1;
+    };
+    let result = serde_json::from_slice(unsafe { CStr::from_ptr(input) }.to_bytes())
+        .map_err(|reason| reason.to_string())
+        .and_then(|input| {
+            crate::town::capital_mouth(&input, multiple != 0).map_err(|e| e.to_string())
+        });
+    match result {
+        Ok(Some(mouth)) => {
+            *position = mouth.position;
+            1
+        }
+        Ok(None) => 0,
+        Err(reason) => {
+            error(&reason);
+            -1
+        }
+    }
 }
 
 fn parse_recipe(mut recipe: serde_json::Value) -> Result<TownRecipe, String> {
@@ -173,6 +211,13 @@ mod tests {
     fn native_town_exports_flat_meshes_shared_stone_and_grub_coordinates() {
         let mut building = crate::BuildingRecipe::hut();
         building.atlas_size = 128;
+        building.decoration_anchors.push(crate::DecorationAnchor {
+            id: "entrance-sign".into(),
+            label: "Shop sign".into(),
+            position: [2., -2.5, 2.],
+            normal: [0., -3., 0.],
+            twist_degrees: 0.,
+        });
         let heights: Vec<f32> = (0_u16..101)
             .flat_map(|y| std::iter::repeat_n((f32::from(y) * 0.4).min(4.), 101))
             .collect();
@@ -203,6 +248,13 @@ mod tests {
         assert_eq!(exported["instances"][0]["settlement_index"], 0);
         assert_eq!(exported["settlements"][0]["kind"], "capital");
         assert_eq!(exported["settlements"][0]["mouth"], exported["mouth"]);
+        assert_eq!(
+            exported["prototypes"][0]["decoration_anchors"],
+            serde_json::json!([{
+                "id": "entrance-sign", "label": "Shop sign", "position": [2., -2.5, 2.],
+                "normal": [0., -1., 0.], "forward": [0., 0., 1.]
+            }])
+        );
         let supports = &exported["supports"];
         assert_eq!(
             supports["positions"].as_array().unwrap().len(),

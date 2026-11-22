@@ -73,7 +73,7 @@ namespace Motu.Streaming
                     if ((x & 255) == 0) token.ThrowIfCancellationRequested();
                     var seed = CellSeed(space.Field.Seed, x, z);
                     PlantFieldPosition(x, z, seed, out var fieldX, out var fieldZ);
-                    if (Math.Abs(fieldX) > half.x - PlantInset || Math.Abs(fieldZ) > half.y - PlantInset)
+                    if (space.Field.InwardDistance(fieldX, fieldZ) < PlantInset)
                         continue;
 
                     var root = space.ToIsland(fieldX, fieldZ, 0f);

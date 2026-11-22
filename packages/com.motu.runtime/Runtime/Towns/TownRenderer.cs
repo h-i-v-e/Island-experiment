@@ -14,6 +14,7 @@ namespace Motu.Towns
         private readonly List<TownBuildingLod> buildingLods = new List<TownBuildingLod>();
         private Vector4? grubDirtColour;
         private MeshRenderer roads;
+        private TownDecorationCatalogue decorationCatalogue;
         private TownBridgeCandidate[] bridgeCandidates = Array.Empty<TownBridgeCandidate>();
         private TownCartTrackBridge[] cartTrackBridges = Array.Empty<TownCartTrackBridge>();
         private const float NativeWorldSizeMetres = 2000f;
@@ -31,21 +32,49 @@ namespace Motu.Towns
         public Vector3 MouthLocalPosition { get; private set; }
         public Vector3 InspectionLocalPosition { get; private set; }
 
+        internal static (TownRenderer owner, GameObject building) BuildDecorationPreview(Transform parent, TownPrototype source)
+        {
+            var owner = new GameObject("Recipe preview") { hideFlags = HideFlags.HideAndDontSave };
+            owner.transform.SetParent(parent, false);
+            var renderer = owner.AddComponent<TownRenderer>();
+            try
+            {
+                Material churchStone = null;
+                var building = renderer.BuildPrototype(owner.transform, source, out _, ref churchStone);
+                building.GetComponent<LODGroup>().ForceLOD(0);
+                foreach (var child in building.GetComponentsInChildren<Transform>(true))
+                    child.gameObject.hideFlags = HideFlags.DontSave;
+                foreach (var resource in renderer.owned) resource.hideFlags = HideFlags.HideAndDontSave;
+                return (renderer, building);
+            }
+            catch { renderer.DestroyDecorationPreview(); throw; }
+        }
+
+        internal void DestroyDecorationPreview()
+        {
+            // This preview renderer is built in Edit Mode and has no runtime lifecycle callbacks.
+            ReleaseOwnedResources();
+            DestroyUnityObject(gameObject);
+        }
+
         internal static TownRenderer Install(Transform parent, TownPreparedData data, float worldSize,
             bool includeUnplacedPrototypes = false, Material roadMaterial = null,
             TerrainMaterialTextureArrays terrainTextures = null, bool roadsOnTerrain = false,
-            bool useBuildingLodBudget = false, Color? terrainDirtColour = null)
+            bool useBuildingLodBudget = false, Color? terrainDirtColour = null,
+            TownDecorationCatalogue decorationCatalogue = null)
         {
             if (data == null || (!includeUnplacedPrototypes && (data.instances?.Length ?? 0) == 0
                 && (data.settlements?.Length ?? 0) == 0
                 && (data.road_mesh?.indices?.Length ?? 0) == 0 && (data.bridge_candidates?.Length ?? 0) == 0
                 && (data.cartTracks?.run_count ?? 0) == 0
                 && (data.bridgePlan?.bridges?.Length ?? 0) == 0
-                && (data.bridgePlan?.diagnostics?.Length ?? 0) == 0 && data.pier == null)) return null;
+                && (data.bridgePlan?.diagnostics?.Length ?? 0) == 0 && data.pier == null
+                && (data.roadsideFields?.fields?.Length ?? 0) == 0)) return null;
             var root = new GameObject((data.settlements?.Length ?? 0) > 0 ? "River-mouth settlements" : "River-mouth town");
             root.transform.SetParent(parent, false);
             root.transform.localScale = Vector3.one * (worldSize / NativeWorldSizeMetres);
             var renderer = root.AddComponent<TownRenderer>();
+            renderer.decorationCatalogue = decorationCatalogue;
             // Grub uses a vector uniform. Match the terrain colour property's
             // conversion on upload in a linear colour-space project.
             if (terrainDirtColour is Color dirt)
@@ -68,10 +97,13 @@ namespace Motu.Towns
                 : MouthLocalPosition;
             var churchStone = BuildBuildings(data, templatesRoot.transform, BuildSettlementRoots(settlements),
                 capitalIndex, useBuildingLodBudget);
+            if ((data.roadsideFields?.walls?.Length ?? 0) > 0)
+                churchStone ??= CreateMaterial(TownNative.ChurchStone, "Shared settlement stone");
             if (settlements.Length == 0 && BuildingCount > 0) SettlementCount = 1;
             BuildSupports(data);
             BuildBridges(data.bridgePlan, churchStone);
             BuildCapitalPier(data.pier, data.pierDiagnostic, churchStone);
+            BuildRoadsideFields(data.roadsideFields, churchStone);
             RoadCount = data.road_count;
             bridgeCandidates = data.bridge_candidates ?? Array.Empty<TownBridgeCandidate>();
             CartTrackRunCount = data.cartTracks?.run_count ?? 0;
@@ -127,9 +159,13 @@ namespace Motu.Towns
                 var position = Position(instance.position, NativeWorldSizeMetres);
                 building.transform.localPosition = grouped ? position - parent.localPosition : position;
                 building.transform.localRotation = Quaternion.Euler(0f, -instance.yaw_radians * Mathf.Rad2Deg, 0f);
-                building.SetActive(true);
+                var decorations = building.GetComponent<TownDecorationAnchors>();
+                decorations?.ConfigurePlaced(decorationCatalogue, data.seed, building.name,
+                    Vector(instance.position), useBuildingLodBudget);
                 if (useBuildingLodBudget)
-                    buildingLods.Add(new TownBuildingLod(building.GetComponent<LODGroup>(), prototypeBounds[instance.prototype_index]));
+                    buildingLods.Add(new TownBuildingLod(building.GetComponent<LODGroup>(),
+                        prototypeBounds[instance.prototype_index], decorations));
+                building.SetActive(true);
                 BuildingCount++;
 
                 var inspect = !grouped || instance.settlement_index == capitalIndex;
@@ -196,6 +232,12 @@ namespace Motu.Towns
         internal void SetRoadVisibility(bool visible)
         {
             if (roads != null) roads.enabled = visible;
+        }
+
+        internal void ReleaseDetailedBuildingLods()
+        {
+            foreach (var building in buildingLods)
+                building.SetLevel(TownBuildingLod.PaintedShell);
         }
 
         public bool TryGetBridgeCandidate(int index, out Vector3 from, out Vector3 to, out float width)
@@ -276,6 +318,8 @@ namespace Motu.Towns
             var group = root.AddComponent<LODGroup>();
             group.SetLODs(lods);
             group.RecalculateBounds();
+            if (source.decoration_anchors?.Length > 0)
+                root.AddComponent<TownDecorationAnchors>().Import(source.decoration_anchors);
             return root;
         }
 
@@ -434,6 +478,12 @@ namespace Motu.Towns
         private T Own<T>(T value) where T : UnityEngine.Object { owned.Add(value); return value; }
         internal static Vector3 Vector(float[] data, int offset = 0) => new Vector3(data[offset], data[offset + 2], data[offset + 1]);
         internal static Vector3 Position(float[] native, float worldSize) => Vector(native) - new Vector3(worldSize * 0.5f, 0f, worldSize * 0.5f);
-        private void OnDestroy() { foreach (var value in owned) DestroyUnityObject(value); owned.Clear(); }
+        private void OnDestroy() => ReleaseOwnedResources();
+
+        private void ReleaseOwnedResources()
+        {
+            foreach (var value in owned) DestroyUnityObject(value);
+            owned.Clear();
+        }
     }
 }

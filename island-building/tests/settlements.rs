@@ -163,11 +163,18 @@ fn effective_prototypes_are_shared_across_catalogue_aliases_and_villages() {
 fn nearby_sites_keep_road_and_building_clearance_and_valid_graded_frontage() {
     let input = input(&[-42., 0., 42.]);
     let mut capital = recipe(vec![entry("central")]);
-    capital.settings.roads = Some(TownRoadSettings::default());
+    // Keep the fixture's 4m paved rings and 2m shoulders for the minimum field size.
+    capital.settings.roads = Some(TownRoadSettings {
+        half_width: 8. / 3.,
+        access_half_width: 4.5,
+        shoulder: 3.,
+        ..TownRoadSettings::default()
+    });
     let mut village = recipe(vec![entry("cottage")]);
     village.settings.roads = Some(TownRoadSettings {
         ring_spacing: 16.,
-        half_width: 1.5,
+        half_width: 2.,
+        access_half_width: 4.5,
         ..TownRoadSettings::default()
     });
     let solo = generate_settlements(&capital, &recipe(Vec::new()), &input).unwrap();

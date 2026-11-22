@@ -17,6 +17,7 @@ const WALKABLE_NORMAL_Z: f32 = std::f32::consts::FRAC_1_SQRT_2;
 const PAVEMENT_EDGE: f32 = 0.5;
 const ROAD_EDGE_MINIMUM: f32 = 0.35;
 const ROAD_EDGE_MAXIMUM: f32 = 0.7;
+const FOOTPATH_HALF_WIDTH_METRES: f32 = 0.6;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TownStairFoot {
@@ -54,16 +55,20 @@ impl Island {
             .iter()
             .try_for_each(DecorationClearance::validate)?;
         let terrain = &mut self.terrain;
-        let marked = if terrain.has_road_coverage() {
-            feet.iter()
+        let mut marked = BTreeSet::new();
+        let mut wear = Vec::new();
+        if terrain.has_road_coverage() {
+            for route in feet
+                .iter()
                 .filter_map(|foot| trace(terrain, *foot, foundations))
-                .flatten()
-                .collect::<BTreeSet<_>>()
-        } else {
-            BTreeSet::new()
-        };
+            {
+                wear.extend(footpath_wear(terrain.vertices(), &route));
+                marked.extend(route);
+            }
+        }
         let count = marked.len();
         terrain.footpaths = FootpathPaint::new(terrain.mesh(), &terrain.triangle_index, marked);
+        self.wear_settlement_ground(&wear);
         Ok(count)
     }
 
@@ -129,13 +134,34 @@ impl Island {
 
     pub(crate) fn install_pier_access(&mut self, access: PierAccess) {
         let terrain = &mut self.terrain;
+        let wear: Vec<_> = footpath_wear(terrain.vertices(), &access.0).collect();
         let mut marked = terrain
             .footpaths
             .take()
             .map_or_else(BTreeSet::new, |paint| paint.vertices);
         marked.extend(access.0);
         terrain.footpaths = FootpathPaint::new(terrain.mesh(), &terrain.triangle_index, marked);
+        self.wear_settlement_ground(&wear);
     }
+}
+
+fn footpath_wear<'a>(
+    vertices: &'a [crate::Vec3],
+    route: &'a [usize],
+) -> impl Iterator<Item = DecorationClearance> + 'a {
+    route.windows(2).map(|pair| {
+        let start = vertices[pair[0]].truncate() * ISLAND_WORLD_METRES;
+        let end = vertices[pair[1]].truncate() * ISLAND_WORLD_METRES;
+        let delta = end - start;
+        DecorationClearance {
+            centre: start.midpoint(end).to_array(),
+            half_extents: [
+                delta.length() * 0.5 + FOOTPATH_HALF_WIDTH_METRES,
+                FOOTPATH_HALF_WIDTH_METRES,
+            ],
+            yaw: delta.to_angle(),
+        }
+    })
 }
 
 struct PierChannel {
@@ -239,24 +265,17 @@ impl FootpathPaint {
                     .filter(|(id, _)| self.vertices.contains(id))
                     .map(|(_, weight)| weight)
                     .sum();
-                marked_weight.clamp(0., 1.) * PAVEMENT_EDGE
+                marked_weight.clamp(0., 1.)
             })
     }
 }
 
 impl Terrain {
-    /// Gravel footpaths extend the export material mask without changing the
-    /// road network used for grades or cart-track routing.
-    pub(crate) fn town_surface_coverage_at(&self, point: Vec2) -> f32 {
-        let road = self.road_coverage_at(point);
-        if road >= PAVEMENT_EDGE {
-            return road;
-        }
-        road.max(
-            self.footpaths
-                .as_ref()
-                .map_or(0., |paint| paint.coverage(self, point)),
-        )
+    /// The normalized gravel weight painted along stair and pier footpaths.
+    pub(crate) fn footpath_coverage_at(&self, point: Vec2) -> f32 {
+        self.footpaths
+            .as_ref()
+            .map_or(0., |paint| paint.coverage(self, point))
     }
 }
 
@@ -568,6 +587,6 @@ mod tests {
         let marked = &terrain.footpaths.as_ref().unwrap().vertices;
         assert!(original_paint.is_subset(marked));
         assert!(marked.len() > original_paint.len());
-        assert!(terrain.town_surface_coverage_at(start) > 0.49);
+        assert!(terrain.footpath_coverage_at(start) > 0.98);
     }
 }

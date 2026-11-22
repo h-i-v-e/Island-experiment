@@ -67,8 +67,10 @@ The default minimum gap is
 spacing the buildings further apart. The resolved entrance points toward the
 street and the stairs and approach are checked for walkability.
 The capital and villages share the Coastal Towns road controls for ring
-spacing, road widths, shoulder width, grade and cut depth. Disable roads to
-place buildings on nearby dry sites.
+spacing, road widths, shoulder width, grade and cut depth. Ring streets use
+three-quarters of their configured width, for a default 3 m paved street.
+Access roads and dirt shoulders use two-thirds of their configured widths.
+Disable roads to place buildings on nearby dry sites.
 
 Unity captures both catalogue assets when constructing the generation request.
 Rust plans the settlements, derives building prototypes from the canonical
@@ -78,19 +80,39 @@ the original terrain and decorations. Roads and clearance are applied on the
 resident island before terrain and decoration exports. Both catalogues
 contribute to the graded horizon cache key. The terrain shader blends the
 `island-rs/texture-recipes/Road.json` material using road coverage on the
-streamed terrain vertices. Fallen Stones forms a gravel shoulder between the
-paving and surrounding ground. The close terrain uses the recipe's height map
-and physical height range for parallax, and height-blends the paving into the
-gravel. The road profile clears grass from the road and drives gravel footsteps.
+streamed terrain vertices. Rust paints dirt shoulders and cut banks in the same
+base ground weights used for the surrounding terrain. Gravel is shared by
+footpaths and cart ruts. The close terrain uses the road recipe's height map and
+physical height range for parallax. Paving and gravel share a footstep surface.
+Ground around buildings, roads and fields fades from disturbed soil with
+scattered grass back into the surrounding terrain.
+
+Building Studio decoration anchors travel with the shared native prototype
+and its baked prefab. Assign a **Town Decoration Catalogue** in the coastal
+town settings to map each exact anchor label to prefab variants. A stable
+building and anchor identity selects the variant, and the closest building
+LOD rents it from the scene pool. Mount each prop at its root. By default, local
+**+Y** faces out and **+Z** follows the anchor's forward direction. Set the
+label's **Facing Axis** and **Forward Axis** to match the prefab's local axes.
+Use **Axis Overrides** for a prefab with different axes from the label. For a
+sign whose mount points out along **+Z** and whose top points along **+Y**, set
+**Facing Axis** to **+Z** and **Forward Axis** to **+Y**.
+
+Use the **Building Decoration Preview** scene to check decorations in Edit
+Mode. Assign a Building Studio JSON asset and click **Build Preview**. Select
+an anchor and pick a catalogue variant, or drop in a prefab with **Try Prefab**.
+**Try Axes** adjusts the trial pose, and **Frame Anchor** takes the Scene view
+to the mount. **Refresh Decorations** uses the current catalogue settings on
+the preview mesh. Set the chosen axes in the catalogue to use them in towns.
 
 **Connect Settlements** grows one cart-track network from the capital. It visits
-villages in order of distance from the capital. Each branch starts at the closest
-connected settlement. A* compares usable cross-street ends, outermost ring
-corners and ring dead ends at both settlements in one search. A dead end can
-connect straight ahead or from its outer curb. If
-none can reach the destination, the planner tries the next connected settlement
-in distance order. Routes follow the terrain mesh and weigh both along-track grade and
-cross-slope at the wheel lines. Their curves are checked against the original
+villages in order of distance from the capital. Each A* search compares
+departures from all connected towns and the tracks already built. It favours
+reuse, with paved streets carrying the lowest travel cost. A route can branch
+directly from an existing track. Eligible town entrances include cross-street
+ends, outer ring corners and ring dead ends. A dead end can connect straight
+ahead or from its outer curb. Routes follow the terrain mesh and weigh both
+along-track grade and cross-slope at the wheel lines. Their curves are checked against the original
 ground. Fallen Stones fills each rut and grass or soil can show through the
 centre. Where the wheel lines are at different heights, the higher rut is cut
 towards the lower one by at most 30 cm. The cut feathers across the rut and
@@ -117,8 +139,11 @@ distant mesh retains the open arch silhouettes.
 The coastal capital has one pier where the closest usable open-ocean shoreline
 can support an Explorer berth. The shared Rust planner checks the resident seabed
 under the whole berth and its approach. It currently fits a 42 by 16 metre berth
-with at least 5 metres of water depth. The timber piles follow the seabed, and
-an existing-vertex gravel path links the stone landing to the town streets.
+with at least 5 metres of water depth. The timber piles follow the seabed.
+With roads enabled, the planner reserves a landing and grades a straight paved
+street between it and the network before fitting the adjoining plots. Buildings
+and wheat fields can use that street as frontage. If a straight paved approach
+cannot fit, the pier can still use a verified footpath to the street network.
 
 The pier exports separate meshes for rendering, collision and walking. The same
 plan supplies the berth position and heading, the approach waypoint and
@@ -141,8 +166,27 @@ rocks and wild vegetation from the accepted plots.
 LOD0 terrain tiles draw instanced wheat clumps in seeded rows that share the
 island wind. LOD1 and LOD2 tiles carry raised canopies clipped to their finished
 terrain, with mottled colour and row-aligned texture coordinates shared across
-tile seams. The clumps and canopy dissolve during the tile handoff. The canopy
-fades out as the view approaches the LOD3 horizon.
+tile seams. The LOD1 canopy stays under the clumps and fades in by distance
+inside LOD0, before the terrain switches detail levels. The canopy fades out
+as the view approaches the LOD3 horizon.
+
+### Roadside fields
+
+With cart tracks enabled, the native planner divides open stretches beside the
+finished ruts into parcels after fitting town wheat and bridges. It reserves a
+grass verge and checks woods, water, rock, slope, nearby roads and existing plots.
+Parcels share simple stone wall boundaries and each has a low-grade approach to
+a single closed timber gate about 1.8 metres across.
+The planner leaves intervening ground open where it cannot fit an accessible field.
+
+The town profile's **Roadside Field Wind** is the prevailing wind travel direction
+in world X/Z. Windbreaks shelter exposed boundaries; the existing woods provide
+shelter where they are close enough. New windbreak trees use the same forest
+models, streaming, shadow mask and trunk collision as the surrounding woodland.
+Some fields remain pasture and others use the same streamed wheat as the town.
+Walls share the settlement stone material. Walls and closed gates block movement
+and navigation. Select the generated town in the Unity Scene view to inspect
+the field and gate outlines.
 
 The Unity adapter shares prototype meshes, materials and textures across copies.
 The scene hierarchy groups buildings by capital and village.

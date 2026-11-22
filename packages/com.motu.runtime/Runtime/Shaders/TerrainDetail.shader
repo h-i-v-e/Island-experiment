@@ -34,8 +34,6 @@ Shader "Motu/Terrain Unified"
         _TerrainOcclusionStrengthsA ("Occlusion: Dirt Forest Rock River", Vector) = (0.55, 0.7, 0.5, 0.65)
         _TerrainOcclusionStrengthsB ("Occlusion: Beach Stones", Vector) = (0.45, 0.75, 0, 0)
         _TerrainHeightBlendDepth ("Height Blend Depth", Range(0.02, 0.5)) = 0.18
-        _TopTextureFadeOutSlope ("Top Texture Cutoff Slope (degrees)", Range(1, 89)) = 45
-        _SteepStoneBlendWidth ("Stone Slope Blend Width (degrees)", Range(0.5, 20)) = 8
 
         [NoScaleOffset] _WorldNormal ("Shared World Normal", 2D) = "bump" {}
         [PerRendererData] _WorldNormalWeight ("World Normal Weight", Float) = 1
@@ -57,10 +55,7 @@ Shader "Motu/Terrain Unified"
         _StonesEdgeBlendWidth ("Fallen Stones Edge Blend Width", Range(0.01, 0.5)) = 0.16
         _BeachEdgeNoiseStrength ("Beach Edge Noise Strength", Range(0, 0.45)) = 0.18
         _BeachEdgeBlendWidth ("Beach Edge Blend Width", Range(0.01, 0.5)) = 0.18
-        _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
-        _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
-        _RockBoundaryNoiseStrength ("Sand Rock Edge Noise Strength", Range(0, 0.4)) = 0.18
-        _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
+        _RockBoundaryNoiseStrength ("Dirt and Stone Edge Noise Strength", Range(0, 0.4)) = 0.18
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
         _RockPatchNoiseDetailScale ("Rock Mask Detail Frequency", Range(1, 32)) = 8
 
@@ -145,6 +140,7 @@ Shader "Motu/Terrain Unified"
             sampler2D _Occlusion;
             UNITY_DECLARE_TEX2DARRAY(_TerrainAlbedoArray);
             UNITY_DECLARE_TEX2DARRAY(_TerrainNormalArray);
+            UNITY_DECLARE_TEX2DARRAY(_TerrainMaskArray);
 
             fixed4 _Color;
             fixed4 _RockColor;
@@ -504,41 +500,9 @@ Shader "Motu/Terrain Unified"
                 return normalize(normal + detail * strength);
             }
 
-            // Authored recipes use one top-down XZ projection only. The slope
-            // gate and coherent patch mask both contain true zero/one plateaus,
-            // leaving full procedural areas, full recipe/parallax areas, and
-            // bounded transitions instead of a perpetual fractional mixture.
-            half MotuSlopeTextureWeight(half localUp, half coherentNoise)
-            {
-                half cutoffDegrees = clamp(
-                    _TopTextureFadeOutSlope,
-                    1.0h,
-                    89.0h);
-                half fullyAvailableDegrees = max(
-                    cutoffDegrees - max(_SteepStoneBlendWidth, 0.1h),
-                    0.0h);
-                half cutoffUp = cos(radians(cutoffDegrees));
-                half fullyAvailableUp = max(
-                    cos(radians(fullyAvailableDegrees)),
-                    cutoffUp + 1.0e-4h);
-                half slopeGate = smoothstep(
-                    cutoffUp,
-                    fullyAvailableUp,
-                    localUp);
-                half flatPreference = smoothstep(
-                    fullyAvailableUp,
-                    1.0h,
-                    localUp);
-                half patchSignal = coherentNoise
-                    + lerp(-0.10h, 0.25h, flatPreference);
-                half patchGate = smoothstep(-0.22h, 0.22h, patchSignal);
-                return min(slopeGate, patchGate);
-            }
-
             fixed4 ShadeDistantTerrain(
                 VertexOutput input,
                 half3 geometricNormal,
-                half3 localGeometricNormal,
                 float3 localPosition,
                 MotuTerrainCoverage coverage,
                 half4 candidatesA,
@@ -550,14 +514,7 @@ Shader "Motu/Terrain Unified"
                     candidatesB,
                     half4(0.5h, 0.5h, 0.5h, 0.5h),
                     half2(0.5h, 0.5h));
-                weights = AddGravelCoverage(weights, coverage.roadShoulder);
-                half underlyingDirtCandidate = saturate(
-                    1.0h - max(coverage.rock, coverage.beach));
-                MotuBaseWeights underlyingWeights = MotuHeightBlendBase(
-                    half4(underlyingDirtCandidate, 0.0h, coverage.rock, 0.0h),
-                    half2(coverage.beach, 0.0h),
-                    half4(0.5h, 0.5h, 0.5h, 0.5h),
-                    half2(0.5h, 0.5h));
+                MotuBaseWeights underlyingWeights = MotuTerrainUnderlyingWeights(coverage);
                 half sandVariation = clamp(
                     coverage.noise.detail.r * 0.65h
                         + coverage.noise.macro.b * 0.35h,
@@ -574,9 +531,7 @@ Shader "Motu/Terrain Unified"
                     + sand * weights.b.x
                     + lerp(underlying, _RockColor.rgb, 0.35h) * weights.b.y;
 
-                half grassCoverage = smoothstep(0.35h, 0.65h, coverage.grass)
-                    * weights.a.x
-                    * (1.0h - coverage.snow);
+                half grassCoverage = coverage.grass;
                 half grassColorNoise = tex2D(
                     _GrassPatchNoise,
                     fieldPosition.xz / max(_GrassColorNoiseWorldSize, 1.0)).b;
@@ -586,12 +541,12 @@ Shader "Motu/Terrain Unified"
                     smoothstep(0.1h, 0.9h, grassColorNoise));
                 baseColor = lerp(baseColor, grassColor, grassCoverage);
                 UNITY_BRANCH
-                if (coverage.cartTrack > 0.0h)
+                if (coverage.gravel > 0.0h)
                 {
                     float2 stonesUv = MotuLayerUv(localPosition, MOTU_LAYER_STONES);
                     half3 gravel = UNITY_SAMPLE_TEX2DARRAY(
                         _TerrainAlbedoArray, float3(stonesUv, MOTU_LAYER_STONES)).rgb;
-                    baseColor = lerp(baseColor, gravel * _StonesColor.rgb, coverage.cartTrack);
+                    baseColor = lerp(baseColor, gravel * _StonesColor.rgb, coverage.gravel);
                 }
                 UNITY_BRANCH
                 if (coverage.road > 0.0h)
@@ -716,38 +671,25 @@ Shader "Motu/Terrain Unified"
 
                 float3 fieldPosition = MotuTerrainFieldPosition(localPosition);
                 half elevation = localPosition.y;
-                half3 localGeometricNormal = normalize(mul(
-                    (float3x3)_IslandWorldToLocal,
-                    geometricNormal));
                 MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
                     localPosition,
-                    geometricNormal,
                     input.material,
                     input.environment);
 
-                half strongest = max(
-                    max(max(coverage.forestFloor, coverage.rock), coverage.river),
-                    max(coverage.beach, coverage.stones));
-                half dirtCandidate = saturate(1.0h - strongest);
-                half4 candidatesA = half4(
-                    dirtCandidate,
-                    coverage.forestFloor,
-                    coverage.rock,
-                    coverage.river);
-                half2 candidatesB = half2(coverage.beach, coverage.stones);
+                half4 candidatesA;
+                half2 candidatesB;
+                MotuTerrainBaseCandidates(coverage, candidatesA, candidatesB);
 
                 #if defined(MOTU_TERRAIN_LOD2)
                     return ShadeDistantTerrain(
                         input,
                         geometricNormal,
-                        localGeometricNormal,
                         localPosition,
                         coverage,
                         candidatesA,
                         candidatesB);
                 #else
 
-                half localUp = saturate(localGeometricNormal.y);
                 half dirtPatchNoise = clamp(
                     coverage.noise.macro.g * 0.20h
                         + coverage.noise.broad.b * 0.25h
@@ -784,23 +726,26 @@ Shader "Motu/Terrain Unified"
                         + coverage.noise.detail.r * 0.55h,
                     -1.0h,
                     1.0h);
+                half3 terrainUp = UnityObjectToWorldNormal(half3(0.0h, 1.0h, 0.0h));
                 half dirtTextureProjection = MotuDirtTextureProjection(
-                    1.0h, dirtPatchNoise, localUp);
-                half forestTextureProjection = MotuSlopeTextureWeight(
-                    localUp,
+                    coverage.topProjection,
+                    dirtPatchNoise,
+                    dot(geometricNormal, terrainUp));
+                half forestTextureProjection = MotuTopTextureWeight(
+                    coverage.topProjection,
                     forestPatchNoise);
-                half rockTextureProjection = MotuSlopeTextureWeight(
-                    localUp,
+                half rockTextureProjection = MotuTopTextureWeight(
+                    coverage.topProjection,
                     rockPatchNoise);
-                half riverTextureProjection = MotuSlopeTextureWeight(
-                    localUp,
+                half riverTextureProjection = MotuTopTextureWeight(
+                    max(coverage.topProjection, coverage.river),
                     riverPatchNoise);
-                half stonesTextureProjection = MotuSlopeTextureWeight(
-                    localUp,
+                half stonesTextureProjection = MotuTopTextureWeight(
+                    coverage.topProjection,
                     stonesPatchNoise);
                 stonesTextureProjection = max(stonesTextureProjection, coverage.gravel);
-                half beachTextureProjection = MotuSlopeTextureWeight(
-                    localUp,
+                half beachTextureProjection = MotuTopTextureWeight(
+                    max(coverage.topProjection, coverage.beach),
                     beachPatchNoise);
                 half simpleOverlayPresence = smoothstep(
                     0.01h,
@@ -838,10 +783,11 @@ Shader "Motu/Terrain Unified"
                     half roadHeight = UNITY_SAMPLE_TEX2DARRAY(_TerrainMaskArray,
                         float3(RoadUv(fieldPosition.xz), MOTU_LAYER_ROAD)).r;
                     half roadRelief = roadHeight - MotuLayerParallaxNeutralHeight(MOTU_LAYER_ROAD);
-                    half gravelRelief = stonesBlendMask.r - MotuLayerParallaxNeutralHeight(MOTU_LAYER_STONES);
+                    half dirtRelief = (dirtBlendMask.r - MotuLayerParallaxNeutralHeight(MOTU_LAYER_DIRT))
+                        * dirtUnderlayProjection;
                     half transition = 4.0h * roadWeight * (1.0h - roadWeight);
                     roadWeight = saturate(roadWeight
-                        + (roadRelief - gravelRelief) * transition * _RoadHeightInfluence * 0.5h);
+                        + (roadRelief - dirtRelief) * transition * _RoadHeightInfluence * 0.5h);
                 }
                 MotuBaseWeights undisplacedWeights = MotuHeightBlendBase(
                     candidatesA,
@@ -910,21 +856,7 @@ Shader "Motu/Terrain Unified"
                 // recipe fades into the simple procedural dirt/rock/beach type
                 // that would have won if the overlay were absent. Do not carry
                 // the underlying material's authored recipe into an overlay.
-                half underlyingDirtCandidate = saturate(
-                    1.0h - max(coverage.rock, coverage.beach));
-                MotuBaseWeights underlyingWeights = MotuHeightBlendBase(
-                    half4(
-                        underlyingDirtCandidate,
-                        0.0h,
-                        coverage.rock,
-                        0.0h),
-                    half2(coverage.beach, 0.0h),
-                    half4(
-                        0.5h,
-                        0.5h,
-                        0.5h,
-                        0.5h),
-                    half2(0.5h, 0.5h));
+                MotuBaseWeights underlyingWeights = MotuTerrainUnderlyingWeights(coverage);
 
                 fixed3 dirtTexture = UNITY_SAMPLE_TEX2DARRAY(
                     _TerrainAlbedoArray,
@@ -990,13 +922,7 @@ Shader "Motu/Terrain Unified"
                     _GrassColorA.rgb,
                     _GrassColorB.rgb,
                     smoothstep(0.1h, 0.9h, grassColorNoise));
-                half grassCoverage = smoothstep(
-                    0.35h,
-                    0.65h,
-                    coverage.grass)
-                    * weights.a.x
-                    * (1.0h - coverage.snow);
-                baseColor = lerp(baseColor, grassColor, grassCoverage);
+                half grassCoverage = coverage.grass;
                 float dirtDistance = distance(
                     input.worldPosition.xz,
                     _GrassPlayerPosition.xz);
@@ -1007,8 +933,8 @@ Shader "Motu/Terrain Unified"
                     dirtDistance);
                 baseColor = lerp(
                     baseColor,
-                    _GroundDirtColor.rgb,
-                    _GrassEnabled * grassCoverage * dirtProximity);
+                    grassColor,
+                    grassCoverage * (1.0h - _GrassEnabled * dirtProximity));
                 half3 roadNormal = geometricNormal;
                 half roadOcclusion = 1.0h;
                 UNITY_BRANCH
@@ -1018,7 +944,6 @@ Shader "Motu/Terrain Unified"
                     half3 roadColor = UNITY_SAMPLE_TEX2DARRAY(
                         _TerrainAlbedoArray, float3(roadUv, MOTU_LAYER_ROAD)).rgb;
                     baseColor = lerp(baseColor, roadColor * _PackedRoadTint.rgb, roadWeight);
-                    half3 terrainUp = UnityObjectToWorldNormal(half3(0.0h, 1.0h, 0.0h));
                     roadNormal = normalize(geometricNormal
                         + (ArrayWorldNormal(roadUv, MOTU_LAYER_ROAD) - terrainUp) * _RoadNormalStrength);
                     roadOcclusion = UNITY_SAMPLE_TEX2DARRAY(

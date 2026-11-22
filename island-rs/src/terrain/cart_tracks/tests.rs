@@ -149,7 +149,14 @@ fn a_farther_cross_street_wins_when_the_nearest_usable_one_needs_a_detour() {
     assert!(exits[1].xy().distance(exits[3].xy()) < exits[2].xy().distance(exits[3].xy()));
     assert!(
         graph
-            .route(&[1], &[3], &exits, &entrances, &BTreeSet::new())
+            .route(
+                &[1],
+                &[3],
+                &exits,
+                &entrances,
+                &BTreeSet::new(),
+                exits[1].xy()
+            )
             .is_some()
     );
 
@@ -199,6 +206,56 @@ fn villages_without_access_to_the_capital_do_not_start_a_separate_network() {
     let plan = CartTrackPlanner::new(&island, &[]).plan(&exits, Some(0), &[], exits.len());
     assert!(plan.links.is_empty());
     assert_eq!(plan.diagnostics.len(), 2);
+}
+
+#[test]
+fn later_village_branches_from_the_existing_track_without_redrawing_it() {
+    let island = fixture(|_| 10.);
+    let mut north = exit(2, 155., 172., 0.);
+    north.direction = [0., -1.];
+    let exits = [exit(0, 110., 120., 1.), exit(1, 175., 120., -1.), north];
+    let plan = CartTrackPlanner::new(&island, &[]).plan(&exits, Some(0), &[], exits.len());
+    assert_eq!(plan.links.len(), 2);
+    assert_eq!(plan.links[0].to_settlement, 1);
+    let branch = &plan.links[1];
+    assert_eq!(branch.to_settlement, 2);
+    assert!(branch.from_track);
+    let [trunk, branch] = plan.runs.as_slice() else {
+        panic!("expected one trunk and one branch");
+    };
+    assert!(branch.joins_track);
+    assert!(trunk.points.contains(&branch.points[0]));
+    assert!(branch.points[0][0] > 135. && branch.points[0][0] < 165.);
+}
+
+#[test]
+fn paved_streets_are_cheaper_than_equivalent_ground() {
+    use crate::roads::{RoadNetwork, RoadStation, RoadStrip};
+
+    let mut island = Island::shared_forest_fixture(ForestOptions::default());
+    let station = |x| RoadStation {
+        point: Vec2::new(x, 650.),
+        height: 39.,
+    };
+    let network = RoadNetwork {
+        strips: vec![RoadStrip {
+            source: 0,
+            start: 0,
+            end: 1,
+            half_width: 2.,
+            stations: vec![station(635.), station(685.)],
+        }],
+        junctions: Vec::new(),
+        shoulder: 2.,
+    };
+    island.apply_town_roads(&network).unwrap();
+    let surface = Surface::new(&island, &[]);
+    let cost = |y| {
+        surface
+            .dry_cost(Vec2::new(645., y), Vec2::new(675., y))
+            .unwrap()
+    };
+    assert!(cost(650.) < 0.2 * cost(660.));
 }
 
 fn river_fixture(water_height: f32) -> Island {
@@ -305,6 +362,7 @@ fn an_angled_dry_approach_meets_the_straight_bridge_axis_at_both_banks() {
         let mut run = CartTrackRun {
             link_index: 0,
             points,
+            joins_track: false,
         };
         let original = run.points.clone();
         let aligned = planner.align_landing(&mut run, at_start, away).unwrap();

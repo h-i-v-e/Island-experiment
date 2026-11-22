@@ -2,6 +2,7 @@
 use crate::{
     BakedAtlas, BuildingMesh, BuildingPrototype, MaterialSlot, MaterialTexture,
     collision::BoxCollider,
+    decoration_anchors::DecorationAnchorPoses,
     town::{
         BridgeCandidate, ClearanceRect, TownFrontage, TownOutput, TownRoadExit, TownSettlementKind,
     },
@@ -75,6 +76,7 @@ struct Prototype<'a> {
     is_church: bool,
     lods: [Lod<'a>; 3],
     doors: Vec<Door<'a>>,
+    decoration_anchors: DecorationAnchorPoses<'a>,
     colliders: &'a [BoxCollider],
     support_colliders: &'a [BoxCollider],
     materials: Vec<Material>,
@@ -121,6 +123,7 @@ struct Package<'a> {
     road_mesh: Mesh<'a>,
     road_count: usize,
     bridge_candidates: &'a [BridgeCandidate],
+    pier_layout_json: String,
 }
 
 pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
@@ -215,6 +218,13 @@ pub(super) fn encode(output: &TownOutput) -> Result<String, String> {
         },
         road_count,
         bridge_candidates: &output.bridge_candidates,
+        pier_layout_json: output
+            .pier_layout
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default(),
     };
     serde_json::to_string(&package).map_err(|e| e.to_string())
 }
@@ -266,6 +276,7 @@ fn prototype<'a>(
                 hardware_mesh: mesh(&door.hardware_mesh, &[]),
             })
             .collect(),
+        decoration_anchors: DecorationAnchorPoses(&source.recipe.decoration_anchors),
         colliders: &source.colliders,
         support_colliders: &source.support_colliders,
         materials,

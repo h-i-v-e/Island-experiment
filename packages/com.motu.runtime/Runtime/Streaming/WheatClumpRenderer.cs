@@ -16,6 +16,7 @@ namespace Motu.Streaming
         private static readonly int WindMaterialId = Shader.PropertyToID("_MotuWindMaterial");
         private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
         private static readonly int DataId = Shader.PropertyToID("_WheatInstanceData");
+        private static readonly int DetailBlendId = Shader.PropertyToID("_WheatDetailBlend");
         private static Mesh sharedMesh;
         private static int meshUsers;
 
@@ -64,6 +65,14 @@ namespace Motu.Streaming
             foreach (var batch in batches) batch.SetFade(fade);
         }
 
+        internal Vector4 DetailBlend { get; set; }
+
+        internal void SetTileBlend(Vector2Int key, bool blend)
+        {
+            if (!tiles.TryGetValue(key, out var batches)) return;
+            foreach (var batch in batches) batch.BlendWithCanopy = blend;
+        }
+
         internal void Clear() => tiles.Clear();
 
         private void RenderCamera(ScriptableRenderContext context, Camera camera)
@@ -84,7 +93,7 @@ namespace Motu.Streaming
                 foreach (var batch in batches)
                 {
                     if (moved) batch.SetTransform(matrix);
-                    batch.Submit(camera, material, layer, windPadding);
+                    batch.Submit(camera, material, layer, windPadding, DetailBlend);
                 }
         }
 
@@ -107,6 +116,9 @@ namespace Motu.Streaming
             private readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
             private readonly Bounds localBounds;
             private Bounds worldBounds;
+            private Vector4 lastDetailBlend;
+
+            internal bool BlendWithCanopy { get; set; }
 
             internal Batch(WheatPlant[] plants, int offset, int count, Bounds meshBounds, Matrix4x4 matrix)
             {
@@ -141,9 +153,22 @@ namespace Motu.Streaming
                 worldBounds = InstancedForestRenderer.TransformBounds(matrix, localBounds);
             }
 
-            internal void Submit(Camera camera, Material material, int layer, float windPadding)
+            internal void Submit(Camera camera, Material material, int layer, float windPadding, Vector4 detailBlend)
             {
                 if (instanceData[0].y <= 0f) return;
+                var blend = BlendWithCanopy ? detailBlend : Vector4.zero;
+                if (blend.w > blend.z)
+                {
+                    // Skip a whole batch once even its nearest plant is beyond the blend.
+                    float dx = Mathf.Max(0f, Mathf.Abs(worldBounds.center.x - blend.x) - worldBounds.extents.x);
+                    float dz = Mathf.Max(0f, Mathf.Abs(worldBounds.center.z - blend.y) - worldBounds.extents.z);
+                    if (dx * dx + dz * dz >= blend.w * blend.w) return;
+                }
+                if (lastDetailBlend != blend)
+                {
+                    properties.SetVector(DetailBlendId, blend);
+                    lastDetailBlend = blend;
+                }
                 if (SystemInfo.supportsInstancing)
                 {
                     var bounds = worldBounds;

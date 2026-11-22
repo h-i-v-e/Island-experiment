@@ -12,6 +12,7 @@ mod coastal_strip;
 mod coastal_town;
 mod coastal_bridges;
 mod coastal_pier;
+mod coastal_roadside_fields;
 mod coastal_wheat;
 mod hybrid_forest;
 mod reed_instances;
@@ -1321,7 +1322,7 @@ pub unsafe extern "C" fn CreateMesh(
     let Some(sliced) = island.render_mesh_in(lod, bounds, clamp_sides) else {
         return;
     };
-    let material = island.material_values_for(&sliced);
+    let material = island.surface_weights_for(&sliced);
     let environment = island.environment_values_for(&sliced);
     *output = export_mesh(sliced, material, environment);
 }
@@ -1392,7 +1393,7 @@ pub unsafe extern "C" fn CreateSupportMesh(
     let Some(mesh) = island.mesh_in(lod, bounds) else {
         return;
     };
-    let material = island.material_values_for(&mesh);
+    let material = island.surface_weights_for(&mesh);
     let environment = island.environment_values_for(&mesh);
     *output = export_mesh(mesh, material, environment);
 }
@@ -1425,7 +1426,7 @@ pub unsafe extern "C" fn CreateMeshGrid(
     };
     *output = export_mesh_grid(
         tiles,
-        |tile| island.material_values_for(tile),
+        |tile| island.surface_weights_for(tile),
         |tile| island.environment_values_for(tile),
     );
 }

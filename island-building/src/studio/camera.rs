@@ -1,4 +1,4 @@
-use super::{StudioCamera, StudioObserver, StudioState, StudioSun};
+use super::{StudioCamera, StudioObserver, StudioState, StudioSun, Tab};
 use crate::{
     BuildingPrototype,
     interaction::{BuildingInstance, BuildingObserver, LodMode},
@@ -500,7 +500,9 @@ pub(super) fn update_camera(
         camera.look_at(controls.target, Vec3::Y);
     }
     for (mut instance, _) in &mut instances {
-        instance.lod_mode = if state.automatic {
+        instance.lod_mode = if state.tab == Tab::Decorations {
+            LodMode::Lod0
+        } else if state.automatic {
             LodMode::Auto
         } else {
             match state.lod {

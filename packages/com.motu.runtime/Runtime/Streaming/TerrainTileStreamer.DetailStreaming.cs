@@ -193,7 +193,7 @@ namespace Motu.Streaming
                     retired.Add(group);
                     lod0Groups.Remove(key);
                     SetLod1TileActive(key, true);
-                    HideWheatPlants(key, group.tiles[0]?.wheatPlants);
+                    HideWheatPlants(key);
                     RevealLod2TileIfUncovered(new Vector2Int(
                         key.x / Divisions,
                         key.y / Divisions));
@@ -365,7 +365,7 @@ namespace Motu.Streaming
                         tileObject.transform.SetParent(root.transform, false);
                         tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                         tiles[index] = new Tile(tileObject, mesh);
-                        InstallWheatTile(tiles[index], preparedMesh.wheat);
+                        InstallWheatTile(tiles[index], preparedMesh.wheat, lod);
                     }
 
                     // Mesh and tangent uploads must use Unity's main thread. Yield
@@ -429,7 +429,7 @@ namespace Motu.Streaming
                         tile.AddComponent<MeshFilter>().sharedMesh = mesh;
                         group.tiles[index] = new Tile(tile, mesh);
                         if (lod == 0) ConfigureTerrainRenderer(tile);
-                        InstallWheatTile(group.tiles[index], meshes[index].wheat);
+                        InstallWheatTile(group.tiles[index], meshes[index].wheat, lod);
                         meshes[index] = null;
                     }
                     if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)

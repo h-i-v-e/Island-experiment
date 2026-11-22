@@ -1,6 +1,7 @@
 //! Standalone building authoring application. Workers own snapshots, never editor state.
 #![allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 
+mod anchors;
 mod camera;
 mod capture;
 mod loading;
@@ -19,6 +20,7 @@ use crate::{
 };
 use bevy::{
     app::ScheduleRunnerPlugin,
+    camera::{CameraUpdateSystems, visibility::VisibilitySystems},
     light::GlobalAmbientLight,
     pbr::wireframe::{WireframeConfig, WireframePlugin},
     prelude::*,
@@ -26,7 +28,7 @@ use bevy::{
     window::{ExitCondition, PresentMode, WindowResolution},
     winit::WinitPlugin,
 };
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -170,6 +172,12 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<(), String> {
     }
     if !capturing || settings.capture_ui {
         app.add_plugins(EguiPlugin::default())
+            .configure_sets(
+                PostUpdate,
+                EguiPostUpdateSet::EndPass
+                    .after(CameraUpdateSystems)
+                    .after(VisibilitySystems::CheckVisibility),
+            )
             .add_systems(EguiPrimaryContextPass, ui::draw);
     }
     app.run();
@@ -241,6 +249,7 @@ enum Tab {
     Openings,
     Roof,
     Chimney,
+    Decorations,
     Materials,
     Grub,
     Bake,
@@ -256,7 +265,7 @@ enum PendingAction {
 
 struct BuildRequest {
     serial: u64,
-    recipe: BuildingRecipe,
+    recipe: Arc<BuildingRecipe>,
     base: PathBuf,
     queued: Instant,
 }
@@ -266,7 +275,7 @@ struct BuildResponse {
     seconds: f32,
 }
 struct ExportResponse {
-    serial: u64,
+    revision: (u64, u64),
     destination: PathBuf,
     result: Result<ExportManifest, String>,
     seconds: f32,
@@ -277,11 +286,14 @@ struct ExportResponse {
 pub(super) struct StudioState {
     document: StudioDocument,
     tab: Tab,
+    anchors: anchors::Editor,
     units: ui::units::EditorUnits,
     status: String,
     error: Option<String>,
     pending_action: Option<PendingAction>,
     serial: u64,
+    preview_recipe: Option<Arc<BuildingRecipe>>,
+    ready_serial: Option<u64>,
     pending: Option<BuildRequest>,
     running: Option<Task<BuildResponse>>,
     last_good: Option<Arc<BuildingPrototype>>,
@@ -289,7 +301,7 @@ pub(super) struct StudioState {
     export_task: Option<Task<ExportResponse>>,
     file_dialog: Option<Task<ui::dialogs::Completion>>,
     load_task: Option<Task<loading::OpenedDocument>>,
-    baked_serial: Option<u64>,
+    baked_revision: Option<(u64, u64)>,
     build_seconds: f32,
     bake_seconds: f32,
     lod: usize,
@@ -318,11 +330,14 @@ impl StudioState {
             recipe_revision: document.revision(),
             document,
             tab: Tab::Structure,
+            anchors: anchors::Editor::default(),
             units: ui::units::EditorUnits::default(),
             status: "Preparing first preview…".into(),
             error: None,
             pending_action: None,
             serial: 0,
+            preview_recipe: None,
+            ready_serial: None,
             pending: None,
             running: None,
             last_good: None,
@@ -330,7 +345,7 @@ impl StudioState {
             export_task: None,
             file_dialog: None,
             load_task: None,
-            baked_serial: None,
+            baked_revision: None,
             build_seconds: 0.,
             bake_seconds: 0.,
             lod: settings.lod,
@@ -356,20 +371,43 @@ impl StudioState {
     }
 
     fn request_preview(&mut self) {
+        self.queue_preview(self.geometry_recipe());
+    }
+
+    fn sync_preview(&mut self) {
+        if self.document.revision() == self.recipe_revision {
+            return;
+        }
+        let recipe = self.geometry_recipe();
+        if self.preview_recipe.as_deref() == Some(&recipe) {
+            self.recipe_revision = self.document.revision();
+        } else {
+            self.queue_preview(recipe);
+        }
+    }
+
+    fn geometry_recipe(&self) -> BuildingRecipe {
+        let mut recipe = self.document.recipe().clone();
+        // Anchor markers read the document directly, independent of mesh and atlas generation.
+        recipe.decoration_anchors.clear();
+        if !self.final_preview {
+            recipe.atlas_size = recipe.atlas_size.min(128);
+        }
+        recipe
+    }
+
+    fn queue_preview(&mut self, recipe: BuildingRecipe) {
         self.serial += 1;
         self.recipe_revision = self.document.revision();
         self.pending = None;
-        if let Err(error) = crate::validation::validate_authoring(self.document.recipe()) {
+        let recipe = Arc::new(recipe);
+        self.preview_recipe = Some(Arc::clone(&recipe));
+        if let Err(error) = crate::validation::validate_authoring(&recipe) {
             self.error = Some(error.to_string());
             self.status = "Invalid draft · last good preview retained".into();
             return;
         }
         self.error = None;
-        let mut recipe = self.document.recipe().clone();
-        // Geometry previews carry a low-cost atlas. Explicit exports use the authored resolution.
-        if !self.final_preview {
-            recipe.atlas_size = recipe.atlas_size.min(128);
-        }
         self.pending = Some(BuildRequest {
             serial: self.serial,
             recipe,
@@ -409,13 +447,14 @@ impl StudioState {
         if self.export_task.is_some() {
             return;
         }
+        self.sync_preview();
         let recipe = self.document.recipe().clone();
         let base = self
             .document
             .base_directory()
             .unwrap_or(Path::new("."))
             .to_path_buf();
-        let serial = self.serial;
+        let revision = self.export_revision();
         self.status = "Baking portable package in background…".into();
         self.export_task = Some(AsyncComputeTaskPool::get().spawn(async move {
             let start = Instant::now();
@@ -425,12 +464,20 @@ impl StudioState {
                     export_package(&prototype, &destination, &base).map_err(|e| e.to_string())
                 });
             ExportResponse {
-                serial,
+                revision,
                 destination,
                 result,
                 seconds: start.elapsed().as_secs_f32(),
             }
         }));
+    }
+
+    fn export_revision(&self) -> (u64, u64) {
+        (self.serial, self.document.revision())
+    }
+
+    fn decoration_preview_ready(&self) -> bool {
+        self.ready_serial == Some(self.serial) && !self.recompile
     }
 
     fn apply_action(&mut self, action: PendingAction) {
@@ -450,7 +497,10 @@ impl StudioState {
             }
         };
         match result {
-            Ok(()) => self.request_preview(),
+            Ok(()) => {
+                self.anchors = anchors::Editor::default();
+                self.request_preview();
+            }
             Err(e) => self.error = Some(e.to_string()),
         }
     }
@@ -573,9 +623,7 @@ fn poll_preview(
     settings: Res<Settings>,
     instances: Query<&BuildingInstance>,
 ) {
-    if state.document.revision() != state.recipe_revision {
-        state.request_preview();
-    }
+    state.sync_preview();
     let response = state
         .running
         .as_mut()
@@ -619,6 +667,7 @@ fn poll_preview(
                     }
                     controls.frame(&prototype, &settings.view);
                     state.last_good = Some(prototype);
+                    state.ready_serial = Some(response.serial);
                     state.build_seconds = response.seconds;
                     state.status = if state.final_preview {
                         "Capture ready · full authored atlas"
@@ -808,11 +857,11 @@ fn poll_export(mut state: ResMut<StudioState>) {
         state.bake_seconds = response.seconds;
         match response.result {
             Ok(_) => {
-                state.baked_serial = Some(response.serial);
+                state.baked_revision = Some(response.revision);
                 state.status = format!(
                     "Exported {}{}",
                     response.destination.display(),
-                    if response.serial == state.serial {
+                    if response.revision == state.export_revision() {
                         ""
                     } else {
                         " · an older revision"

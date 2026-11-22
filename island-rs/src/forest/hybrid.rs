@@ -140,7 +140,74 @@ pub(super) fn assemble(
 ) -> Result<ForestMeshes, String> {
     let count = climate.variants_per_species as u8;
     let prototypes = shared_prototypes(count);
-    for tree in placements.iter_mut() {
+    choose_appearances(seed, placements, &prototypes, terrain, options, climate);
+    let mut out = ForestMeshes {
+        placements: placements.to_vec(),
+        ..ForestMeshes::default()
+    };
+    append_geometry(&mut out, placements, &prototypes, terrain)?;
+    out.lod2_wood.calculate_normals();
+    out.hybrid = Some(HybridForest {
+        prototypes,
+        broadleaf_count: usize::from(count),
+    });
+    Ok(out)
+}
+
+/// Adds planted trees to the same shared catalogue and native collision/shadow streams.
+pub(crate) fn extend_plantings(
+    seed: u64,
+    forest: &mut ForestMeshes,
+    terrain: &Terrain,
+    options: ForestOptions,
+    mut plantings: Vec<TreePlacement>,
+) -> Result<(), String> {
+    if plantings.is_empty() {
+        return Ok(());
+    }
+    let (Some(catalog), Some(climate)) = (&forest.hybrid, options.hybrid) else {
+        return Err("roadside trees require the island's shared forest catalogue".into());
+    };
+    let prototypes = std::sync::Arc::clone(&catalog.prototypes);
+    choose_appearances(seed, &mut plantings, &prototypes, terrain, options, climate);
+
+    // The existing forest and logs remain usable if an append fails.
+    let wood_start = (
+        forest.lod2_wood.vertices.len(),
+        forest.lod2_wood.triangles.len(),
+    );
+    let crown_start = (
+        forest.lod1_foliage.vertices.len(),
+        forest.lod1_foliage.triangles.len(),
+    );
+    let tree_start = forest.trees.len();
+    if let Err(error) = append_geometry(forest, &plantings, &prototypes, terrain) {
+        truncate_mesh(&mut forest.lod2_wood, wood_start);
+        truncate_mesh(&mut forest.lod1_foliage, crown_start);
+        forest.trees.truncate(tree_start);
+        return Err(error);
+    }
+    forest.placements.extend(plantings);
+    Ok(())
+}
+
+fn truncate_mesh(mesh: &mut crate::Mesh, (vertices, indices): (usize, usize)) {
+    mesh.vertices.truncate(vertices);
+    mesh.normals.truncate(vertices);
+    mesh.uv.truncate(vertices);
+    mesh.triangles.truncate(indices);
+}
+
+fn choose_appearances(
+    seed: u64,
+    placements: &mut [TreePlacement],
+    prototypes: &[TreeMeshes],
+    terrain: &Terrain,
+    options: ForestOptions,
+    climate: HybridForestOptions,
+) {
+    let count = climate.variants_per_species as u8;
+    for tree in placements {
         let sample = stable_key(seed, u64::from(tree.seed_ordinal), FOREST_HABIT_DOMAIN);
         let choice = (sample >> 40) as f32 / (1_u32 << 24) as f32;
         let species = climate.species_offset(
@@ -151,28 +218,15 @@ pub(super) fn assemble(
         tree.prototype = tree.prototype % count + species * count;
         bury_root(tree, &prototypes[usize::from(tree.prototype)], terrain);
     }
-    let mut out = ForestMeshes {
-        placements: placements.to_vec(),
-        ..ForestMeshes::default()
-    };
-    for tree in placements.iter().copied() {
-        let range = append_transformed_to_terrain(
-            &mut out.lod2_wood,
-            &prototypes[usize::from(tree.prototype)].lod2_wood,
-            tree,
-            terrain,
-        )?;
-        out.trees.push(ForestTreeRanges {
-            terrain_vertex: tree.terrain_vertex,
-            anchor: tree.anchor,
-            prototype: tree.prototype,
-            lod2_wood: range,
-            ..ForestTreeRanges::default()
-        });
-    }
-    out.lod2_wood.calculate_normals();
-    // Five vertices per tree retain CPU ground occlusion. No render clusters
-    // are exported: individual crowns remain visible at every distance.
+}
+
+fn append_geometry(
+    forest: &mut ForestMeshes,
+    placements: &[TreePlacement],
+    prototypes: &[TreeMeshes],
+    terrain: &Terrain,
+) -> Result<(), String> {
+    // Five vertices per tree retain CPU ground occlusion without a new render mesh.
     let proxies: Vec<_> = prototypes
         .iter()
         .map(|tree| {
@@ -183,22 +237,32 @@ pub(super) fn assemble(
             })
         })
         .collect();
-    for tree in placements.iter().copied() {
+    for &tree in placements {
+        let prototype = usize::from(tree.prototype);
+        let range = append_transformed_to_terrain(
+            &mut forest.lod2_wood,
+            &prototypes[prototype].lod2_wood,
+            tree,
+            terrain,
+        )?;
         super::MeshAppender {
-            destination: &mut out.lod1_foliage,
+            destination: &mut forest.lod1_foliage,
             anchor: tree.anchor,
             yaw_radians: tree.yaw_radians,
             scale: tree.scale,
             transform_uv_as_axis: false,
             terrain: None,
         }
-        .append(&proxies[usize::from(tree.prototype)])?;
+        .append(&proxies[prototype])?;
+        forest.trees.push(ForestTreeRanges {
+            terrain_vertex: tree.terrain_vertex,
+            anchor: tree.anchor,
+            prototype: tree.prototype,
+            lod2_wood: range,
+            ..ForestTreeRanges::default()
+        });
     }
-    out.hybrid = Some(HybridForest {
-        prototypes,
-        broadleaf_count: usize::from(count),
-    });
-    Ok(out)
+    Ok(())
 }
 
 fn bury_root(tree: &mut TreePlacement, prototype: &TreeMeshes, terrain: &Terrain) {

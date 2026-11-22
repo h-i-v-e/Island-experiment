@@ -14,6 +14,7 @@ Shader "Hidden/Motu/Tests/Coastal Terrain Field"
         _CliffNoisePeriod ("Noise period", Float) = 160
         _CliffNoiseDetailScale ("Cliff detail frequency", Float) = 16
         _DirtNormalStrength ("Dirt normal strength", Float) = 0.12
+        _SnowLine ("Snow Line", Float) = 1000
         [NoScaleOffset] _CliffNoise3D ("Noise", 3D) = "gray" {}
         [NoScaleOffset] _GrassPatchNoise ("Grass patches", 2D) = "white" {}
         [NoScaleOffset] _MotuWheatGroundMask ("Wheat ground coverage", 2D) = "black" {}
@@ -48,20 +49,21 @@ Shader "Hidden/Motu/Tests/Coastal Terrain Field"
                     return MotuTerrainBakedMapWeight(_ProbeLocalPosition.xyz).xxxx;
                 if (_ProbeDirtProjection > 0.5)
                 {
-                    MotuTerrainNoise noise = MotuSampleTerrainNoise(_ProbeLocalPosition.xyz);
-                    half projection = MotuDirtTextureProjection(1.0h, 0.25h, _ProbeNormalUp);
+                    MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
+                        _ProbeLocalPosition.xyz, half4(1, 0, 0, 0), _ProbeEnvironment);
+                    half projection = MotuDirtTextureProjection(coverage.topProjection, 0.25h, _ProbeNormalUp);
                     half3 normal = MotuProceduralDirtNormal(half3(0, 1, 0),
-                        MotuTerrainFieldPosition(_ProbeLocalPosition.xyz), noise.broad, _DirtNormalStrength);
-                    return float4(projection, 0, 0, normal.x);
+                        MotuTerrainFieldPosition(_ProbeLocalPosition.xyz), coverage.noise.broad, _DirtNormalStrength);
+                    return float4(projection, coverage.dirt, coverage.rock, normal.x);
                 }
                 if (_ProbeWheatCoverage > 0.5 || _ProbeRoadCoverage > 0.5)
                 {
                     MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
-                        _ProbeLocalPosition.xyz, half3(0, 1, 0), half4(0, 1, 0, 0), _ProbeEnvironment);
+                        _ProbeLocalPosition.xyz, half4(1, 1, 0, 0), _ProbeEnvironment);
                     if (_ProbeWheatCoverage > 0.5)
                         return float4(MotuWheatGroundCoverage(_ProbeLocalPosition.xz),
                             coverage.grass, coverage.forestFloor, coverage.stones);
-                    return float4(coverage.cartTrack, coverage.road, coverage.gravel, 1);
+                    return float4(coverage.dirt, coverage.road, coverage.gravel, 1);
                 }
                 return float4(MotuSampleTerrainNoise(_ProbeLocalPosition.xyz).broad,
                     frac(MotuLayerUv(_ProbeLocalPosition.xyz, MOTU_LAYER_BEACH).x));

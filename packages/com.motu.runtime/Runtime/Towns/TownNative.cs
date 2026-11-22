@@ -55,7 +55,7 @@ namespace Motu.Towns
 
         internal static TownPreparedData Prepare(IntPtr island, string recipeJson, ulong tileSeed,
             TownDependencyData[] dependencies = null, string villageRecipeJson = null,
-            bool connectSettlements = true, bool connectCoastalSeams = false)
+            bool connectSettlements = true, bool connectCoastalSeams = false, Vector2? roadsideFieldWind = null)
         {
             if (string.IsNullOrEmpty(recipeJson)) return null;
             if (GetCoastalTownApiVersion() != ApiVersion)
@@ -65,33 +65,42 @@ namespace Motu.Towns
             string inputJson;
             try { inputJson = Marshal.PtrToStringUTF8(input); }
             finally { FreeCoastalTownJson(input); }
+            var pierCandidates = connectCoastalSeams ? SurveyPierCandidates(island, inputJson, villageRecipeJson != null) : null;
             // Grade only the final network. A sampled height grid can miss a rock or an
             // undercut at the landing that the precise island surface exposes.
-            var result = PlanPavedBridges(inputJson,
-                inputWithExclusions => Generate(recipeJson, inputWithExclusions, dependencies, villageRecipeJson),
+            TownPreparedData Plan(string candidates) => PlanPavedBridges(inputJson,
+                inputWithExclusions => Generate(recipeJson, inputWithExclusions, dependencies, villageRecipeJson, candidates),
                 town => FitBridges(island, PavedCrossings(town), town.roads_json));
-            if (!string.IsNullOrEmpty(result.roads_json))
+            int Grade(TownPreparedData town) => string.IsNullOrEmpty(town.roads_json)
+                ? 1 : ApplyCoastalTownRoadsJson(island, town.roads_json);
+            var result = Plan(pierCandidates);
+            var status = Grade(result);
+            if (status == RoadGeometryRejected && !string.IsNullOrEmpty(result.pier_layout_json))
             {
-                var status = ApplyCoastalTownRoadsJson(island, result.roads_json);
-                if (status == RoadGeometryRejected)
-                {
-                    Debug.LogWarning("Coastal settlements omitted after native road grading rejected the network: "
-                        + Marshal.PtrToStringUTF8(GetLastCoastalTownError()));
-                    return null;
-                }
-                if (status != 1) throw Error("Town road grading", GetLastCoastalTownError());
-                if ((result.stair_feet?.Length ?? 0) > 0)
-                    result.footpath_vertex_count = PaintFootpaths(island, result);
+                // A failed grade leaves the resident terrain intact for a fresh layout.
+                result = Plan(null);
+                status = Grade(result);
             }
+            if (status == RoadGeometryRejected)
+            {
+                Debug.LogWarning("Coastal settlements omitted after native road grading rejected the network: "
+                    + Marshal.PtrToStringUTF8(GetLastCoastalTownError()));
+                return null;
+            }
+            if (status != 1) throw Error("Town road grading", GetLastCoastalTownError());
+            if (!string.IsNullOrEmpty(result.roads_json) && (result.stair_feet?.Length ?? 0) > 0)
+                result.footpath_vertex_count = PaintFootpaths(island, result);
             if (SetCoastalTownClearanceJson(island, result.clearance_json) != 1)
                 throw Error("Town decoration clearance", GetLastCoastalTownError());
+            if (connectCoastalSeams) ExportCapitalPier(island, result, tileSeed);
             if (connectSettlements && villageRecipeJson != null
                 && ((result.road_exits?.Length ?? 0) > 0 || connectCoastalSeams))
                 result.cartTracks = PrepareCartTracks(island, result, connectCoastalSeams);
             AppendCartBridges(island, result);
-            if (connectCoastalSeams) PrepareCapitalPier(island, result, tileSeed);
             if ((result.wheat_fields?.Length ?? 0) != 0)
                 result.wheat_fields = PrepareWheatFields(island, result);
+            if ((result.cartTracks?.run_count ?? 0) > 0)
+                result.roadsideFields = PrepareRoadsideFields(island, result, tileSeed, roadsideFieldWind);
             return result;
         }
 
@@ -126,10 +135,16 @@ namespace Motu.Towns
 
         private static TownCartTrackPlan PrepareCartTracks(IntPtr island, TownPreparedData town, bool coastSeams)
         {
+            var blockers = town.routing_blockers ?? Array.Empty<TownTrackBlocker>();
+            if (town.pier?.clearance != null && string.IsNullOrEmpty(town.pier_layout_json))
+            {
+                Array.Resize(ref blockers, blockers.Length + 1);
+                blockers[blockers.Length - 1] = town.pier.clearance;
+            }
             var request = new CartTrackRequest
             {
                 exits = town.road_exits ?? Array.Empty<TownRoadExit>(),
-                blockers = town.routing_blockers ?? Array.Empty<TownTrackBlocker>(),
+                blockers = blockers,
                 coast_seams = coastSeams,
                 settlement_count = town.settlements?.Length ?? 0,
                 settlements = town.settlements ?? Array.Empty<TownSettlement>(),
@@ -162,13 +177,14 @@ namespace Motu.Towns
         }
 
         internal static TownPreparedData Generate(string recipeJson, string inputJson,
-            TownDependencyData[] dependencies = null, string villageRecipeJson = null)
+            TownDependencyData[] dependencies = null, string villageRecipeJson = null, string pierCandidates = null)
         {
             if (GetMotuTownApiVersion() != ApiVersion)
                 throw new InvalidOperationException("The native town building library does not match this package. Install the matching library and restart Unity.");
             using var files = new DependencyFiles(dependencies);
             var village = villageRecipeJson == null ? "" : ",\"village\":" + villageRecipeJson;
-            var town = CreateMotuTown("{\"recipe\":" + recipeJson + ",\"input\":" + inputJson + village + "}",
+            var piers = string.IsNullOrEmpty(pierCandidates) || pierCandidates == "[]" ? "" : ",\"pier_candidates\":" + pierCandidates;
+            var town = CreateMotuTown("{\"recipe\":" + recipeJson + ",\"input\":" + inputJson + village + piers + "}",
                 files.directory ?? "");
             if (town == IntPtr.Zero) throw Error("Town generation", GetLastMotuTownError());
             try

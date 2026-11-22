@@ -40,6 +40,7 @@ fn finish(state: &mut StudioState, opened: OpenedDocument) {
     match opened.result {
         Ok(document) => {
             state.document = document;
+            state.anchors = super::anchors::Editor::default();
             state.error = None;
             state.request_preview();
         }

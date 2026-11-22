@@ -6,6 +6,17 @@ namespace Motu.Towns
 {
     internal static partial class TownNative
     {
+        [DllImport("motu_building", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int FindMotuCapitalMouth([MarshalAs(UnmanagedType.LPUTF8Str)] string input,
+            byte multiple, [Out] float[] position);
+
+        [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr SurveyCoastalCapitalPiers(IntPtr island, float mouthX, float mouthY);
+
+        [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr ExportPavedCapitalPier(IntPtr island,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string layout, ulong seed);
+
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr PrepareCoastalCapitalPier(IntPtr island,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
@@ -21,6 +32,33 @@ namespace Motu.Towns
         {
             public TownCapitalPier pier;
             public string reason;
+        }
+
+        private static string SurveyPierCandidates(IntPtr island, string input, bool multiple)
+        {
+            var position = new float[2];
+            var status = FindMotuCapitalMouth(input, (byte)(multiple ? 1 : 0), position);
+            if (status < 0) throw Error("Capital outlet survey", GetLastMotuTownError());
+            if (status == 0) return null;
+            var survey = SurveyCoastalCapitalPiers(island, position[0], position[1]);
+            if (survey == IntPtr.Zero) throw Error("Capital pier survey", GetLastCoastalTownError());
+            try { return Marshal.PtrToStringUTF8(survey); }
+            finally { FreeCoastalTownJson(survey); }
+        }
+
+        private static void ExportCapitalPier(IntPtr island, TownPreparedData town, ulong seed)
+        {
+            if (!string.IsNullOrEmpty(town.pier_layout_json))
+            {
+                var report = ExportPavedCapitalPier(island, town.pier_layout_json, seed);
+                if (report == IntPtr.Zero) throw Error("Paved capital pier export", GetLastCoastalTownError());
+                ReadCapitalPier(town, report);
+            }
+            if (town.pier == null)
+            {
+                town.pier_layout_json = null;
+                PrepareCapitalPier(island, town, seed);
+            }
         }
 
         private static void PrepareCapitalPier(IntPtr island, TownPreparedData town, ulong seed)
@@ -50,13 +88,22 @@ namespace Motu.Towns
                 Debug.LogWarning("Capital pier preparation failed: " + Marshal.PtrToStringUTF8(GetLastCoastalTownError()));
                 return;
             }
-            try
-            {
-                var plan = JsonUtility.FromJson<CapitalPierReport>(Marshal.PtrToStringUTF8(report));
-                town.pier = plan?.pier?.berth != null ? plan.pier : null;
-                town.pierDiagnostic = plan?.reason;
-            }
+            ReadCapitalPier(town, report);
+        }
+
+        private static void ReadCapitalPier(TownPreparedData town, IntPtr report)
+        {
+            try { ApplyCapitalPierReport(town, Marshal.PtrToStringUTF8(report)); }
             finally { FreeCoastalTownJson(report); }
+        }
+
+        internal static void ApplyCapitalPierReport(TownPreparedData town, string json)
+        {
+            var plan = JsonUtility.FromJson<CapitalPierReport>(json);
+            // JsonUtility can materialize a null pier and its nested clearance as empty objects.
+            var pier = plan?.pier;
+            town.pier = !string.IsNullOrEmpty(pier?.id) && pier.berth != null ? pier : null;
+            town.pierDiagnostic = plan?.reason;
         }
     }
 }

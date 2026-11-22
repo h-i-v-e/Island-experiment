@@ -430,6 +430,7 @@ namespace Motu.Streaming
             using (PlayerPositionMarker.Auto())
             {
                 var localPosition = transform.InverseTransformPoint(worldPosition);
+                SetWheatFocus(worldPosition);
                 terrainMaterial.SetVector(GrassPlayerPositionId, worldPosition);
                 terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
                 grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
@@ -793,7 +794,7 @@ namespace Motu.Streaming
 
         private void LateUpdate()
         {
-            UpdateWheatHandoffs();
+            UpdateWheatReveals();
             if (!meshEdgesVisible || meshEdgeMaterial == null)
             {
                 return;
@@ -847,12 +848,12 @@ namespace Motu.Streaming
             var parent = new Vector2Int(key.x / Divisions, key.y / Divisions);
             if (!lod1Groups.TryGetValue(parent, out var group))
             {
+                SyncWheatCanopy(key, null, !active);
                 return;
             }
-            SetBatchedTileActive(
-                group,
-                (key.y % Divisions) * Divisions + key.x % Divisions,
-                active);
+            var index = (key.y % Divisions) * Divisions + key.x % Divisions;
+            SetBatchedTileActive(group, index, active);
+            SyncWheatCanopy(key, group.tiles[index]?.wheatRenderer, !active);
         }
 
         private Vector2Int LocalCell(Vector3 position, int resolution)

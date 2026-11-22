@@ -10,7 +10,7 @@ use crate::{
     collision::BoxCollider,
     terrain_support::{self, PlacementPose},
 };
-use motu::roads::RoadNetwork;
+use motu::{Vec2, piers::PierLayout, roads::RoadNetwork};
 use std::path::Path;
 
 pub(super) struct Random(pub u64);
@@ -56,6 +56,7 @@ struct LayoutTrial<'a> {
     rings: usize,
     anchor: Option<(usize, PlacementPose)>,
     previous_lots: &'a [(usize, Lot)],
+    piers: &'a [PierLayout],
 }
 
 struct LayoutResult {
@@ -125,11 +126,13 @@ pub(super) struct Site<'a> {
     pub base: &'a Path,
     pub cancelled: &'a dyn Fn() -> bool,
     pub prototype_indices: &'a [usize],
+    pub piers: &'a [PierLayout],
 }
 
 pub(super) fn generate(site: &Site<'_>, pool: &mut PrototypePool) -> Result<TownOutput, TownError> {
     let mut trial = LayoutTrial {
         rings: 1,
+        piers: site.piers,
         ..LayoutTrial::default()
     };
     let mut best = generate_layout(site, trial, pool)?;
@@ -159,7 +162,13 @@ pub(super) fn generate(site: &Site<'_>, pool: &mut PrototypePool) -> Result<Town
             break;
         }
         reached = expanded.reached;
-        if expanded.output.instances.len() > best.output.instances.len() {
+        if (
+            expanded.output.pier_layout.is_some(),
+            expanded.output.instances.len(),
+        ) > (
+            best.output.pier_layout.is_some(),
+            best.output.instances.len(),
+        ) {
             best = expanded;
         }
     }
@@ -396,6 +405,17 @@ fn accept_placement(
         search.accepted_lots.push((index, lot));
     }
     if let Some(streets) = placed.streets.take() {
+        if let Some(pier) = streets.pier {
+            let land = pier.land_clearance();
+            let footprint = ClearanceRect {
+                centre: land.centre,
+                half_extents: land.half_extents,
+                yaw: land.yaw,
+            };
+            search.occupied.push(footprint);
+            output.clearance.push(footprint);
+            output.pier_layout = Some(pier);
+        }
         for bridge in &streets.bridges {
             let footprint = roads::bridge_clearance(bridge, streets.network.shoulder);
             search.occupied.push(footprint);
@@ -760,19 +780,39 @@ fn connect_street(
         else {
             return Ok(false);
         };
-        if !roads::obstructs(&streets.roads, &support_rect, true)
-            && let Some((root, access)) = roads::central_approach(
-                &streets,
-                building,
-                supports,
-                pose,
-                input,
+        let approach = |streets: &roads::StreetLayout| {
+            (!roads::obstructs(&streets.roads, &support_rect, true))
+                .then(|| {
+                    roads::central_approach(
+                        streets,
+                        building,
+                        supports,
+                        pose,
+                        input,
+                        settings,
+                        &access_blocked,
+                    )
+                })
+                .flatten()
+        };
+        if let Some((root, access)) = approach(&streets) {
+            let centre = Vec2::new(pose.origin[0], pose.origin[1]);
+            if let Some(with_pier) = streets.with_pier(
+                root,
+                centre,
+                search.layout.piers,
                 settings,
-                &access_blocked,
-            )
-        {
-            placed.access = Some(access);
-            placed.streets = Some(streets.finish(root));
+                input,
+                search.cancelled,
+            )? && let Some((connected, access)) = approach(&with_pier)
+                && with_pier.same_component(root, connected)
+            {
+                placed.access = Some(access);
+                placed.streets = Some(with_pier.finish(connected));
+            } else {
+                placed.access = Some(access);
+                placed.streets = Some(streets.finish(root));
+            }
         }
     }
     Ok(placed.access.is_some())

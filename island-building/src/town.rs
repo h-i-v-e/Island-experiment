@@ -11,6 +11,8 @@ mod settlements;
 mod wheat;
 
 pub use input::*;
+pub(crate) use settlements::capital_mouth;
+pub(crate) use settlements::generate as generate_with_piers;
 
 use crate::{BuildingMesh, BuildingPrototype, MaterialTexture, collision::BoxCollider};
 use serde::{Deserialize, Serialize};
@@ -162,6 +164,8 @@ pub struct TownOutput {
     pub road_exits: Vec<TownRoadExit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bridge_candidates: Vec<BridgeCandidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pier_layout: Option<motu::piers::PierLayout>,
     /// Requested copies can be skipped when no safe placement exists.
     pub skipped_count: u32,
 }
@@ -200,7 +204,7 @@ pub fn generate_town_with_base(
     base: &Path,
     cancelled: &impl Fn() -> bool,
 ) -> Result<TownOutput, TownError> {
-    settlements::generate(recipe, None, input, base, cancelled)
+    settlements::generate(recipe, None, input, &[], base, cancelled)
 }
 
 /// Plan a capital at the middlemost distinct sea outlet and a village at every other outlet.
@@ -220,5 +224,5 @@ pub fn generate_settlements_with_base(
     base: &Path,
     cancelled: &impl Fn() -> bool,
 ) -> Result<TownOutput, TownError> {
-    settlements::generate(capital, Some(village), input, base, cancelled)
+    settlements::generate(capital, Some(village), input, &[], base, cancelled)
 }

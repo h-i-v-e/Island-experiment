@@ -23,20 +23,21 @@ namespace Motu.Interop
             return CopyTerrainMeshData(source, lod, worldSize, GetTerrainCoverageSources(terrain));
         }
 
-        internal static (IntPtr roads, IntPtr cartTracks) GetTerrainCoverageSources(IntPtr terrain)
+        internal static (IntPtr roads, IntPtr gravel) GetTerrainCoverageSources(IntPtr terrain)
         {
             if (terrain == IntPtr.Zero)
                 return default;
-            return (
-                MotuNative.HasTerrainRoadCoverage(terrain) != 0 ? terrain : IntPtr.Zero,
-                MotuNative.HasTerrainCartTracks(terrain) != 0 ? terrain : IntPtr.Zero);
+            var roads = MotuNative.HasTerrainRoadCoverage(terrain) != 0 ? terrain : IntPtr.Zero;
+            var gravel = roads != IntPtr.Zero || MotuNative.HasTerrainCartTracks(terrain) != 0
+                ? terrain : IntPtr.Zero;
+            return (roads, gravel);
         }
 
         internal static IslandPreparedMesh CopyTerrainMeshData(
             MotuNative.ExportMesh source,
             int lod,
             float worldSize,
-            (IntPtr roads, IntPtr cartTracks) coverageSources)
+            (IntPtr roads, IntPtr gravel) coverageSources)
         {
             float[] roadCoverage = null;
             if (coverageSources.roads != IntPtr.Zero && source.vertices.length > 0)
@@ -48,16 +49,17 @@ namespace Motu.Interop
                     roadCoverage = weights;
             }
 
-            float[] cartTrackCoverage = null;
-            if (coverageSources.cartTracks != IntPtr.Zero && source.vertices.length > 0)
+            float[] gravelCoverage = null;
+            if (coverageSources.gravel != IntPtr.Zero && source.vertices.length > 0)
             {
                 var weights = new float[source.vertices.length];
-                if (MotuNative.CopyTerrainCartTrackCoverage(coverageSources.cartTracks, source.vertices, weights) != 1)
-                    throw new InvalidOperationException("The Rust terrain export could not mark cart track vertices.");
+                if (MotuNative.CopyTerrainGravelCoverage(coverageSources.gravel, source.vertices, weights) != 1)
+                    throw new InvalidOperationException("The Rust terrain export could not mark gravel vertices.");
                 if (Array.Exists(weights, weight => weight > 0f))
-                    cartTrackCoverage = weights;
+                    gravelCoverage = weights;
             }
 
+            // Terrain COLOR packs dirt, grass, river bed and coastal sand eligibility.
             return CopyMeshData(
                 source.vertices,
                 source.normals,
@@ -69,7 +71,7 @@ namespace Motu.Interop
                 true,
                 worldSize,
                 roadCoverage,
-                cartTrackCoverage);
+                gravelCoverage);
         }
 
         internal static Mesh CopyTerrainMesh(
@@ -168,7 +170,7 @@ namespace Motu.Interop
             bool createSurfaceMapCoordinates,
             float worldSize,
             float[] roadCoverage = null,
-            float[] cartTrackCoverage = null)
+            float[] gravelCoverage = null)
         {
             if (sourceVertices.data == IntPtr.Zero || sourceVertices.length == 0)
             {
@@ -220,7 +222,7 @@ namespace Motu.Interop
             }
 
             return new IslandPreparedMesh(vertices, normals, triangles, uv, material, environment,
-                roadCoverage: roadCoverage, cartTrackCoverage: cartTrackCoverage);
+                roadCoverage: roadCoverage, gravelCoverage: gravelCoverage);
         }
 
         private static Mesh CreateMesh(IslandPreparedMesh source, bool createTangents, bool terrainEnvironment = false)
@@ -252,7 +254,7 @@ namespace Motu.Interop
                 {
                     // Keep the UV layout consistent when streaming combines tiles into a batch.
                     bool hasRoads = source.roadCoverage.Length == source.vertices.Length;
-                    bool hasCartTracks = source.cartTrackCoverage.Length == source.vertices.Length;
+                    bool hasGravel = source.gravelCoverage.Length == source.vertices.Length;
                     var environment = new Vector4[source.vertices.Length];
                     for (var index = 0; index < environment.Length; index++)
                     {
@@ -261,7 +263,7 @@ namespace Motu.Interop
                         environment[index] = new Vector4(
                             weights.x, weights.y,
                             hasRoads ? source.roadCoverage[index] : 0f,
-                            hasCartTracks ? 1f - source.cartTrackCoverage[index] : 1f);
+                            hasGravel ? 1f - source.gravelCoverage[index] : 1f);
                     }
                     mesh.SetUVs(1, environment);
                 }

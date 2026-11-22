@@ -6,7 +6,8 @@ Shader "Motu/Wheat Canopy"
         _WheatBase ("Straw Base", Color) = (0.43, 0.30, 0.12, 1)
         _WheatPorosity ("Canopy Gaps", Range(0, 0.5)) = 0.17
         [HideInInspector] _WheatFade ("Island Coverage", Range(0, 1)) = 1
-        [HideInInspector] _WheatTileFade ("Tile Coverage", Range(0, 1)) = 1
+        [HideInInspector] _WheatDetailPresence ("Detailed Wheat", Range(0, 1)) = 0
+        [HideInInspector] _WheatDetailBlend ("Detail Fade", Vector) = (0, 0, 0, 0)
     }
 
     SubShader
@@ -16,6 +17,7 @@ Shader "Motu/Wheat Canopy"
         HLSLINCLUDE
         #include "../MotuUrp.hlsl"
         #include "../CloudCommon.cginc"
+        #include "../WheatDetailBlend.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Random.hlsl"
 
         CBUFFER_START(UnityPerMaterial)
@@ -23,7 +25,8 @@ Shader "Motu/Wheat Canopy"
             half4 _WheatBase;
             float _WheatPorosity;
             float _WheatFade;
-            float _WheatTileFade;
+            float _WheatDetailPresence;
+            float4 _WheatDetailBlend;
         CBUFFER_END
 
         struct Attributes
@@ -46,8 +49,14 @@ Shader "Motu/Wheat Canopy"
                 blend.y);
         }
 
-        void ClipCoverage(float2 pixelPosition, float2 fieldPosition, float fieldSeed)
+        void ClipCoverage(float2 pixelPosition, float2 fieldPosition, float fieldSeed, float2 worldXZ)
         {
+            float detail = _WheatDetailPresence * MotuWheatDetailCoverage(worldXZ, _WheatDetailBlend);
+            float coverage = _WheatFade * (1.0 - detail);
+            // Match the opposite side of the clump shader's dither threshold.
+            if (coverage < 1.0)
+                clip(coverage - max(1.0 - InterleavedGradientNoise(pixelPosition, 0), 0.00001));
+
             if (_WheatPorosity > 0.0)
             {
                 // Vary the opening density in plot space so the pattern crosses tile seams.
@@ -55,11 +64,6 @@ Shader "Motu/Wheat Canopy"
                 float gaps = _WheatPorosity * lerp(0.55, 1.45, pockets);
                 clip(GenerateHashedRandomFloat((uint2)pixelPosition) - gaps);
             }
-
-            float coverage = _WheatFade * _WheatTileFade;
-            // Keep the opposite side of the clump shader's threshold during handoffs.
-            if (coverage < 1.0)
-                clip(coverage - max(1.0 - InterleavedGradientNoise(pixelPosition, 0), 0.00001));
         }
 
         half3 WheatAlbedo(float2 position, half2 crop)
@@ -127,7 +131,7 @@ Shader "Motu/Wheat Canopy"
 
             half4 Fragment(Varyings input) : SV_Target
             {
-                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.crop.y);
+                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.crop.y, input.positionWS.xz);
                 half3 normal = normalize(input.normalWS);
                 half3 albedo = WheatAlbedo(input.fieldPosition, input.crop);
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.positionWS);
@@ -163,22 +167,25 @@ Shader "Motu/Wheat Canopy"
                 float4 positionCS : SV_POSITION;
                 float2 fieldPosition : TEXCOORD0;
                 half fieldSeed : TEXCOORD1;
+                float2 worldXZ : TEXCOORD2;
             };
 
             ShadowVaryings ShadowVertex(Attributes input)
             {
                 UNITY_SETUP_INSTANCE_ID(input);
                 ShadowVaryings output;
-                output.positionCS = MotuShadowPosition(TransformObjectToWorld(input.positionOS),
+                float3 positionWS = TransformObjectToWorld(input.positionOS);
+                output.positionCS = MotuShadowPosition(positionWS,
                     TransformObjectToWorldNormal(input.normalOS));
                 output.fieldPosition = input.fieldPosition;
                 output.fieldSeed = input.colour.g;
+                output.worldXZ = positionWS.xz;
                 return output;
             }
 
             half4 ShadowFragment(ShadowVaryings input) : SV_Target
             {
-                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.fieldSeed);
+                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.fieldSeed, input.worldXZ);
                 return 0;
             }
             ENDHLSL

@@ -6,7 +6,8 @@ mod planning_tests;
 
 pub use mesh::{PierMeshes, PierPropPoint, build_pier_meshes};
 
-use crate::{Vec2, Vec3};
+use crate::{DecorationClearance, Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 
 const SEARCH_RADIUS: f32 = 220.;
 const SHORE_STEP: f32 = 2.;
@@ -22,7 +23,7 @@ const MAX_PIER_LENGTH: f32 = 220.;
 const MAX_LANDING_GRADE: f32 = 0.18;
 
 /// A surveyed berth in island-local metres. Positions use mean sea level.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PierBerth {
     /// Centre of the ship footprint alongside the fixed deck.
     pub position: Vec3,
@@ -36,7 +37,7 @@ pub struct PierBerth {
 }
 
 /// A fixed pier and collinear land ramp in XY metres with Z-up elevations.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PierLayout {
     pub shore: Vec2,
     pub start: Vec3,
@@ -49,6 +50,21 @@ pub struct PierLayout {
     pub berth: PierBerth,
 }
 
+impl PierLayout {
+    #[must_use]
+    pub fn land_clearance(&self) -> DecorationClearance {
+        let landing = self.start.truncate();
+        DecorationClearance {
+            centre: landing.midpoint(self.shore).to_array(),
+            half_extents: [
+                landing.distance(self.shore) * 0.5 + 2.,
+                self.width * 0.5 + 1.,
+            ],
+            yaw: self.axis.to_angle(),
+        }
+    }
+}
+
 /// Searches within 220 metres of the capital, where open ocean lies toward negative Y.
 /// Missing terrain soundings reject the affected site or approach.
 #[must_use]
@@ -59,6 +75,21 @@ pub fn plan_pier(
     sample: &impl Fn(Vec2) -> Option<f32>,
     shoreline_allowed: &impl Fn(Vec2) -> bool,
 ) -> Option<PierLayout> {
+    survey_piers(capital, sea_level, bounds, sample, shoreline_allowed, 1)
+        .into_iter()
+        .next()
+}
+
+/// Survey nearby landings once, in distance order, for the town street planner.
+#[must_use]
+pub fn survey_piers(
+    capital: Vec2,
+    sea_level: f32,
+    bounds: [Vec2; 2],
+    sample: &impl Fn(Vec2) -> Option<f32>,
+    shoreline_allowed: &impl Fn(Vec2) -> bool,
+    limit: usize,
+) -> Vec<PierLayout> {
     let [min, max] = bounds;
     if !sea_level.is_finite()
         || !min.is_finite()
@@ -66,7 +97,7 @@ pub fn plan_pier(
         || !min.cmplt(max).all()
         || !inside(capital, bounds)
     {
-        return None;
+        return Vec::new();
     }
     let survey = Survey {
         sea_level,
@@ -92,9 +123,22 @@ pub fn plan_pier(
             .then_with(|| a.x.total_cmp(&b.x))
     });
     shores.dedup();
-    shores
-        .into_iter()
-        .find_map(|shore| survey.fit_site(shore, shoreline_allowed))
+    let mut layouts: Vec<PierLayout> = Vec::new();
+    for shore in shores {
+        if layouts.len() == limit {
+            break;
+        }
+        if layouts
+            .iter()
+            .any(|layout| layout.shore.distance_squared(shore) < 10. * 10.)
+        {
+            continue;
+        }
+        if let Some(layout) = survey.fit_site(shore, shoreline_allowed) {
+            layouts.push(layout);
+        }
+    }
+    layouts
 }
 
 struct Survey<'a, F> {

@@ -104,7 +104,7 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void DirtRecipeFadesWithSlopeAndKeepsProceduralNormalDetail()
+        public void DirtRecipeFadesWithSlopeWhileProceduralNormalsAndDirtWeightsRemain()
         {
             if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat))
                 Assert.Ignore("Terrain projection comparison requires floating-point render targets.");
@@ -132,6 +132,8 @@ namespace Motu.Tests
                 Assert.That(shallow.x, Is.EqualTo(1f).Within(.005f));
                 Assert.That(transition.x, Is.EqualTo(.5f).Within(.01f));
                 Assert.That(steep.x, Is.EqualTo(0f).Within(.005f));
+                Assert.That(steep.y, Is.EqualTo(1f).Within(.005f));
+                Assert.That(steep.z, Is.EqualTo(0f).Within(.005f));
                 Assert.That(steep.w, Is.GreaterThan(.025f));
                 material.SetFloat("_DirtNormalStrength", 0f);
                 Assert.That(ProbeSlope(60f).w, Is.EqualTo(0f).Within(.005f));
@@ -169,9 +171,9 @@ namespace Motu.Tests
                 const float sectionOffset = 6000;
                 float diagonal = Mathf.Sqrt(.5f);
                 material.SetFloat("_ProbeWheatCoverage", 1);
-                material.SetVector("_ProbeEnvironment", new Vector4(1, 1, 0, 1));
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 0, 1));
                 var unplanted = Sample(material, target, readback, centreX, sectionOffset, centreZ);
-                Assert.That(Vector4.Distance(unplanted, new Vector4(0, 1, 1, 1)), Is.LessThan(.001f));
+                Assert.That(Vector4.Distance(unplanted, new Vector4(0, 1, 0, 0)), Is.LessThan(.001f));
 
                 var field = new WheatField(new Vector2(centreX, centreZ), new Vector2(6, 2), Mathf.PI / 4f, 1);
                 mask = WheatGroundMask.Build(new[] { field }, CancellationToken.None).Bind(material);
@@ -188,17 +190,28 @@ namespace Motu.Tests
                     centreX + 5.775f * diagonal, sectionOffset, centreZ + 5.775f * diagonal);
                 Assert.That(edge.x, Is.EqualTo(.5f).Within(.18f));
 
+                material.SetVector("_ProbeEnvironment", new Vector4(1, 1, 0, 1));
+                var unplantedForest = Sample(material, target, readback,
+                    centreX + 4f * diagonal, sectionOffset, centreZ - 4f * diagonal);
+                Assert.That(Vector4.Distance(unplantedForest, new Vector4(0, 0, 1, 1)), Is.LessThan(.001f));
+                var clearedFloor = Sample(material, target, readback,
+                    centreX + 4f * diagonal, sectionOffset, centreZ + 4f * diagonal);
+                Assert.That(Vector4.Distance(clearedFloor, planted), Is.LessThan(.001f));
+
                 material.SetFloat("_ProbeWheatCoverage", 0);
                 material.SetFloat("_ProbeRoadCoverage", 1);
+                material.SetVector("_ProbeEnvironment", new Vector4(0, 0, .5f, 1));
+                var shoulder = Sample(material, target, readback, centreX, sectionOffset, centreZ);
+                Assert.That(Vector4.Distance(shoulder, new Vector4(1, 0, 0, 1)), Is.LessThan(.001f));
                 material.SetVector("_ProbeEnvironment", new Vector4(0, 0, .5f, 0));
                 var footpath = Sample(material, target, readback, centreX, sectionOffset, centreZ);
-                Assert.That(Vector4.Distance(footpath, new Vector4(0, 0, 1, 1)), Is.LessThan(.001f));
+                Assert.That(Vector4.Distance(footpath, new Vector4(1, 0, 1, 1)), Is.LessThan(.001f));
                 material.SetVector("_ProbeEnvironment", Vector4.zero);
                 var cartTrack = Sample(material, target, readback, centreX, sectionOffset, centreZ);
                 Assert.That(Vector4.Distance(cartTrack, new Vector4(1, 0, 1, 1)), Is.LessThan(.001f));
                 material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 1, 0));
                 var road = Sample(material, target, readback, centreX, sectionOffset, centreZ);
-                Assert.That(Vector4.Distance(road, new Vector4(0, 1, 1, 1)), Is.LessThan(.001f));
+                Assert.That(Vector4.Distance(road, new Vector4(1, 1, 0, 1)), Is.LessThan(.001f));
             }
             finally
             {
@@ -223,17 +236,16 @@ namespace Motu.Tests
             {
                 material.SetFloat("_ProbeRoadCoverage", 1);
                 material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 0, 1));
-                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(0).Within(.001f));
+                Assert.That(Sample(material, target, readback, 0, 0).z, Is.EqualTo(0).Within(.001f));
                 material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 0, .75f));
-                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(.25f).Within(.001f));
+                Assert.That(Sample(material, target, readback, 0, 0).z, Is.EqualTo(.25f).Within(.001f));
                 material.SetVector("_ProbeEnvironment", Vector4.zero);
-                Assert.That(Sample(material, target, readback, 0, 0).x, Is.EqualTo(1).Within(.001f));
+                Assert.That(Sample(material, target, readback, 0, 0).z, Is.EqualTo(1).Within(.001f));
 
                 material.SetVector("_ProbeEnvironment", new Vector4(0, 0, 1, 0));
                 var paved = Sample(material, target, readback, 0, 0);
-                Assert.That(paved.x, Is.EqualTo(0).Within(.001f));
                 Assert.That(paved.y, Is.EqualTo(1).Within(.001f));
-                Assert.That(paved.z, Is.EqualTo(1).Within(.001f));
+                Assert.That(paved.z, Is.EqualTo(0).Within(.001f));
             }
             finally
             {

@@ -1,5 +1,5 @@
 use super::{
-    atlas,
+    atlas, foundations,
     plan::{Plan, Wall},
     windows,
 };
@@ -19,7 +19,9 @@ pub(super) fn generate(
     supports: &mut Vec<BoxCollider>,
 ) {
     slabs(b, p, level, colliders, supports);
+    let bearing = foundations::floor_bearing_height(p.r);
     for (index, wall) in p.walls().enumerate() {
+        floor_edge(b, wall, bearing, level);
         if index == 0 && p.c.tower_style == ChurchTowerStyle::SingleFront {
             windows::bay(b, p, wall, level, true, colliders);
         } else if index == 0 {
@@ -48,6 +50,21 @@ pub(super) fn generate(
     crate::geometry::foundation::generate_stairs(b, p.r, level == 2);
     // Only entrance steps use the shared terrain-aware stair recipe. Church
     // foundations follow the cruciform floors and each structural buttress pier.
+}
+
+fn floor_edge(b: &mut Builder, wall: Wall, bearing: f32, level: u8) {
+    let len = wall.length();
+    let points = [
+        wall.point(0., bearing, 0.),
+        wall.point(len, bearing, 0.),
+        wall.point(len, 0., 0.),
+        wall.point(0., 0., 0.),
+    ];
+    if level == 2 {
+        atlas::face(b, 0, points);
+    } else {
+        windows::surface(b, MaterialSlot::Wall, points);
+    }
 }
 
 pub(super) fn bays(
@@ -135,6 +152,11 @@ fn slabs(
     }
     if level == 0 {
         crate::geometry::slabs::joined_boxes(b, MaterialSlot::Floor, &floors);
+        // The exterior shell owns the visible slab edges at every LOD.
+        let floor = b.mesh(MaterialSlot::Floor);
+        floor
+            .indices
+            .retain(|&index| floor.normals[index as usize][2].abs() > 0.5);
         colliders.extend(foundations);
         colliders.extend_from_slice(&floors);
         supports.extend(floors);

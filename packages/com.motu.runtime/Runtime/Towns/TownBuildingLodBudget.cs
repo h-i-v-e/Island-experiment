@@ -9,12 +9,14 @@ namespace Motu.Towns
 
         private readonly LODGroup group;
         private readonly Bounds localBounds;
+        private readonly TownDecorationAnchors decorations;
         internal int Level { get; private set; } = PaintedShell;
 
-        internal TownBuildingLod(LODGroup group, Bounds localBounds)
+        internal TownBuildingLod(LODGroup group, Bounds localBounds, TownDecorationAnchors decorations)
         {
             this.group = group;
             this.localBounds = localBounds;
+            this.decorations = decorations;
             group.ForceLOD(PaintedShell);
         }
 
@@ -30,6 +32,7 @@ namespace Motu.Towns
             if (Level == level) return;
             group.ForceLOD(level);
             Level = level;
+            decorations?.SetBudgetLevel(level);
         }
     }
 
@@ -77,24 +80,16 @@ namespace Motu.Towns
                 return distance != 0 ? distance : a.order.CompareTo(b.order);
             });
             var interiors = 0;
-            var exteriors = 0;
-            foreach (var candidate in candidates)
+            while (interiors < InteriorLimit && interiors < candidates.Count
+                && candidates[interiors].sqrDistance <= InteriorRangeMetres * InteriorRangeMetres)
             {
-                if (interiors < InteriorLimit && candidate.sqrDistance <= InteriorRangeMetres * InteriorRangeMetres)
-                {
-                    candidate.building.SetLevel(0);
-                    interiors++;
-                }
-                else if (exteriors < ExteriorLimit)
-                {
-                    candidate.building.SetLevel(1);
-                    exteriors++;
-                }
-                else
-                {
-                    candidate.building.SetLevel(TownBuildingLod.PaintedShell);
-                }
+                interiors++;
             }
+            // Return decorations before the newly selected buildings rent theirs.
+            for (var index = interiors; index < candidates.Count; index++)
+                candidates[index].building.SetLevel(index - interiors < ExteriorLimit ? 1 : TownBuildingLod.PaintedShell);
+            for (var index = 0; index < interiors; index++)
+                candidates[index].building.SetLevel(0);
             candidates.Clear();
         }
     }

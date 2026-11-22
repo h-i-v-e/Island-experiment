@@ -1,48 +1,16 @@
 use super::{
     BRIDGE_WIDTH, CartTrackBlocker, Crossing, HALF_WIDTH, WHEEL_OFFSET, cart_bridge_request,
 };
+use crate::terrain::spatial_bins::SpatialBins;
 use crate::{
     ISLAND_WORLD_METRES, Island, Vec2, Vec3,
     bridges::{BridgeLayout, BridgeRequest, fit_bridge},
 };
 
-const GRID: usize = 96;
 const GRADE_LIMIT: f32 = 0.60;
 const CROSS_GRADE_LIMIT: f32 = 0.46;
-
-/// XY metres, clipped to the fixed native tile. Bins only accelerate geometry queries.
-#[derive(Debug)]
-pub(super) struct SpatialBins<T> {
-    items: Vec<T>,
-    cells: Vec<Vec<usize>>,
-}
-
-impl<T> SpatialBins<T> {
-    pub(super) fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            cells: vec![Vec::new(); GRID * GRID],
-        }
-    }
-
-    fn cells(min: Vec2, max: Vec2) -> impl Iterator<Item = usize> {
-        let bin = |v: f32| ((v / ISLAND_WORLD_METRES * GRID as f32) as usize).min(GRID - 1);
-        let (x0, x1) = (bin(min.x), bin(max.x));
-        (bin(min.y)..=bin(max.y)).flat_map(move |y| (x0..=x1).map(move |x| y * GRID + x))
-    }
-
-    pub(super) fn insert(&mut self, min: Vec2, max: Vec2, item: T) {
-        let index = self.items.len();
-        self.items.push(item);
-        for cell in Self::cells(min, max) {
-            self.cells[cell].push(index);
-        }
-    }
-
-    pub(super) fn nearby(&self, min: Vec2, max: Vec2) -> impl Iterator<Item = &T> {
-        Self::cells(min, max).flat_map(|cell| self.cells[cell].iter().map(|&id| &self.items[id]))
-    }
-}
+pub(super) const PAVED_TRAVEL_FACTOR: f32 = 0.12;
+const TRAVEL_PROBE_SPACING: f32 = 2.5;
 
 #[derive(Clone, Copy)]
 struct Segment {
@@ -325,6 +293,15 @@ impl<'a> Surface<'a> {
         self.traverse(a, b, GRADE_LIMIT, CROSS_GRADE_LIMIT)
     }
 
+    pub(super) fn discounted_bounds(&self) -> impl Iterator<Item = (Vec2, Vec2)> + '_ {
+        // One paved probe can discount the full interval adjacent to it.
+        let margin = TRAVEL_PROBE_SPACING + 0.01;
+        self.island
+            .terrain()
+            .paved_road_bounds()
+            .map(move |(min, max)| (min - margin, max + margin))
+    }
+
     fn traverse(&self, a: Vec2, b: Vec2, grade_limit: f32, cross_grade_limit: f32) -> Option<f32> {
         if !self.clear_ground(a, b) || self.water_at(a, b, HALF_WIDTH) {
             return None;
@@ -332,10 +309,10 @@ impl<'a> Surface<'a> {
         let length = a.distance(b);
         let direction = (b - a).normalize_or_zero();
         let normal = direction.perp() * WHEEL_OFFSET;
-        let steps = (length / 2.5).ceil().max(1.) as usize;
+        let steps = (length / TRAVEL_PROBE_SPACING).ceil().max(1.) as usize;
         let spacing = length / steps as f32;
         let mut previous: Option<([f32; 3], f32)> = None;
-        let mut cost = length;
+        let mut cost = 0.;
         for i in 0..=steps {
             let p = a.lerp(b, i as f32 / steps as f32);
             let heights = [
@@ -347,14 +324,14 @@ impl<'a> Surface<'a> {
             if heights.iter().any(|z| *z <= 0.) || cross > cross_grade_limit {
                 return None;
             }
-            // A terminal may start on pavement. Charge for the length actually
-            // spent in a graded street so continuing into town is expensive.
-            let pavement = self
+            let pavement = (self
                 .island
                 .terrain()
-                .road_coverage_at(p / ISLAND_WORLD_METRES);
+                .road_coverage_at(p / ISLAND_WORLD_METRES)
+                * 2.
+                - 1.)
+                .clamp(0., 1.);
             if let Some((prev, previous_pavement)) = previous {
-                cost += spacing * 6. * (pavement + previous_pavement);
                 let grade = (Vec3::from_array(heights) - Vec3::from_array(prev))
                     .abs()
                     .max_element()
@@ -363,9 +340,11 @@ impl<'a> Surface<'a> {
                     return None;
                 }
                 let previous_cross = (prev[2] - prev[0]) / (2. * WHEEL_OFFSET);
-                cost += spacing
-                    * (10. * grade * grade
-                        + 8. * (cross * cross + previous_cross * previous_cross));
+                let existing = (pavement + previous_pavement) * 0.5;
+                let terrain_cost = 1.
+                    + 10. * grade * grade
+                    + 8. * (cross * cross + previous_cross * previous_cross);
+                cost += spacing * (terrain_cost * (1. - existing) + PAVED_TRAVEL_FACTOR * existing);
             }
             previous = Some((heights, pavement));
         }

@@ -1,7 +1,8 @@
 #[cfg(test)]
 use super::Vec3;
 use super::{
-    EdgeSplitStencil, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2, Vec4,
+    EdgeSplitStencil, GeologyField, ISLAND_WORLD_METRES, Mesh, NewVertexStencil, Terrain,
+    TessellationResult, Vec2, Vec4,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -285,17 +286,23 @@ impl TerrainMaterialField {
     }
 
     pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec4 {
-        terrain.sample_triangle(point).map_or_else(
-            || {
-                let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
-                self.values[nearest]
-            },
-            |(triangle, weights)| {
-                self.values[triangle[0]] * weights[0]
-                    + self.values[triangle[1]] * weights[1]
-                    + self.values[triangle[2]] * weights[2]
-            },
-        )
+        sample_vertex_field(terrain, point, |vertex| self.values[vertex])
+    }
+
+    pub(super) fn sample_surface_weights(&self, terrain: &Terrain, point: Vec2) -> Vec4 {
+        sample_vertex_field(terrain, point, |vertex| {
+            let mesh = terrain.mesh();
+            let mut weights = surface_weights(
+                self.values[vertex],
+                mesh.normals.get(vertex).map_or(1., |normal| normal.z),
+                mesh.vertices[vertex].z * ISLAND_WORLD_METRES,
+            );
+            let disturbance = terrain.ground_disturbance(vertex);
+            weights.x += (1. - weights.x) * disturbance;
+            weights.y *= 1. - disturbance;
+            weights.w *= 1. - disturbance;
+            weights
+        })
     }
 
     pub(super) fn suppress_grass_at_vertices(&mut self, vertices: &[u32]) {
@@ -306,6 +313,60 @@ impl TerrainMaterialField {
             }
         }
     }
+}
+
+fn sample_vertex_field<T>(terrain: &Terrain, point: Vec2, value: impl Fn(usize) -> T) -> T
+where
+    T: std::ops::Mul<f32, Output = T> + std::ops::Add<Output = T>,
+{
+    terrain.sample_triangle(point).map_or_else(
+        || {
+            let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
+            value(nearest)
+        },
+        |(triangle, weights)| {
+            value(triangle[0]) * weights[0]
+                + value(triangle[1]) * weights[1]
+                + value(triangle[2]) * weights[2]
+        },
+    )
+}
+
+// Bake the old terrain-scale slope and geology response into the source
+// vertices. Detail noise is applied to these weights by the renderer.
+fn surface_weights(material: Vec4, up: f32, height: f32) -> Vec4 {
+    const UP_AT_37_DEGREES: f32 = 0.798_635_5;
+    let m = material.clamp(Vec4::ZERO, Vec4::ONE);
+    let slope = 1. - up.clamp(0., 1.);
+    let steep = 1. - smoothstep(std::f32::consts::FRAC_1_SQRT_2, UP_AT_37_DEGREES, up);
+    let geology_strength = (slope * (1.3 + 1.7 * m.x)).min(1.);
+    let geology = smoothstep(0.3, 0.7, geology_strength) * smoothstep(0., 0.2, geology_strength);
+    let forced_rock = smoothstep(0.91, 1., m.x);
+    let exposed = (1. - m.y) * geology.max(forced_rock);
+
+    let coastal_sand = if height <= 0. {
+        m.w
+    } else {
+        m.w * m.y * (1. - smoothstep(2., 4., height))
+    };
+    let coastal_rock = smoothstep(0.08, 0.15, slope);
+    let dirt = 1. - steep.max(exposed).max(coastal_sand * coastal_rock);
+    let grass = if height > 0. {
+        (0.59 + 0.41 * smoothstep(0., 0.35, m.y)) * dirt
+    } else {
+        0.
+    };
+    Vec4::new(
+        dirt,
+        grass,
+        m.z * (1. - steep),
+        coastal_sand * (1. - coastal_rock) * (1. - steep),
+    )
+}
+
+fn smoothstep(start: f32, end: f32, value: f32) -> f32 {
+    let t = ((value - start) / (end - start)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
 }
 
 /// Additional terrain vertex signals exported independently from the four
@@ -330,17 +391,9 @@ impl TerrainEnvironmentField {
     }
 
     pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec2 {
-        terrain.sample_triangle(point).map_or_else(
-            || {
-                let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
-                self.values[nearest]
-            },
-            |(triangle, weights)| {
-                self.values[triangle[0]] * weights[0]
-                    + self.values[triangle[1]] * weights[1]
-                    + self.values[triangle[2]] * weights[2]
-            },
-        )
+        sample_vertex_field(terrain, point, |vertex| {
+            self.values[vertex] * (1. - terrain.ground_disturbance(vertex))
+        })
     }
 }
 
@@ -363,6 +416,49 @@ pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn surface_weights_distinguish_worn_grass_dirt_stone_and_coastal_layers() {
+        let meadow = Vec4::new(0.6, 0.8, 0., 0.);
+        assert_eq!(surface_weights(meadow, 1., 12.), Vec4::new(1., 1., 0., 0.));
+
+        let worn = surface_weights(Vec4::new(0.6, 0.08, 0., 0.), 1., 12.);
+        assert!((worn.x - 1.).abs() < 1.0e-6);
+        assert!((0.59..0.73).contains(&worn.y));
+        assert_eq!(surface_weights(meadow, 0.6, 12.), Vec4::ZERO);
+        assert_eq!(
+            surface_weights(Vec4::new(1., 0., 0., 0.), 1., 12.),
+            Vec4::ZERO
+        );
+
+        let coast = Vec4::new(0.4, 0.75, 0.5, 1.);
+        assert_eq!(surface_weights(coast, 1., 1.), Vec4::new(1., 1., 0.5, 0.75));
+        assert_eq!(surface_weights(coast, 1., -1.), Vec4::new(1., 0., 0.5, 1.));
+        assert_eq!(surface_weights(coast, 0.6, 1.), Vec4::ZERO);
+    }
+
+    #[test]
+    fn render_weights_interpolate_the_source_vertices_for_reduced_lods() {
+        let field = TerrainMaterialField {
+            values: vec![Vec4::new(0.5, 0.5, 0., 0.); 3],
+        };
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0., 0., 0.01),
+                Vec3::new(1., 0., 0.01),
+                Vec3::new(0., 1., 0.01),
+            ],
+            normals: vec![Vec3::Z, Vec3::X, Vec3::X],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
+        let point = Vec2::splat(0.25);
+        assert_eq!(field.sample(&terrain, point), field.values[0]);
+        assert_eq!(
+            field.sample_surface_weights(&terrain, point),
+            Vec4::new(0.5, 0.5, 0., 0.)
+        );
+    }
 
     #[test]
     fn initial_soil_blanket_covers_only_land_in_world_metres() {

@@ -43,7 +43,7 @@ impl Island {
                 accepted.push(field);
             }
         }
-        self.clear_decorations(&accepted)?;
+        self.clear_settlement_ground(&accepted)?;
         Ok(accepted)
     }
 }

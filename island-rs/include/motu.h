@@ -144,7 +144,7 @@ typedef struct {
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
-    /* RGBA: bedrock/forced rock, loose cover, river bed, sea proximity. */
+    /* RGBA: dirt strength (stone = 1 - dirt), grass, river bed, coastal sand. */
     Vector4ExportArray material;
     Vector2ExportArray environment;
 } ExportMesh;
@@ -227,9 +227,15 @@ MOTU_EXPORT char *PrepareCoastalCapitalPier(void *handle, const char *requestJso
 /* Validate and trim field rectangles, then clear their decorations. Prepare
    after roads, footpaths, cart tracks and bridges; free with FreeCoastalTownJson. */
 MOTU_EXPORT char *PrepareCoastalWheatFields(void *handle, const char *requestJson);
+/* Fit roadside fields and add windbreak trees to the forest on an exclusive island.
+   Call after bridges and wheat; free the returned JSON with FreeCoastalTownJson. */
+MOTU_EXPORT char *PrepareCoastalRoadsideFields(void *handle, const char *requestJson);
 /* Returns the number of painted terrain vertices, or -1 for invalid input. */
 MOTU_EXPORT int32_t PaintCoastalTownFootpaths(void *handle, const char *requestJson);
 MOTU_EXPORT void FreeCoastalTownJson(char *json);
+/* Gravel shared by stair and pier footpaths and cart ruts. */
+MOTU_EXPORT int32_t CopyTerrainGravelCoverage(const void *handle, Vector3ExportArray vertices,
+                                              float *weights);
 MOTU_EXPORT int32_t HasTerrainCartTracks(const void *handle);
 MOTU_EXPORT int32_t CopyTerrainCartTrackCoverage(const void *handle, Vector3ExportArray vertices,
                                                 float *weights);

@@ -61,6 +61,117 @@ namespace Motu.Tests
         }
 
         [Test, Category("NativeIntegration"), Timeout(300000)]
+        public void DecorationAnchorsKeepTheirPosesThroughNativeExportAndPrefabBaking()
+        {
+            const string anchors = @"
+                ,""decoration_anchors"":[
+                    {""id"":""shop-sign"",""label"":""wall.sign"",""position"":[1.35,-3.5,1.8],""normal"":[0,-1,0],""twist_degrees"":0},
+                    {""id"":""table"",""label"":""floor.furniture"",""position"":[1,2,0],""normal"":[0,0,1],""twist_degrees"":90}
+                ]
+                ";
+            var building = CottageRecipe();
+            building = building.Insert(building.LastIndexOf('}'), anchors);
+            var recipe = JsonUtility.ToJson(new FixtureRecipe {
+                catalogue = new[] { new FixtureEntry { building_json = building } },
+            });
+            var data = TownNative.Generate(recipe, Input(true));
+            var owner = new GameObject("Native decoration anchor test");
+            var catalogue = ScriptableObject.CreateInstance<TownRecipeCatalogue>();
+            var decorationCatalogue = ScriptableObject.CreateInstance<TownDecorationCatalogue>();
+            var destination = AssetDatabase.GenerateUniqueAssetPath("Assets/TownDecorationBakeTest");
+            try
+            {
+                var props = new SerializedObject(decorationCatalogue);
+                var bindings = props.FindProperty("entries");
+                bindings.arraySize = 2;
+                BindProp(0, "wall.sign", "Anchor test sign");
+                BindProp(1, "floor.furniture", "Anchor test table");
+                props.ApplyModifiedPropertiesWithoutUndo();
+
+                var runtime = TownRenderer.Install(owner.transform, data, 2000f,
+                    useBuildingLodBudget: true, decorationCatalogue: decorationCatalogue);
+                var prototype = runtime.SharedPrototypes.Single();
+                CheckMounts(prototype);
+                var placed = runtime.GetComponentsInChildren<TownDecorationAnchors>()
+                    .FirstOrDefault(mounts => mounts.gameObject.activeInHierarchy);
+                Assert.That(placed, Is.Not.Null);
+                CheckMounts(placed.gameObject);
+                var lod = runtime.BuildingLods[0];
+                Assert.That(FindProp(placed, "Anchor test sign"), Is.Null, "New buildings start in the far LOD.");
+                lod.SetLevel(0);
+                var sign = FindProp(placed, "Anchor test sign");
+                var table = FindProp(placed, "Anchor test table");
+                Assert.That(sign, Is.Not.Null);
+                Assert.That(table, Is.Not.Null);
+                CheckDirection(placed.transform.InverseTransformPoint(sign.position), new Vector3(1.35f, 1.8f, -3.5f));
+                CheckDirection(placed.transform.InverseTransformDirection(table.forward), Vector3.left);
+                lod.SetLevel(1);
+                Assert.That(FindProp(placed, "Anchor test sign"), Is.Null);
+                Assert.That(FindProp(placed, "Anchor test table"), Is.Null);
+                lod.SetLevel(0);
+                Assert.That(FindProp(placed, "Anchor test sign"), Is.SameAs(sign));
+                Assert.That(FindProp(placed, "Anchor test table"), Is.SameAs(table));
+
+                AssetDatabase.CreateFolder("Assets", Path.GetFileName(destination));
+                var recipePath = destination + "/Cottage.json";
+                File.WriteAllText(recipePath, building);
+                AssetDatabase.ImportAsset(recipePath, ImportAssetOptions.ForceSynchronousImport);
+                var serialized = new SerializedObject(catalogue);
+                var entries = serialized.FindProperty("entries");
+                entries.arraySize = 1;
+                var entry = entries.GetArrayElementAtIndex(0);
+                entry.FindPropertyRelative("id").stringValue = "anchor-cottage";
+                entry.FindPropertyRelative("buildingRecipe").objectReferenceValue = AssetDatabase.LoadAssetAtPath<TextAsset>(recipePath);
+                entry.FindPropertyRelative("maximumCount").intValue = 1;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                var path = TownPrefabBaker.Bake(catalogue, 42, destination).Single();
+                CheckMounts(AssetDatabase.LoadAssetAtPath<GameObject>(path));
+
+                void BindProp(int index, string label, string name)
+                {
+                    var prefab = new GameObject(name);
+                    prefab.transform.SetParent(owner.transform, false);
+                    var binding = bindings.GetArrayElementAtIndex(index);
+                    binding.FindPropertyRelative("label").stringValue = label;
+                    var variants = binding.FindPropertyRelative("prefabs");
+                    variants.arraySize = 1;
+                    variants.GetArrayElementAtIndex(0).objectReferenceValue = prefab;
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(owner);
+                Object.DestroyImmediate(catalogue);
+                Object.DestroyImmediate(decorationCatalogue);
+                if (AssetDatabase.IsValidFolder(destination)) AssetDatabase.DeleteAsset(destination);
+            }
+
+            static void CheckMounts(GameObject buildingRoot)
+            {
+                var mounts = buildingRoot.GetComponent<TownDecorationAnchors>();
+                Assert.That(mounts, Is.Not.Null, buildingRoot.name);
+                Assert.That(mounts.Anchors.Count, Is.EqualTo(2));
+                var sign = mounts.Anchors.Single(anchor => anchor.Id == "shop-sign");
+                Assert.That(sign.Label, Is.EqualTo("wall.sign"));
+                CheckDirection(sign.LocalPosition, new Vector3(1.35f, 1.8f, -3.5f));
+                CheckDirection(sign.LocalRotation * Vector3.up, Vector3.back);
+                CheckDirection(sign.LocalRotation * Vector3.forward, Vector3.up);
+                var table = mounts.Anchors.Single(anchor => anchor.Id == "table");
+                Assert.That(table.Label, Is.EqualTo("floor.furniture"));
+                CheckDirection(table.LocalPosition, new Vector3(1, 0, 2));
+                CheckDirection(table.LocalRotation * Vector3.up, Vector3.up);
+                CheckDirection(table.LocalRotation * Vector3.forward, Vector3.left);
+            }
+
+            static void CheckDirection(Vector3 actual, Vector3 expected) =>
+                Assert.That(Vector3.Distance(actual, expected), Is.LessThan(0.0001f));
+
+            static Transform FindProp(TownDecorationAnchors building, string name) =>
+                building.GetComponentsInChildren<Transform>().SingleOrDefault(prop =>
+                    prop.name.StartsWith(name, StringComparison.Ordinal));
+        }
+
+        [Test, Category("NativeIntegration"), Timeout(300000)]
         public void RealCoastalTerrainExportsTownInputAndAcceptsNativeClearance()
         {
             var result = RealFixture.Value.town;
@@ -83,7 +194,7 @@ namespace Motu.Tests
             internal IslandPreparedMesh bridgeTerrain, bridgeRiver;
             internal float roadHeightMapError;
             internal bool overviewHasRoadCore;
-            internal bool overviewHasCartRuts;
+            internal bool overviewHasGravel;
             internal RealWheatScene wheat;
         }
 
@@ -158,8 +269,8 @@ namespace Motu.Tests
                     roadHeightMapError = RoadHeightMapError(handle, result.road_mesh),
                     overviewHasRoadCore = overview
                         .Any(tile => tile != null && Array.Exists(tile.roadCoverage, weight => weight >= 0.98f)),
-                    overviewHasCartRuts = overview
-                        .Any(tile => tile != null && Array.Exists(tile.cartTrackCoverage, weight => weight >= 0.60f)),
+                    overviewHasGravel = overview
+                        .Any(tile => tile != null && Array.Exists(tile.gravelCoverage, weight => weight >= 0.60f)),
                 };
             }
             finally { MotuNative.ReleaseMotu(handle); }
@@ -183,7 +294,7 @@ namespace Motu.Tests
             }
             Assert.That(reached.Count, Is.GreaterThan(1));
             Assert.That(plan.run_count, Is.GreaterThanOrEqualTo(plan.links.Length));
-            Assert.That(fixture.overviewHasCartRuts, Is.True, "Atlas tiles retain the fine cart-rut mask.");
+            Assert.That(fixture.overviewHasGravel, Is.True, "Atlas tiles retain the fine gravel mask.");
             foreach (var crossing in plan.bridges)
             {
                 Assert.That(crossing.start.Length, Is.EqualTo(3));
@@ -192,6 +303,36 @@ namespace Motu.Tests
             }
             TestContext.Progress.WriteLine($"Seed-42 cart tracks: {plan.links.Length} links, "
                 + $"{plan.run_count} dry runs, {plan.bridges.Length} requested crossings, {plan.portals.Length} seam approaches.");
+        }
+
+        [Test, Category("NativeIntegration"), Timeout(300000)]
+        public void RealCoastExportsRoadsideFieldsWithGatesAndWalls()
+        {
+            var data = RealFixture.Value.town;
+            var plan = data.roadsideFields;
+            Assert.That(plan, Is.Not.Null);
+            Assert.That(plan.fields.Length, Is.GreaterThan(0), "The fixed coastal seed has open frontage.");
+            Assert.That(plan.walls, Is.Not.Empty);
+            Assert.That(plan.windbreaks, Is.Not.Empty);
+            Assert.That(plan.gates.Select(gate => gate.field_id), Is.EquivalentTo(plan.fields.Select(field => field.id)));
+            foreach (var gate in plan.gates)
+            {
+                Assert.That(gate.left, Has.Length.EqualTo(3));
+                Assert.That(gate.right, Has.Length.EqualTo(3));
+                var span = new Vector2(gate.right[0] - gate.left[0], gate.right[1] - gate.left[1]);
+                Assert.That(span.magnitude, Is.InRange(1.74f, 1.85f));
+            }
+
+            var owner = new GameObject("Native roadside fields fixture");
+            try
+            {
+                var town = TownRenderer.Install(owner.transform, data, 2000f, roadsOnTerrain: true);
+                Assert.That(town.RoadsideFieldCount, Is.EqualTo(plan.fields.Length));
+                Assert.That(town.RoadsideBoundaryNavigation, Is.Not.Empty);
+            }
+            finally { Object.DestroyImmediate(owner); }
+            TestContext.Progress.WriteLine($"Seed-42 roadside parcels: {plan.fields.Length} fields, "
+                + $"{plan.fields.Count(field => field.wheat)} wheat, {plan.windbreaks.Length} windbreak plants.");
         }
 
         [Test, Category("NativeIntegration"), Timeout(300000)]
@@ -216,8 +357,10 @@ namespace Motu.Tests
                 var environment = new List<Vector3>();
                 terrainMesh.GetUVs(1, environment);
                 Assert.That(environment.Exists(weights => weights.z >= 0.98f), Is.True, "Packed road core");
-                Assert.That(environment.Exists(weights => Mathf.Abs(weights.z - 0.5f) < 0.05f), Is.True, "Gravel road edge");
+                Assert.That(environment.Exists(weights => Mathf.Abs(weights.z - 0.5f) < 0.05f), Is.True, "Paving edge");
                 Assert.That(environment.Exists(weights => weights.z == 0f), Is.True, "Ground clear of roads");
+                Assert.That(FindDirtBank(fixture.terrain, Vector3.zero), Is.GreaterThanOrEqualTo(0),
+                    "The native terrain weights should mark a dirt bank alongside the paving.");
                 var collider = ground.AddComponent<MeshCollider>();
                 collider.sharedMesh = terrainMesh;
                 Physics.SyncTransforms();
@@ -556,7 +699,13 @@ namespace Motu.Tests
 
         [UnityTest, Category("NativeIntegration"), Timeout(300000)]
         public IEnumerator RealCoastCapitalPierRendersWithoutClutter()
-            => RenderTown(RealFixture.Value.town, RealFixture.Value.terrain, "real-coast-capital-pier", capturePier: true);
+        {
+            var fixture = RealFixture.Value;
+            Assert.That(fixture.town.pier_layout_json, Is.Not.Null.And.Not.Empty, fixture.town.pierDiagnostic);
+            Assert.That(fixture.town.pier, Is.Not.Null, fixture.town.pierDiagnostic);
+            Assert.That(fixture.town.pier.access_connected, Is.True);
+            return RenderTown(fixture.town, fixture.terrain, "real-coast-capital-pier", capturePier: true);
+        }
 
         [UnityTest, Category("NativeIntegration"), Timeout(300000)]
         public IEnumerator RealCoastWheatRendersAsClumpsAndAsATerrainCanopy()
@@ -589,10 +738,13 @@ namespace Motu.Tests
             var image = new Texture2D(1024, 768, TextureFormat.RGB24, false);
             Material groundMaterial = null;
             TerrainMaterialTextureArrays terrainTextures = null;
+            Color? terrainDirtColour = null;
             Mesh groundMesh = null;
             Mesh riverMesh = null;
             Material riverMaterial = null;
             using var riverNoise = river == null ? null : SharedNoiseTexture.Acquire(SharedNoiseTexture.Kind.River);
+            using var grassNoise = terrain == null ? null : SharedNoiseTexture.Acquire(SharedNoiseTexture.Kind.Weather);
+            using var cliffNoise = terrain == null ? null : SharedNoiseTexture.Acquire(SharedNoiseTexture.Kind.Cliff);
             try
             {
                 GraphicsSettings.defaultRenderPipeline = pipeline;
@@ -602,9 +754,15 @@ namespace Motu.Tests
                     var colours = new IslandMaterialColours(
                         new Color(0.30f, 0.21f, 0.12f), new Color(0.34f, 0.36f, 0.32f),
                         new Color(0.62f, 0.57f, 0.34f));
+                    terrainDirtColour = colours.Dirt;
                     var bakedMaterials = MaterialPreparation.PrepareMaterialTextures(colours, 128);
                     terrainTextures = new TerrainMaterialTextureArrays(bakedMaterials);
                     groundMaterial = new Material(Shader.Find("Motu/Terrain Unified"));
+                    groundMaterial.SetColor("_GroundDirtColor", colours.Dirt);
+                    groundMaterial.SetColor("_RockColor", colours.Stone);
+                    groundMaterial.SetColor("_SandColor", colours.Sand);
+                    groundMaterial.SetTexture("_GrassPatchNoise", grassNoise.Texture);
+                    groundMaterial.SetTexture("_CliffNoise3D", cliffNoise.Texture);
                     groundMaterial.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
                     groundMaterial.SetFloat("_WorldNormalWeight", 0f);
                     terrainTextures.BindTerrain(groundMaterial);
@@ -614,7 +772,7 @@ namespace Motu.Tests
                     groundMesh = IslandMeshInterop.CreateTerrainMesh(terrain, 0);
                 }
                 var town = TownRenderer.Install(root.transform, data, 2000f, roadsOnTerrain: terrain != null,
-                    terrainTextures: terrainTextures);
+                    terrainTextures: terrainTextures, terrainDirtColour: terrainDirtColour);
                 if (terrain != null)
                     Assert.That(town.transform.Find("Town roads"), Is.Null, "Roads are part of the terrain mesh.");
                 else if (data.road_count > 0)
@@ -710,8 +868,9 @@ namespace Motu.Tests
                 CaptureFrame(camera, target, image, fileName + "-supports.png");
                 if (terrain != null)
                 {
+                    CaptureDirtBank(terrain, town.InspectionLocalPosition, camera, target, image);
                     CaptureRoadRelief(terrain, town.InspectionLocalPosition, groundMaterial, camera, target, image);
-                    CaptureCartTrack(terrain, town.InspectionLocalPosition, camera, target, image);
+                    CaptureGravelApproach(terrain, town.InspectionLocalPosition, camera, target, image);
                 }
                 else
                 {
@@ -898,6 +1057,36 @@ namespace Motu.Tests
             return changed;
         }
 
+        private static int FindDirtBank(IslandPreparedMesh terrain, Vector3 inspection)
+        {
+            var min = terrain.vertices.Aggregate(Vector3.Min) + new Vector3(8f, 0, 8f);
+            var max = terrain.vertices.Aggregate(Vector3.Max) - new Vector3(8f, 0, 8f);
+            return Enumerable.Range(0, terrain.roadCoverage.Length)
+                .Where(i => terrain.roadCoverage[i] is > 0.35f and < 0.48f
+                    && terrain.material[i].r > 0.95f && terrain.material[i].g < 0.05f
+                    && (terrain.gravelCoverage.Length == 0 || terrain.gravelCoverage[i] < 0.1f)
+                    && terrain.vertices[i].x > min.x && terrain.vertices[i].x < max.x
+                    && terrain.vertices[i].z > min.z && terrain.vertices[i].z < max.z)
+                .OrderBy(i => terrain.normals[i].y + 0.0015f * Vector3.Distance(terrain.vertices[i], inspection))
+                .DefaultIfEmpty(-1).First();
+        }
+
+        private static void CaptureDirtBank(IslandPreparedMesh terrain, Vector3 inspection,
+            Camera camera, RenderTexture target, Texture2D image)
+        {
+            var bankIndex = FindDirtBank(terrain, inspection);
+            Assert.That(bankIndex, Is.GreaterThanOrEqualTo(0));
+            var bank = terrain.vertices[bankIndex];
+            var paving = terrain.vertices.Where((_, i) => terrain.roadCoverage[i] > 0.98f)
+                .OrderBy(vertex => (vertex - bank).sqrMagnitude).First();
+            var across = Vector3.ProjectOnPlane(paving - bank, Vector3.up).normalized;
+            var along = Vector3.Cross(Vector3.up, across);
+            camera.orthographicSize = 1.8f;
+            camera.transform.position = paving + across * 2.5f + along * 2.0f + Vector3.up * 3.2f;
+            camera.transform.LookAt(bank + Vector3.up * 0.55f);
+            CaptureFrame(camera, target, image, "real-coast-dirt-road-bank.png");
+        }
+
         private static void CaptureRoadRelief(IslandPreparedMesh terrain, Vector3 inspection, Material ground,
             Camera camera, RenderTexture target, Texture2D image)
         {
@@ -915,20 +1104,20 @@ namespace Motu.Tests
             Assert.That(changed, Is.GreaterThan(100), "Road relief must affect the close terrain render.");
         }
 
-        private static void CaptureCartTrack(IslandPreparedMesh terrain, Vector3 inspection,
+        private static void CaptureGravelApproach(IslandPreparedMesh terrain, Vector3 inspection,
             Camera camera, RenderTexture target, Texture2D image)
         {
-            if (terrain.cartTrackCoverage.Length != terrain.vertices.Length) return;
+            if (terrain.gravelCoverage.Length != terrain.vertices.Length) return;
             var hasPaving = terrain.roadCoverage.Length == terrain.vertices.Length;
-            var ruts = terrain.vertices.Where((_, i) => terrain.cartTrackCoverage[i] > 0.85f
+            var gravel = terrain.vertices.Where((_, i) => terrain.gravelCoverage[i] > 0.85f
                 && (!hasPaving || terrain.roadCoverage[i] < 0.01f));
-            var focus = ruts.OrderBy(point => Mathf.Abs(Vector3.Distance(point, inspection) - 110f))
+            var focus = gravel.OrderBy(point => Mathf.Abs(Vector3.Distance(point, inspection) - 110f))
                 .FirstOrDefault();
             if (focus == default) return;
             camera.orthographicSize = 3.5f;
             camera.transform.position = focus + new Vector3(4f, 7f, -5f);
             camera.transform.LookAt(focus);
-            CaptureFrame(camera, target, image, "cart-track-ruts.png");
+            CaptureFrame(camera, target, image, "real-coast-gravel-approach.png");
         }
 
         private static void ReadFrame(Camera camera, RenderTexture target, Texture2D image)
@@ -961,11 +1150,12 @@ namespace Motu.Tests
             public string id = "fixture-cottage", placement = "centre", building_json;
             public int min_count = 2, max_count = 2;
         }
-        private static string Recipe()
-        {
-            var building = Resources.Load<TextAsset>("Towns/Recipes/cottage").text.Replace("\"atlas_size\": 1024", "\"atlas_size\": 128");
-            return JsonUtility.ToJson(new FixtureRecipe { catalogue = new[] { new FixtureEntry { building_json = building } } });
-        }
+        private static string CottageRecipe() => Resources.Load<TextAsset>("Towns/Recipes/cottage").text
+            .Replace("\"atlas_size\": 1024", "\"atlas_size\": 128");
+
+        private static string Recipe() => JsonUtility.ToJson(new FixtureRecipe {
+            catalogue = new[] { new FixtureEntry { building_json = CottageRecipe() } },
+        });
         private static string Input(bool rivers)
         {
             var heights = string.Join(",", Enumerable.Range(0, 441).Select(i => i < 21 ? "-2" : "2"));

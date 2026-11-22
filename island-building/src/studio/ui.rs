@@ -7,7 +7,7 @@ mod inspector;
 mod openings;
 mod storeys;
 pub(super) mod units;
-use super::{PendingAction, StudioState, camera::CameraControls};
+use super::{PendingAction, StudioCamera, StudioState, Tab, anchors, camera::CameraControls};
 use crate::interaction::BuildingInstance;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -21,7 +21,9 @@ pub(super) fn draw(
     mut contexts: EguiContexts,
     mut state: ResMut<StudioState>,
     mut controls: ResMut<CameraControls>,
-    mut instances: Query<&mut BuildingInstance>,
+    mut instances: Query<(&mut BuildingInstance, &GlobalTransform)>,
+    camera: Single<(&Camera, &GlobalTransform), With<StudioCamera>>,
+    mut picking: anchors::Picking,
     mut themed: Local<bool>,
 ) {
     let Ok(context) = contexts.ctx_mut() else {
@@ -45,7 +47,18 @@ pub(super) fn draw(
     status(&mut viewport_ui, &state);
     inspector::show(&mut viewport_ui, context, &mut state);
     inspection(context, &mut state, &mut controls, &mut instances);
+    let blocked =
+        state.pending_action.is_some() || state.file_dialog.is_some() || state.load_task.is_some();
     dirty_modal(context, &mut state);
+    let preview = state.root.and_then(|root| instances.get(root).ok());
+    anchors::viewport(
+        &viewport_ui,
+        &mut state,
+        *camera,
+        preview,
+        &mut picking,
+        blocked,
+    );
 }
 
 fn install_theme(context: &egui::Context) {
@@ -282,10 +295,10 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
 fn instance_status(
     ui: &mut egui::Ui,
     state: &StudioState,
-    instances: &mut Query<&mut BuildingInstance>,
+    instances: &mut Query<(&mut BuildingInstance, &GlobalTransform)>,
 ) {
     if let Some(root) = state.root
-        && let Ok(mut instance) = instances.get_mut(root)
+        && let Ok((mut instance, _)) = instances.get_mut(root)
     {
         ui.separator();
         ui.checkbox(&mut instance.stairs_visible, "Show entrance stairs");
@@ -366,7 +379,7 @@ fn inspection(
     context: &egui::Context,
     state: &mut StudioState,
     controls: &mut CameraControls,
-    instances: &mut Query<&mut BuildingInstance>,
+    instances: &mut Query<(&mut BuildingInstance, &GlobalTransform)>,
 ) {
     egui::Window::new("INSPECTION")
         .anchor(egui::Align2::RIGHT_TOP, [-18., 110.])
@@ -376,26 +389,30 @@ fn inspection(
         .show(context, |ui| {
             camera_buttons(ui, state, controls);
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.automatic, true, "Auto");
-                for level in 0..3 {
-                    if ui
-                        .selectable_label(
-                            !state.automatic && state.lod == level,
-                            format!("LOD{level}"),
-                        )
-                        .clicked()
-                    {
-                        state.automatic = false;
-                        state.lod = level;
+            if state.tab == Tab::Decorations {
+                ui.label("Decoration placement uses LOD0");
+            } else {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.automatic, true, "Auto");
+                    for level in 0..3 {
+                        if ui
+                            .selectable_label(
+                                !state.automatic && state.lod == level,
+                                format!("LOD{level}"),
+                            )
+                            .clicked()
+                        {
+                            state.automatic = false;
+                            state.lod = level;
+                        }
                     }
-                }
-            });
-            ui.label(
-                egui::RichText::new("Near openings and occupants pin LOD0")
-                    .small()
-                    .color(DIM),
-            );
+                });
+                ui.label(
+                    egui::RichText::new("Near openings and occupants pin LOD0")
+                        .small()
+                        .color(DIM),
+                );
+            }
             instance_status(ui, state, instances);
             ui.label(format!(
                 "Build {:.0} ms · bake {:.0} ms",

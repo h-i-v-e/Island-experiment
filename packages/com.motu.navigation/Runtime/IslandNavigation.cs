@@ -229,8 +229,12 @@ namespace Motu.Navigation
                 var padding = build.agentRadius * 2f + build.voxelSize * 3f;
                 Report.chunkSize = chunkWidth;
                 Report.maximumBuildWorkers = (int)build.maxJobWorkers;
-                // Copy static town walkways on Unity's thread before partitioning them with the terrain.
-                var townWalkways = GetComponentInParent<IslandRuntime>(true)?.Town?.CopyTownNavigationMeshes(transform);
+                // Collect static town geometry in the same local space as the terrain.
+                var town = GetComponentInParent<IslandRuntime>(true)?.Town;
+                var townWalkways = town?.CopyTownNavigationMeshes(transform);
+                var townLocalToNav = town == null ? Matrix4x4.identity
+                    : transform.worldToLocalMatrix * town.transform.localToWorldMatrix;
+                var roadsideBoundaries = town?.RoadsideBoundaryNavigation;
                 var partition = await Task.Run(() => IslandNavigationChunks.Prepare(terrain, caves,
                     chunkWidth, padding, settings.MinimumGroundHeight, settings.ExcludeRiverBeds, token, townWalkways), token);
                 Report.sourceTriangles = partition.sourceTriangles;
@@ -249,6 +253,7 @@ namespace Motu.Navigation
                     sources.AddForest(forest);
                     sources.AddWood(trunks, false); sources.AddWood(logs, true);
                     sources.AddBoulders(boulders);
+                    sources.AddRoadsideBoundaries(roadsideBoundaries, townLocalToNav);
                     sources.ExcludeSubmergedGround(settings.MinimumGroundHeight, settings.AgentRadius);
                     Report.sourceUploadMilliseconds += timer.Elapsed.TotalMilliseconds;
                     Report.sourceCount += sources.sources.Count;

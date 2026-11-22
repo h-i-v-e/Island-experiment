@@ -42,7 +42,8 @@ namespace Motu.Islands
                 request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
                 prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable,
                 request.CoastalStripOptions, request.TownRecipeJson, request.TownSeed, request.TownDependencies,
-                request.VillageRecipeJson, request.Profile.Towns.roadsEnabled && request.Profile.Towns.connectSettlements);
+                request.VillageRecipeJson, request.Profile.Towns.roadsEnabled && request.Profile.Towns.connectSettlements,
+                request.Profile.Towns.roadsideFieldWind * (request.CoastalInlandSouth ? -1f : 1f));
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -63,7 +64,7 @@ namespace Motu.Islands
             CaveNative.WalkOptions? walkOptions = null, bool prepareNavigation = true,
             CoastalStripNative.Options? coastalStripOptions = null,
             string townRecipeJson = null, ulong townSeed = 0UL, TownDependencyData[] townDependencies = null,
-            string villageRecipeJson = null, bool connectSettlements = true)
+            string villageRecipeJson = null, bool connectSettlements = true, Vector2? roadsideFieldWind = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = LoadOrGenerateNative(islandSeed, options, forestOptions, reedOptions,
@@ -74,7 +75,7 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 // Snapshots hold base terrain. Finish town grading and clearance before deriving terrain or decorations.
                 var town = TownNative.Prepare(handle, townRecipeJson, townSeed, townDependencies, villageRecipeJson,
-                    connectSettlements, coastalStripOptions.HasValue);
+                    connectSettlements, coastalStripOptions.HasValue, roadsideFieldWind);
                 var wheat = IslandPreparedWheat.Prepare(town, townSeed, worldSize, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);

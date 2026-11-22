@@ -215,7 +215,9 @@ impl CartTrackSurface {
                     .filter(|b| b.link_index == alignment.link_index)
             };
             let paint_through_ends = [
-                start_crossing.is_some() || link_bridges().any(|b| b.end == *first),
+                alignment.joins_track
+                    || start_crossing.is_some()
+                    || link_bridges().any(|b| b.end == *first),
                 end_crossing.is_some() || link_bridges().any(|b| b.start == *last),
             ];
             let mut length = 0.;
@@ -495,6 +497,7 @@ mod tests {
             .map(|points| CartTrackRun {
                 link_index: 0,
                 points: points.to_vec(),
+                joins_track: false,
             })
             .collect();
         CartTrackSurface::new(&runs, &[])
@@ -517,10 +520,12 @@ mod tests {
             CartTrackRun {
                 link_index: 0,
                 points: vec![[40., 100., 6.], near],
+                joins_track: false,
             },
             CartTrackRun {
                 link_index: 0,
                 points: vec![far, [80., 100., 6.]],
+                joins_track: false,
             },
         ];
         let mut bridges = [CartTrackBridge {

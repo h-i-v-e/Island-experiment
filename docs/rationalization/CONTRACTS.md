@@ -27,15 +27,19 @@ before reusing a busy facade.
 
 | Unity channel | Authoritative meaning |
 | --- | --- |
-| Vertex colour R | Geological hardness; not automatically exposed rock |
-| Vertex colour G | Loose surface cover |
+| Vertex colour R | Dirt weight in the dirt and stone substrate |
+| Vertex colour G | Grass weight |
 | Vertex colour B | River-bed contribution |
-| Vertex colour A | Sea proximity |
+| Vertex colour A | Coastal sand potential |
 | UV2 X | Forest-floor contribution |
 | UV2 Y | Fallen-stone contribution |
+| UV2 Z | Town paving profile |
+| UV2 W | One minus gravel coverage for footpaths and cart ruts |
 
-`TerrainCoverageCommon.cginc` owns coverage evaluation. Terrain texture-array
-layers are dirt, forest floor, rock, river bed, beach, and stones, in that order.
+Rust computes the terrain vertex weights, including dirt shoulders in the base
+ground colours. `TerrainCoverageCommon.cginc` blends
+them with environmental coverage and shared surface noise. The terrain texture
+array contains dirt, forest floor, rock, river bed, beach, stones and roads in that order.
 `IslandMaterialTextureCache` stores derived material maps separately from native
 geometry identity. Terrain, grass and LOD shaders consume those same coverage
 contracts; material changes must keep them synchronized.

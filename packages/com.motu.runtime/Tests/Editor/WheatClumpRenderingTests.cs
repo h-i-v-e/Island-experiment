@@ -68,6 +68,65 @@ namespace Motu.Tests
             Assert.AreEqual(0, scene.Render().count);
         }
 
+        [Test]
+        public void DetailedWheatGivesWayToTheCanopyAcrossTheFadeBand()
+        {
+            using var scene = new RenderScene();
+            var key = Vector2Int.zero;
+            scene.Renderer.SetTile(key, new[] {
+                new WheatPlant(new Vector3(-.48f, 0, 0), 0f, .78f, .4f, .3f),
+                new WheatPlant(Vector3.zero, .4f, .8f, .4f, .6f),
+                new WheatPlant(new Vector3(.48f, 0, 0), .8f, .82f, .4f, .9f),
+            });
+            scene.Renderer.SetTileBlend(key, true);
+            var canopy = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            canopy.layer = scene.Owner.layer;
+            canopy.transform.SetParent(scene.Owner.transform, false);
+            canopy.transform.localPosition = Vector3.up * .4f;
+            canopy.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            canopy.transform.localScale = Vector3.one * 1.6f;
+            var material = new Material(Resources.Load<Shader>("WheatCanopy"));
+            canopy.GetComponent<MeshRenderer>().sharedMaterial = material;
+            material.SetFloat("_WheatPorosity", 0f);
+            material.SetFloat("_WheatDetailPresence", 1f);
+            try
+            {
+                (int plants, int canopy) Sample(float distance)
+                {
+                    var origin = scene.Owner.transform.position;
+                    var blend = new Vector4(origin.x + distance, origin.z, 10f, 20f);
+                    scene.Renderer.DetailBlend = blend;
+                    material.SetVector("_WheatDetailBlend", blend);
+                    canopy.SetActive(false);
+                    var plants = scene.Render().count;
+                    canopy.SetActive(true);
+                    scene.Renderer.SetTileFade(key, 0f);
+                    var cover = scene.Render(goldOnly: false).count;
+                    scene.Renderer.SetTileFade(key, 1f);
+                    return (plants, cover);
+                }
+
+                var near = Sample(0f);
+                var middle = Sample(15f);
+                var far = Sample(24f);
+                Assert.That(near.plants, Is.GreaterThan(100));
+                Assert.That(near.canopy, Is.Zero);
+                Assert.That(far.plants, Is.Zero);
+                Assert.That(far.canopy, Is.GreaterThan(100));
+                Assert.That(middle.plants, Is.InRange(near.plants * .30f, near.plants * .70f));
+                Assert.That(middle.canopy, Is.InRange(far.canopy * .30f, far.canopy * .70f));
+
+                canopy.SetActive(false);
+                scene.Renderer.SetTileBlend(key, false);
+                Assert.That(scene.Render().count, Is.EqualTo(near.plants), "Keep clumps if no canopy mesh is resident.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(canopy);
+                Object.DestroyImmediate(material);
+            }
+        }
+
         private sealed class RenderScene : IDisposable
         {
             private const int Layer = 30;
@@ -111,7 +170,7 @@ namespace Motu.Tests
                 Shader.SetGlobalVector("_MotuWeatherWind", Vector4.zero);
             }
 
-            internal (int count, float x) Render()
+            internal (int count, float x) Render(bool goldOnly = true)
             {
                 Camera.Render();
                 RenderTexture.active = target;
@@ -122,7 +181,7 @@ namespace Motu.Tests
                 for (var i = 0; i < colours.Length; ++i)
                 {
                     var pixel = colours[i];
-                    if (pixel.r < 15 || pixel.r <= pixel.g * 1.05f || pixel.g <= pixel.b * 1.3f) continue;
+                    if (pixel.r < 15 || (goldOnly && (pixel.r <= pixel.g * 1.05f || pixel.g <= pixel.b * 1.3f))) continue;
                     ++count;
                     totalX += i % pixels.width;
                 }

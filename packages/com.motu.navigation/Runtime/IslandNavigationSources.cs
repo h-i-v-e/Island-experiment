@@ -145,6 +145,20 @@ namespace Motu.Navigation
             }
         }
 
+        internal void AddRoadsideBoundaries(IReadOnlyList<(Vector3 centre, Quaternion rotation, Vector3 size)> boundaries,
+            Matrix4x4 townLocalToNav)
+        {
+            if (boundaries == null) return;
+            foreach (var (centre, rotation, size) in boundaries)
+                AddModifier(new NavMeshBuildSource
+                {
+                    shape = NavMeshBuildSourceShape.ModifierBox,
+                    transform = townLocalToNav * Matrix4x4.TRS(centre, rotation, Vector3.one),
+                    size = size,
+                    area = 1,
+                });
+        }
+
         internal void ExcludeSubmergedGround(float minimumHeight, float radius)
         {
             if (!hasBounds) return;

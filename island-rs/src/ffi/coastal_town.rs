@@ -1,7 +1,7 @@
 //! Additive owned JSON boundary for engine-independent town terrain and clearance.
 use super::{Island, c_char, c_void};
 use crate::{
-    DecorationClearance, ISLAND_WORLD_METRES, TownProtectedTerrain, TownStairFoot, Vec2,
+    DecorationClearance, ISLAND_WORLD_METRES, Terrain, TownProtectedTerrain, TownStairFoot, Vec2,
     roads::RoadNetwork,
 };
 use rayon::prelude::*;
@@ -209,8 +209,8 @@ pub unsafe extern "C" fn HasTerrainRoadCoverage(handle: *const c_void) -> i32 {
 }
 
 /// Mark exported terrain vertices with the road material profile at their XY.
-/// The profile ranges from 0 (natural terrain) through 0.5 (gravel edge)
-/// to 1 (paved road). Footpaths use the same gravel band.
+/// The profile ranges from 0 (natural terrain) through 0.5 (paving edge)
+/// to 1 (paved core). Dirt shoulders use the base terrain material weights.
 ///
 /// # Safety
 /// A non-null handle must reference a live island. The vertex and weight
@@ -220,6 +220,35 @@ pub unsafe extern "C" fn CopyTerrainRoadCoverage(
     handle: *const c_void,
     vertices: super::Vector3ExportArray,
     weights: *mut f32,
+) -> i32 {
+    unsafe { copy_surface_coverage(handle, vertices, weights, Terrain::road_coverage_at) }
+}
+
+/// Sample the shared gravel layer for footpaths and cart ruts.
+///
+/// # Safety
+/// A non-null handle must reference a live island. The vertex and weight
+/// buffers must be valid and disjoint for `vertices.length` elements.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CopyTerrainGravelCoverage(
+    handle: *const c_void,
+    vertices: super::Vector3ExportArray,
+    weights: *mut f32,
+) -> i32 {
+    unsafe {
+        copy_surface_coverage(handle, vertices, weights, |terrain, point| {
+            terrain
+                .cart_track_coverage(point)
+                .max(terrain.footpath_coverage_at(point))
+        })
+    }
+}
+
+unsafe fn copy_surface_coverage(
+    handle: *const c_void,
+    vertices: super::Vector3ExportArray,
+    weights: *mut f32,
+    sample: impl Fn(&Terrain, Vec2) -> f32,
 ) -> i32 {
     let Some(island) = (unsafe { super::island_ref(handle) }) else {
         return 0;
@@ -232,7 +261,7 @@ pub unsafe extern "C" fn CopyTerrainRoadCoverage(
     let weights = unsafe { std::slice::from_raw_parts_mut(weights, length) };
     let terrain = island.terrain();
     for (weight, vertex) in weights.iter_mut().zip(vertices) {
-        *weight = terrain.town_surface_coverage_at(vertex.truncate());
+        *weight = sample(terrain, vertex.truncate());
     }
     1
 }
@@ -414,20 +443,7 @@ pub unsafe extern "C" fn CopyTerrainCartTrackCoverage(
     vertices: super::Vector3ExportArray,
     weights: *mut f32,
 ) -> i32 {
-    let Some(island) = (unsafe { super::island_ref(handle) }) else {
-        return 0;
-    };
-    if vertices.length <= 0 || vertices.data.is_null() || weights.is_null() {
-        return 0;
-    }
-    let length = usize::try_from(vertices.length).expect("positive vertex count");
-    let positions = unsafe { std::slice::from_raw_parts(vertices.data, length) };
-    let weights = unsafe { std::slice::from_raw_parts_mut(weights, length) };
-    let terrain = island.terrain();
-    for (weight, vertex) in weights.iter_mut().zip(positions) {
-        *weight = terrain.cart_track_coverage(vertex.truncate());
-    }
-    1
+    unsafe { copy_surface_coverage(handle, vertices, weights, Terrain::cart_track_coverage) }
 }
 
 /// Applies clearance once to a fresh or cached pre-clearance island. Returns
@@ -452,7 +468,7 @@ pub unsafe extern "C" fn SetCoastalTownClearanceJson(
             serde_json::from_str::<Vec<DecorationClearance>>(text)
                 .map_err(|reason| reason.to_string())
         })
-        .and_then(|areas| island.clear_decorations(&areas));
+        .and_then(|areas| island.clear_settlement_ground(&areas));
     match result {
         Ok(_) => {
             error("");

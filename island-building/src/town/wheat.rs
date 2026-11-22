@@ -35,7 +35,7 @@ pub(super) fn generate(
         };
         let depth = (roads.ring_spacing * 0.75).min(20.);
         for row in &site.rows {
-            for grid in grids(*row, roads.shoulder, depth) {
+            for grid in grids(*row, roads.shoulder_width(), depth) {
                 if cancelled() {
                     return Err(TownError::Cancelled);
                 }
@@ -404,9 +404,10 @@ mod tests {
         );
         assert!(fields.iter().any(|field| field.centre[0] < 0.));
         assert!(fields.iter().any(|field| field.centre[0] > 0.));
+        let pavement_edge = row.half_width + settings.roads.unwrap().shoulder_width();
         for field in &fields {
             assert!(field.yaw.abs() < 0.001);
-            assert!(field.centre[1] - field.half_extents[1] > 5.);
+            assert!(field.centre[1] - field.half_extents[1] > pavement_edge + SIDE_HEADLAND);
             assert!(field.centre[0] + field.half_extents[0] < 22.);
             assert!(!placement::protected(field, &input));
             assert!(!placement::touches_river(

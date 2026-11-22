@@ -6,7 +6,7 @@ namespace Motu.Interop
     /// <summary>Checks scalar ABI metadata before passing any managed records to Rust.</summary>
     internal static class NativeAbi
     {
-        internal const uint Version = 2;
+        internal const uint Version = 3;
         private static readonly Lazy<bool> compatible = new Lazy<bool>(() => { Validate(); return true; });
         internal static void EnsureCompatible() => _ = compatible.Value;
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]

@@ -80,7 +80,6 @@ namespace Motu.Islands
                 Color.white,
                 Rendering.GrassMaterial,
                 Generation.WorldSizeMetres);
-            terrainMaterialTextures.BindGrass(grassMaterial);
             grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
             CopyTerrainBlendSettingsToGrass();
             ApplySnowlineSettings();
@@ -231,13 +230,6 @@ namespace Motu.Islands
 
         private void CopyTerrainBlendSettingsToGrass()
         {
-            CopyMaterialVector("_TerrainLayerWorldSizesA");
-            CopyMaterialVector("_TerrainLayerWorldSizesB");
-            CopyMaterialVector("_TerrainHeightInfluencesA");
-            CopyMaterialVector("_TerrainHeightInfluencesB");
-            CopyMaterialFloat("_TerrainHeightBlendDepth");
-            CopyMaterialFloat("_TopTextureFadeOutSlope");
-            CopyMaterialFloat("_SteepStoneBlendWidth");
             CopyMaterialFloat("_ForestFloorEdgeNoiseStrength");
             CopyMaterialFloat("_ForestFloorEdgeBlendWidth");
             CopyMaterialFloat("_StonesEdgeNoiseStrength");
@@ -246,10 +238,7 @@ namespace Motu.Islands
             CopyMaterialFloat("_BeachEdgeBlendWidth");
             CopyMaterialFloat("_RiverEdgeNoiseStrength");
             CopyMaterialFloat("_RiverEdgeBlendWidth");
-            CopyMaterialFloat("_CliffNormalCutoff");
-            CopyMaterialFloat("_CliffBoundaryNoiseStrength");
             CopyMaterialFloat("_RockBoundaryNoiseStrength");
-            CopyMaterialFloat("_SandRockSlopeThreshold");
             CopyMaterialFloat("_CliffNoisePeriod");
             CopyMaterialFloat("_RockPatchNoiseDetailScale");
             CopyMaterialFloat("_SandPatchNoiseWorldSize");
@@ -270,17 +259,6 @@ namespace Motu.Islands
             if (grassMaterial != null && grassMaterial.HasProperty("_SnowLine"))
             {
                 grassMaterial.SetFloat("_SnowLine", snowline);
-            }
-        }
-
-        private void CopyMaterialVector(string propertyName)
-        {
-            if (terrainMaterial.HasProperty(propertyName)
-                && grassMaterial.HasProperty(propertyName))
-            {
-                grassMaterial.SetVector(
-                    propertyName,
-                    terrainMaterial.GetVector(propertyName));
             }
         }
 
@@ -413,8 +391,7 @@ namespace Motu.Islands
             }
             islandRuntime.OwnTerrainTextureArrays(
                 terrainMaterialTextures,
-                terrainMaterial,
-                grassMaterial);
+                terrainMaterial);
             islandRuntime.OwnMaterial(terrainMaterial);
             islandRuntime.OwnMaterial(terrainLod1Material);
             islandRuntime.OwnMaterial(terrainLod2Material);
@@ -492,7 +469,7 @@ namespace Motu.Islands
 
         internal void DestroyRuntimeMaterials()
         {
-            terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
+            terrainMaterialTextures?.UnbindTerrain(terrainMaterial);
             terrainMaterialTextures?.Dispose();
             terrainMaterialTextures = null;
             DestroyUnityObject(terrainMaterial);

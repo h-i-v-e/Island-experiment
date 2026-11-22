@@ -1,4 +1,5 @@
 //! Typed, versioned building authoring recipes. Dimensions are metres, Z is up.
+pub use crate::decoration_anchors::DecorationAnchor;
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -42,6 +43,9 @@ pub struct BuildingRecipe {
     /// Ground-floor rooms attached to the main rectangular body.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<crate::ExtensionRecipe>,
+    /// Labelled mounting points expressed in building-local metres.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decoration_anchors: Vec<DecorationAnchor>,
     /// One wall-attached, unlit fireplace and its roof-penetrating chimney.
     #[serde(default)]
     pub chimney: Option<ChimneyRecipe>,
@@ -552,6 +556,7 @@ impl BuildingRecipe {
             ],
             partitions: Vec::new(),
             extensions: Vec::new(),
+            decoration_anchors: Vec::new(),
             chimney: Some(ChimneyRecipe::default()),
             materials: MaterialPalette::default(),
             grub_filter: crate::GrubFilter::default(),

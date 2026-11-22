@@ -3,7 +3,7 @@
 use super::{Island, town_footpaths::PierAccess};
 use crate::{
     DecorationClearance, ISLAND_WORLD_METRES, Vec2,
-    piers::{PierLayout, PierMeshes, build_pier_meshes, plan_pier},
+    piers::{PierLayout, PierMeshes, build_pier_meshes, survey_piers},
 };
 
 pub(crate) struct CapitalPier {
@@ -23,16 +23,8 @@ impl Island {
         let Some((layout, meshes, access)) = self.fit_capital_pier(centre, mouth, blockers) else {
             return Ok(None);
         };
-        let landing = layout.start.truncate();
-        let clearance = DecorationClearance {
-            centre: landing.midpoint(layout.shore).to_array(),
-            half_extents: [
-                landing.distance(layout.shore) * 0.5 + 2.,
-                layout.width * 0.5 + 1.,
-            ],
-            yaw: layout.axis.to_angle(),
-        };
-        self.clear_decorations(&[clearance])?;
+        let clearance = layout.land_clearance();
+        self.clear_settlement_ground(&[clearance])?;
         let access_connected = access.is_some();
         if let Some(access) = access {
             self.install_pier_access(access);
@@ -45,18 +37,13 @@ impl Island {
         }))
     }
 
-    fn fit_capital_pier(
+    pub(crate) fn survey_capital_piers(
         &self,
         centre: Vec2,
         mouth: Option<Vec2>,
         blockers: &[DecorationClearance],
-    ) -> Option<(PierLayout, PierMeshes, Option<PierAccess>)> {
-        let terrain = self.terrain();
-        let sample = |point: Vec2| {
-            terrain
-                .sample_accurate_surface(point / ISLAND_WORLD_METRES)
-                .map(|hit| hit.position.z * ISLAND_WORLD_METRES)
-        };
+        limit: usize,
+    ) -> Vec<PierLayout> {
         let protected = self.town_protected_terrain();
         let outlets: Vec<_> = self
             .rivers()
@@ -79,40 +66,99 @@ impl Island {
                 })
         };
         let bounds = [Vec2::ZERO, Vec2::splat(ISLAND_WORLD_METRES)];
-        let first = plan_pier(centre, 0., bounds, &sample, &usable)?;
-        let (layout, access) = self.connect_pier_landing(first, blockers, |tried| {
-            plan_pier(centre, 0., bounds, &sample, &|point| {
-                usable(point)
-                    && !tried
-                        .iter()
-                        .any(|shore| point.distance_squared(*shore) < 5. * 5.)
+        survey_piers(
+            centre,
+            0.,
+            bounds,
+            &|point| self.pier_height(point),
+            &usable,
+            limit,
+        )
+    }
+
+    fn fit_capital_pier(
+        &self,
+        centre: Vec2,
+        mouth: Option<Vec2>,
+        blockers: &[DecorationClearance],
+    ) -> Option<(PierLayout, PierMeshes, Option<PierAccess>)> {
+        let has_roads = self.terrain().has_road_coverage();
+        let layouts =
+            self.survey_capital_piers(centre, mouth, blockers, if has_roads { 4 } else { 1 });
+        let &first = layouts.first()?;
+        let (layout, access) = layouts
+            .into_iter()
+            .find_map(|layout| {
+                Some((
+                    layout,
+                    Some(self.find_pier_access(layout.start.truncate(), blockers)?),
+                ))
             })
-        });
-        let meshes = build_pier_meshes(&layout, &sample)?;
+            .unwrap_or((first, None));
+        let meshes = build_pier_meshes(&layout, &|point| self.pier_height(point))?;
         Some((layout, meshes, access))
     }
 
-    fn connect_pier_landing(
-        &self,
-        first: PierLayout,
-        blockers: &[DecorationClearance],
-        next: impl Fn(&[Vec2]) -> Option<PierLayout>,
-    ) -> (PierLayout, Option<PierAccess>) {
-        let access = self.find_pier_access(first.start.truncate(), blockers);
-        if access.is_some() || !self.terrain().has_road_coverage() {
-            return (first, access);
+    pub(crate) fn paved_capital_pier(&self, layout: PierLayout) -> Option<CapitalPier> {
+        let landing = layout.start.truncate();
+        if !has_paved_landing(self.terrain(), landing) {
+            return None;
         }
+        let meshes = build_pier_meshes(&layout, &|point| self.pier_height(point))?;
+        Some(CapitalPier {
+            clearance: layout.land_clearance(),
+            layout,
+            meshes,
+            access_connected: true,
+        })
+    }
 
-        // If the first landing is cut off from the streets, try nearby
-        // alternatives without repeating the path search for the same landing.
-        let mut tried = vec![first.shore];
-        for _ in 0..3 {
-            let Some(layout) = next(&tried) else { break };
-            if let Some(access) = self.find_pier_access(layout.start.truncate(), blockers) {
-                return (layout, Some(access));
-            }
-            tried.push(layout.shore);
-        }
-        (first, None)
+    fn pier_height(&self, point: Vec2) -> Option<f32> {
+        self.terrain()
+            .sample_accurate_surface(point / ISLAND_WORLD_METRES)
+            .map(|hit| hit.position.z * ISLAND_WORLD_METRES)
+    }
+}
+
+fn has_paved_landing(terrain: &super::Terrain, landing: Vec2) -> bool {
+    // Road paint fades to dirt at an open end. Check the physical pavement
+    // with a small tolerance for rounding at the shared landing instead.
+    const LANDING_TOLERANCE: f32 = 0.01;
+    terrain.paved_road_overlaps(landing - LANDING_TOLERANCE, landing + LANDING_TOLERANCE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ForestOptions,
+        roads::{RoadNetwork, RoadStation, RoadStrip},
+    };
+
+    #[test]
+    fn open_pavement_edge_accepts_a_pier_despite_material_falloff() {
+        let mut island = Island::shared_forest_fixture(ForestOptions::default());
+        let landing = Vec2::new(675., 665.);
+        let start = Vec2::new(645., 650.);
+        let station = |point| RoadStation { point, height: 39. };
+        island
+            .apply_town_roads(&RoadNetwork {
+                strips: vec![RoadStrip {
+                    source: 0,
+                    start: 0,
+                    end: 1,
+                    half_width: 2.,
+                    stations: vec![station(start), station(landing)],
+                }],
+                junctions: Vec::new(),
+                shoulder: 2.,
+            })
+            .unwrap();
+        let terrain = island.terrain();
+        let forward = (landing - start).normalize();
+        let on_join = landing + forward * 0.002;
+        assert!(terrain.road_coverage_at(on_join / ISLAND_WORLD_METRES) < 0.5);
+        assert!(has_paved_landing(terrain, on_join));
+        assert!(!has_paved_landing(terrain, landing + forward * 0.25));
     }
 }

@@ -20,7 +20,7 @@ namespace Motu.Editor
 
         /// <summary>Bakes reusable shells; terrain-fitted supports remain per-town runtime geometry.</summary>
         public static string[] Bake(TownRecipeCatalogue catalogue, int previewSeed,
-            string destinationFolder = "Assets/Generated/Towns")
+            string destinationFolder = "Assets/Generated/Towns", TownDecorationCatalogue decorationCatalogue = null)
         {
             if (catalogue == null) throw new ArgumentNullException(nameof(catalogue));
             if (!destinationFolder.StartsWith("Assets/", StringComparison.Ordinal) || destinationFolder.Contains(".."))
@@ -46,6 +46,7 @@ namespace Motu.Editor
                     try
                     {
                         instance.name = data.prototypes[index].entry_id;
+                        instance.GetComponent<TownDecorationAnchors>()?.ConfigureBaked(decorationCatalogue, data.seed, instance.name);
                         PersistResources(instance, assets, copied);
                         var safeName = string.Join("_", instance.name.Split(Path.GetInvalidFileNameChars()));
                         var path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + safeName + ".prefab");
@@ -133,7 +134,7 @@ namespace Motu.Editor
             AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
         }
 
-        private static string PreviewInput(int seed)
+        internal static string PreviewInput(int seed)
         {
             var heights = string.Join(",", Enumerable.Range(0, 441).Select(i => i < 21 ? "-2" : "2"));
             return "{\"tile_seed\":" + unchecked((uint)seed) + ",\"sea_level\":0,\"terrain\":{\"origin\":[0,0],\"spacing\":100,\"width\":21,\"height\":21,\"heights\":[" + heights

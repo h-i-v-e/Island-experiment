@@ -499,10 +499,10 @@ namespace Motu.Interop
         internal static extern int CopyTerrainRoadCoverage(IntPtr handle, Vector3Array vertices, [Out] float[] weights);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int HasTerrainCartTracks(IntPtr handle);
+        internal static extern int CopyTerrainGravelCoverage(IntPtr handle, Vector3Array vertices, [Out] float[] weights);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int CopyTerrainCartTrackCoverage(IntPtr handle, Vector3Array vertices, [Out] float[] weights);
+        internal static extern int HasTerrainCartTracks(IntPtr handle);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateSeaMask(

@@ -26,6 +26,26 @@ and this README in `Contents/Resources`.
 Packaging automatically replaces the old bundle after the new app builds and passes
 signature verification, and honours `CARGO_TARGET_DIR`.
 
+## Decoration anchors
+
+Open **Decorations** in Building Studio, choose **Add anchor**, then click the
+visible building mesh. Select a pin in the viewport or list to rename it, set
+its rotation around the surface normal, or delete it. **Move selected** snaps
+the anchor to the next surface you click. The normal and forward markers show
+the mounting directions. Labels are exact catalogue keys such as `wall.sign`
+and `floor.furniture`. Anchor edits save with the recipe and use Studio's
+regular undo history.
+
+In Unity, assign a **Town Decoration Catalogue** to the coastal town settings
+and map each label to one or more prefab variants. Place each prop's root at its
+mounting point. By default, local **+Y** faces out of the surface and **+Z**
+follows the anchor's forward marker. Set **Facing Axis** and **Forward Axis**
+on the label, or use **Axis Overrides** for individual prefabs. For a sign
+whose mount points out along **+Z** and whose top points along **+Y**, set
+**Facing Axis** to **+Z** and **Forward Axis** to **+Y**. Town decorations
+appear on LOD0 buildings and return to the pool as buildings move out of the
+detailed LOD.
+
 ## Mesh cleanup and experimental texture arrays
 
 All building formulas finalize their assembled LODs before baking and hashing.

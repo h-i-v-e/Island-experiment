@@ -288,7 +288,7 @@ pub unsafe extern "C" fn CreateCaveMesh(
         })
         .collect();
     // The export owns this copy independently of the resident island snapshot.
-    let material = island.material_values_for(mesh);
+    let material = island.surface_weights_for(mesh);
     let environment = island.environment_values_for(mesh);
     let mut owned = mesh.clone();
     // Cave exports use UV0 for ambient/exterior metadata. The Unity transfer
@@ -327,7 +327,7 @@ pub unsafe extern "C" fn CreateCaveFloorStoneMesh(
             Vec2::new(ambient, 3.0) // Decorative stone: render only, always stone albedo.
         })
         .collect();
-    let material = island.material_values_for(&mesh);
+    let material = island.surface_weights_for(&mesh);
     let environment = island.environment_values_for(&mesh);
     *output = export_mesh(mesh, material, environment);
     1
