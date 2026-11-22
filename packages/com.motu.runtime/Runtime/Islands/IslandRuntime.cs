@@ -272,6 +272,10 @@ namespace Motu.Islands
             foreach (var resource in ownedResources) resource.Dispose();
             ownedResources.Clear();
 
+            // An island canceled during installation may never receive Unity's OnDestroy callbacks.
+            if (Town != null) Town.ReleaseOwnedResources();
+            Town = null;
+
             State = IslandRuntimeState.Disposed;
             if (destroyRoot)
             {

@@ -196,6 +196,8 @@ namespace Motu.Tests
             internal bool overviewHasRoadCore;
             internal bool overviewHasGravel;
             internal RealWheatScene wheat;
+            internal TownCartTrackDeparture sign;
+            internal IslandPreparedMesh signTerrain;
         }
 
         private sealed class RealWheatScene
@@ -246,7 +248,7 @@ namespace Motu.Tests
             try
             {
                 var result = TownNative.Prepare(handle, request.TownRecipeJson, request.TownSeed, request.TownDependencies,
-                    request.VillageRecipeJson, connectCoastalSeams: true);
+                    request.VillageRecipeJson, connectCoastalSeams: true, coastalSectionCount: 8);
                 Assert.That(result.schema_version, Is.EqualTo(2));
                 Assert.That(result.seed, Is.EqualTo(request.TownSeed.ToString()));
                 Assert.That(result.clearance_json, Is.Not.Null.And.Not.Empty);
@@ -261,11 +263,13 @@ namespace Motu.Tests
                     .FirstOrDefault();
                 var mid = bridge == null ? Vector3.zero : (TownRenderer.Vector(bridge.start) + TownRenderer.Vector(bridge.end)) * 0.5f;
                 var bridgeArea = bridge == null ? default : CropArea(mid.x, mid.z, 25f + Vector3.Distance(TownRenderer.Vector(bridge.start), mid));
+                var sign = result.cartTracks?.departures?.FirstOrDefault(departure => departure.destination_index >= 0);
                 return new RealTownScene {
                     town = result, terrain = TerrainCrop(handle, CropArea(capitalBuilding.position[0], capitalBuilding.position[1], 170f)),
                     bridge = bridge, bridgeTerrain = bridge == null ? null : TerrainCrop(handle, bridgeArea),
                     bridgeRiver = bridge == null ? null : RiverCrop(handle, bridgeArea),
                     wheat = PrepareRealWheat(handle, wheat, overview),
+                    sign = sign, signTerrain = sign == null ? null : TerrainCrop(handle, CropArea(sign.position[0], sign.position[1], 25f)),
                     roadHeightMapError = RoadHeightMapError(handle, result.road_mesh),
                     overviewHasRoadCore = overview
                         .Any(tile => tile != null && Array.Exists(tile.roadCoverage, weight => weight >= 0.98f)),
@@ -720,8 +724,32 @@ namespace Motu.Tests
             return RenderTown(fixture.town, wheat.detail, "real-coast-wheat", wheat: wheat);
         }
 
+        [UnityTest, Category("NativeIntegration"), Timeout(300000)]
+        public IEnumerator RealCoastCartTrackSignsShowTheirDestination()
+        {
+            var fixture = RealFixture.Value;
+            var town = fixture.town;
+            var departures = town.cartTracks.departures;
+            Assert.That(departures, Is.Not.Empty);
+            Assert.That(fixture.sign, Is.Not.Null, "The test coast has a signed town-to-town link.");
+            Assert.That(departures.Select(d => d.exit_index).Distinct().Count(), Is.EqualTo(departures.Length));
+            foreach (var departure in departures)
+            {
+                var exit = town.road_exits[departure.exit_index];
+                Assert.That(departure.settlement_index, Is.EqualTo(exit.settlement_index));
+                Assert.That(departure.destination_index, Is.Not.EqualTo(departure.settlement_index));
+                Assert.That(departure.destination_name, Is.Not.Empty);
+                if (departure.destination_index >= 0)
+                    Assert.That(departure.destination_name, Is.EqualTo(town.settlements[departure.destination_index].name));
+                var direction = new Vector2(departure.direction[0], departure.direction[1]);
+                Assert.That(direction.magnitude, Is.EqualTo(1f).Within(.001f));
+            }
+            return RenderTown(town, fixture.signTerrain, "real-cart-track-sign", sign: fixture.sign);
+        }
+
         private static IEnumerator RenderTown(TownPreparedData data, IslandPreparedMesh terrain, string fileName,
-            TownBridge bridge = null, IslandPreparedMesh river = null, RealWheatScene wheat = null, bool capturePier = false)
+            TownBridge bridge = null, IslandPreparedMesh river = null, RealWheatScene wheat = null,
+            bool capturePier = false, TownCartTrackDeparture sign = null)
         {
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
                 Assert.Ignore("Town camera validation requires a graphics device.");
@@ -833,6 +861,12 @@ namespace Motu.Tests
                 probe.AddAmbientLight(new Color(0.2f, 0.2f, 0.2f));
                 RenderSettings.ambientProbe = probe;
                 yield return null;
+                if (sign != null)
+                {
+                    Assert.That(town.CartTrackSignCount, Is.EqualTo(data.cartTracks.departures.Length));
+                    CaptureCartTrackSign(town, sign, camera, target, image, fileName);
+                    yield break;
+                }
                 if (capturePier)
                 {
                     CapturePier(town, camera, target, image, fileName);
@@ -897,6 +931,32 @@ namespace Motu.Tests
                 if (groundMesh != null) Object.DestroyImmediate(groundMesh);
                 if (riverMesh != null) Object.DestroyImmediate(riverMesh);
                 if (riverMaterial != null) Object.DestroyImmediate(riverMaterial);
+            }
+        }
+
+        private static void CaptureCartTrackSign(TownRenderer town, TownCartTrackDeparture departure,
+            Camera camera, RenderTexture target, Texture2D image, string fileName)
+        {
+            var point = TownRenderer.Position(departure.position, 2000f);
+            var group = town.transform.Find("Cart-track signs");
+            var sign = group.Cast<Transform>().Single(child => (child.localPosition - point).sqrMagnitude < .001f);
+            var heading = new Vector3(departure.direction[0], 0f, departure.direction[1]);
+            Assert.That(Vector3.Dot(sign.right, heading), Is.GreaterThan(.999f));
+            var text = sign.Find("Painted destination").gameObject;
+            camera.orthographicSize = 1.5f;
+            foreach (var side in new[] { -1f, 1f })
+            {
+                camera.transform.position = point - heading * 3f + Vector3.up * 1.85f + sign.forward * (5f * side);
+                camera.transform.LookAt(point + Vector3.up * 1.22f);
+                text.SetActive(false);
+                ReadFrame(camera, target, image);
+                var unpainted = image.GetPixels32();
+                text.SetActive(true);
+                CaptureFrame(camera, target, image, fileName + (side < 0f ? ".png" : "-reverse.png"));
+                var painted = image.GetPixels32();
+                var lighterPixels = painted.Where((pixel, index) =>
+                    pixel.r + pixel.g + pixel.b > unpainted[index].r + unpainted[index].g + unpainted[index].b + 60).Count();
+                Assert.That(lighterPixels, Is.GreaterThan(500), "Pale destination lettering must be visible on both faces.");
             }
         }
 

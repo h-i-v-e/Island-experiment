@@ -229,6 +229,64 @@ fn later_village_branches_from_the_existing_track_without_redrawing_it() {
 }
 
 #[test]
+fn report_places_departures_at_both_ends_and_each_real_branch_terminal() {
+    let mut island = fixture(|_| 10.);
+    let mut north = exit(2, 155., 172., 0.);
+    north.direction = [0., -1.];
+    let exits = [
+        exit(0, 110., 120., 1.),
+        exit(1, 175., 120., -1.),
+        north,
+        exit(0, 110., 155., -1.),
+    ];
+    let blocker = CartTrackBlocker {
+        centre: [112.75, 122.05],
+        half_extents: [0.3, 0.3],
+        yaw: 0.,
+    };
+    let closed_exit = CartTrackBlocker {
+        centre: [110., 155.],
+        half_extents: [2., 2.],
+        yaw: 0.,
+    };
+    let report = island
+        .prepare_cart_tracks(&exits, &[blocker, closed_exit], false, 3, Some(0), &[])
+        .unwrap();
+    let report = serde_json::to_value(report).unwrap();
+    assert!(
+        report["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|link| link["from_track"] == true)
+    );
+    let signs = report["departures"].as_array().unwrap();
+    assert_eq!(signs.len(), 3, "{signs:?}");
+    for (index, sign) in signs.iter().enumerate() {
+        let [x, y, z]: [f32; 3] = serde_json::from_value(sign["position"].clone()).unwrap();
+        let direction: [f32; 2] = serde_json::from_value(sign["direction"].clone()).unwrap();
+        assert_eq!(sign["settlement_index"], index);
+        assert_eq!(sign["exit_index"], index);
+        assert_eq!(sign["portal_side"], -1);
+        assert_ne!(sign["destination_index"], index);
+        let point = Vec2::new(x, y);
+        let exit = exits[index];
+        let outward = Vec2::from_array(exit.direction);
+        assert!((point - exit.xy()).dot(outward) > 0.);
+        assert!(Vec2::from_array(direction).dot(outward) > 0.);
+        assert!((z - 10.).abs() < 0.001);
+        assert!(!blocker.intersects_circle(point, 0.85));
+        assert!(
+            !island
+                .terrain
+                .cart_track_corridor_overlaps(point - 0.85, point + 0.85)
+        );
+    }
+    let first: [f32; 3] = serde_json::from_value(signs[0]["position"].clone()).unwrap();
+    assert!(first[1] < 120., "the building blocks the preferred verge");
+}
+
+#[test]
 fn paved_streets_are_cheaper_than_equivalent_ground() {
     use crate::roads::{RoadNetwork, RoadStation, RoadStrip};
 

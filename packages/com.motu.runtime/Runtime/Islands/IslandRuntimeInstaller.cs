@@ -106,7 +106,7 @@ namespace Motu.Islands
                 generator.islandRuntime.SetTownRenderer(TownRenderer.Install(generator.runtimeRoot.transform,
                     prepared.town, worldSize, terrainTextures: generator.terrainMaterialTextures, roadsOnTerrain: true,
                     useBuildingLodBudget: true, terrainDirtColour: prepared.materialTextures.colours.Dirt,
-                    decorationCatalogue: request.Profile.Towns.decorationCatalogue));
+                    decorationCatalogue: request.Profile.Towns.decorationCatalogue, roadSignFont: request.Profile.Towns.roadSignFont));
                 if (generator.Navigation.Enabled)
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.Activate();

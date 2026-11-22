@@ -23,6 +23,7 @@ struct TrackAnchor {
     point: Vec2,
     attachment: Attachment,
     exit: usize,
+    run_index: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -130,7 +131,7 @@ impl<'a> Graph<'a> {
         }
     }
 
-    pub(super) fn register_track(&mut self, run: &CartTrackRun, exit: usize) {
+    pub(super) fn register_track(&mut self, run: &CartTrackRun, exit: usize, run_index: usize) {
         const SPACING: f32 = 6.;
         const REACH: f32 = 15.;
         let mut last = None::<Vec2>;
@@ -161,6 +162,7 @@ impl<'a> Graph<'a> {
                     point,
                     attachment,
                     exit,
+                    run_index,
                 });
             }
         }
@@ -358,7 +360,7 @@ struct Arrival {
 
 pub(super) struct Route {
     pub(super) source: usize,
-    pub(super) starts_on_track: bool,
+    pub(super) parent_run: Option<usize>,
     pub(super) target: usize,
     pub(super) stations: Vec<(Vec2, Option<RouteCrossing>)>,
 }
@@ -568,7 +570,7 @@ impl Graph<'_> {
         target: usize,
     ) -> Route {
         let mut stations = vec![(exits[target].xy(), None), (entrances[target].lead, None)];
-        let (source, starts_on_track) = loop {
+        let (source, parent_run) = loop {
             let step = visited[&state];
             let crossing = step
                 .crossing
@@ -585,12 +587,12 @@ impl Graph<'_> {
             match state.previous {
                 Predecessor::Exit(source) => {
                     stations.extend([(entrances[source].lead, None), (exits[source].xy(), None)]);
-                    break (source, false);
+                    break (source, None);
                 }
                 Predecessor::Track(index) => {
                     let track = &self.track_anchors[index];
                     stations.push((track.point, None));
-                    break (track.exit, true);
+                    break (track.exit, Some(track.run_index));
                 }
                 Predecessor::Vertex(_) => unreachable!("a terrain arrival has a parent"),
             }
@@ -598,7 +600,7 @@ impl Graph<'_> {
         stations.reverse();
         Route {
             source,
-            starts_on_track,
+            parent_run,
             target,
             stations,
         }

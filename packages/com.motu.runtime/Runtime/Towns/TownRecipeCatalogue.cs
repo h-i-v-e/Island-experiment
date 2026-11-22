@@ -217,6 +217,10 @@ namespace Motu.Towns
         public bool roadsEnabled = true;
         [Tooltip("Connect settlement roads with terrain-following cart tracks and record prospective bridge crossings.")]
         public bool connectSettlements = true;
+        [Tooltip("One example place name per line. Leave empty to use the bundled coastal names.")]
+        public TextAsset settlementNameCorpus;
+        [Tooltip("Font for painted cart-track signs. Leave empty to use Pirata One.")]
+        public Font roadSignFont;
         [Tooltip("Prevailing wind travel direction in world X/Z, used when siting field windbreaks.")]
         public Vector2 roadsideFieldWind = new Vector2(1f, 0.25f);
         public TownRoadSettings roads = new TownRoadSettings();

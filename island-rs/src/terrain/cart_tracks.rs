@@ -109,6 +109,8 @@ pub(crate) struct CartTrackLink {
     pub(crate) to_exit: usize,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) from_track: bool,
+    #[serde(skip)]
+    pub(super) parent_run: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,6 +136,10 @@ impl<'a> CartTrackPlanner<'a> {
         let end = boundary + inward.try_normalize()? * 8.;
         self.surface.dry_cost(boundary, end)?;
         self.ground_points(&[boundary, end])
+    }
+
+    pub(super) fn clear_sign_ground(&self, point: Vec2, footprint_radius: f32) -> bool {
+        self.surface.clear_sign_ground(point, footprint_radius)
     }
 
     pub(crate) fn plan(
@@ -448,20 +454,22 @@ impl Network<'_, '_> {
             runs.retain(|run| run.points.len() >= 2);
             break (route, runs, bridges, footprints);
         };
-        if route.starts_on_track
+        if route.parent_run.is_some()
             && let Some(first) = runs.first_mut()
         {
             first.joins_track = true;
         }
-        for run in &runs {
-            self.graph.register_track(run, route.target);
+        for (i, run) in runs.iter().enumerate() {
+            self.graph
+                .register_track(run, route.target, self.result.runs.len() + i);
         }
         self.result.links.push(CartTrackLink {
             from_settlement: self.exits[route.source].settlement_index,
             to_settlement: site,
             from_exit: route.source,
             to_exit: route.target,
-            from_track: route.starts_on_track,
+            from_track: route.parent_run.is_some(),
+            parent_run: route.parent_run,
         });
         self.result.runs.append(&mut runs);
         self.result.bridges.append(&mut bridges);

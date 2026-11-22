@@ -6,6 +6,7 @@ use serde::{Serialize, Serializer};
 
 use super::{
     Island, Terrain,
+    cart_track_signs::{CartTrackDeparture, cart_track_departures},
     cart_track_surface::CartTrackSurface,
     cart_tracks::{CartTrackBlocker, CartTrackExit, CartTrackPlan, CartTrackPlanner, CartTrackRun},
     town::DecorationClearance,
@@ -35,6 +36,7 @@ pub(crate) struct CartTrackReport {
     runs: Arc<[CartTrackRun]>,
     run_count: usize,
     portals: Vec<CartTrackExit>,
+    departures: Vec<CartTrackDeparture>,
 }
 
 fn serialize_runs<S: Serializer>(runs: &[CartTrackRun], serializer: S) -> Result<S::Ok, S::Error> {
@@ -108,6 +110,7 @@ impl Island {
         }
         let mut inputs = exits.to_vec();
         let mut approaches = Vec::new();
+        let mut portal_sides = Vec::new();
         let planner = CartTrackPlanner::new(self, blockers);
         if connect_coastal_seams {
             let next_settlement = exits
@@ -134,6 +137,7 @@ impl Island {
                     curb: false,
                 });
                 approaches.push(points);
+                portal_sides.push(i32::from(side != 0));
             }
         }
         let mut plan = if !inputs.is_empty() {
@@ -168,6 +172,8 @@ impl Island {
             }
         }
         let surface = CartTrackSurface::new(&plan.runs, &plan.bridges);
+        let departures =
+            cart_track_departures(self, &planner, &plan, &surface, &inputs, &portal_sides);
         let clearance = cart_track_clearance(&plan);
         let runs = Arc::from(std::mem::take(&mut plan.runs));
         if !surface.is_empty() {
@@ -188,6 +194,7 @@ impl Island {
             runs,
             plan,
             portals: inputs.split_off(exits.len()),
+            departures,
         })
     }
 }

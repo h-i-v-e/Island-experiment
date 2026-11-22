@@ -170,6 +170,24 @@ tile seams. The LOD1 canopy stays under the clumps and fades in by distance
 inside LOD0, before the terrain switches detail levels. The canopy fades out
 as the view approaches the LOD3 horizon.
 
+### Cart-track signs
+
+Finished cart tracks get painted timber signposts at the usable town exits.
+The pointed end follows the outgoing track and both faces name the next
+settlement along that route. Shared departures get one sign. A path whose only
+destination is a coastal seam shows the generated road name shared by both
+sides of that seam.
+
+Assign a text asset with one example name per line to **Settlement Name Corpus**
+in the coastal town settings. The first two letters of each full example form
+the weighted list of possible starts. Rust learns transitions between letter
+groups, spaces and endings, then generates one- or two-word names from the
+tile seed and each outlet's river ID. Include multi-word examples to teach the
+generator where spaces belong. The bundled coastal name list is used when the
+setting is empty. The **Road Sign Font** field can replace the bundled Pirata
+One Gothic font. Unity reduces the lettering size to fit long names on one line
+and shares each mipmapped label texture among signs with that label.
+
 ### Roadside fields
 
 With cart tracks enabled, the native planner divides open stretches beside the

@@ -80,6 +80,14 @@ namespace Motu.Towns
         public TownCartTrackBridge[] bridges;
         public TownCartTrackDiagnostic[] diagnostics;
         public TownRoadExit[] portals;
+        public TownCartTrackDeparture[] departures;
+        public string[] settlement_names, portal_names;
+    }
+    [Serializable] internal sealed class TownCartTrackDeparture
+    {
+        public int settlement_index, exit_index, destination_index, portal_side;
+        public float[] position, direction;
+        [NonSerialized] public string destination_name;
     }
     [Serializable] internal sealed class TownCartTrackLink
     {
@@ -102,6 +110,7 @@ namespace Motu.Towns
         public string kind;
         public int river_index, building_count, skipped_count;
         public float[] mouth, centre;
+        [NonSerialized] public string name;
     }
     [Serializable] internal sealed class TownPrototype
     {

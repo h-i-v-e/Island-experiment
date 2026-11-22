@@ -38,6 +38,7 @@ pub use accurate_surface::TerrainSurfaceHit;
 mod bird_perches;
 pub use bird_perches::LandBirdPerch;
 mod cart_track_install;
+mod cart_track_signs;
 mod cart_track_surface;
 pub(crate) mod cart_tracks;
 mod coastal_strip;

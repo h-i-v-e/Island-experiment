@@ -27,6 +27,7 @@ mod rivers;
 mod rng;
 pub mod roads;
 mod sea_mask;
+mod settlement_names;
 mod sky;
 mod terrain;
 mod trees;

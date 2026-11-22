@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.IO;
 using UnityEngine;
@@ -55,7 +56,8 @@ namespace Motu.Towns
 
         internal static TownPreparedData Prepare(IntPtr island, string recipeJson, ulong tileSeed,
             TownDependencyData[] dependencies = null, string villageRecipeJson = null,
-            bool connectSettlements = true, bool connectCoastalSeams = false, Vector2? roadsideFieldWind = null)
+            bool connectSettlements = true, bool connectCoastalSeams = false, Vector2? roadsideFieldWind = null,
+            string settlementNameCorpus = null, uint coastalSectionCount = 0)
         {
             if (string.IsNullOrEmpty(recipeJson)) return null;
             if (GetCoastalTownApiVersion() != ApiVersion)
@@ -95,7 +97,8 @@ namespace Motu.Towns
             if (connectCoastalSeams) ExportCapitalPier(island, result, tileSeed);
             if (connectSettlements && villageRecipeJson != null
                 && ((result.road_exits?.Length ?? 0) > 0 || connectCoastalSeams))
-                result.cartTracks = PrepareCartTracks(island, result, connectCoastalSeams);
+                result.cartTracks = PrepareCartTracks(island, result, connectCoastalSeams,
+                    tileSeed, settlementNameCorpus, coastalSectionCount);
             AppendCartBridges(island, result);
             if ((result.wheat_fields?.Length ?? 0) != 0)
                 result.wheat_fields = PrepareWheatFields(island, result);
@@ -131,10 +134,20 @@ namespace Motu.Towns
             public bool coast_seams;
             public int settlement_count;
             public TownSettlement[] settlements;
+            public string name_seed, name_corpus;
+            public uint section_count;
         }
 
-        private static TownCartTrackPlan PrepareCartTracks(IntPtr island, TownPreparedData town, bool coastSeams)
+        private static TownCartTrackPlan PrepareCartTracks(IntPtr island, TownPreparedData town, bool coastSeams,
+            ulong tileSeed, string settlementNameCorpus, uint coastalSectionCount)
         {
+            // Keep room for road geometry in the bounded native JSON request.
+            const int maxCorpusCharacters = 128 * 1024;
+            if (settlementNameCorpus != null && settlementNameCorpus.Length > maxCorpusCharacters)
+            {
+                var lastLine = settlementNameCorpus.LastIndexOf('\n', maxCorpusCharacters - 1);
+                settlementNameCorpus = lastLine >= 0 ? settlementNameCorpus.Substring(0, lastLine) : null;
+            }
             var blockers = town.routing_blockers ?? Array.Empty<TownTrackBlocker>();
             if (town.pier?.clearance != null && string.IsNullOrEmpty(town.pier_layout_json))
             {
@@ -148,6 +161,9 @@ namespace Motu.Towns
                 coast_seams = coastSeams,
                 settlement_count = town.settlements?.Length ?? 0,
                 settlements = town.settlements ?? Array.Empty<TownSettlement>(),
+                name_seed = tileSeed.ToString(CultureInfo.InvariantCulture),
+                name_corpus = settlementNameCorpus,
+                section_count = coastalSectionCount,
             };
             var report = PrepareCoastalCartTracks(island, JsonUtility.ToJson(request));
             if (report == IntPtr.Zero)
@@ -158,6 +174,7 @@ namespace Motu.Towns
             try
             {
                 var plan = JsonUtility.FromJson<TownCartTrackPlan>(Marshal.PtrToStringUTF8(report));
+                NameCartTrackDestinations(request.settlements, plan);
                 var diagnostics = new List<TownCartTrackDiagnostic>(
                     plan.diagnostics ?? Array.Empty<TownCartTrackDiagnostic>());
                 for (var index = 0; index < request.settlement_count; index++)
@@ -174,6 +191,21 @@ namespace Motu.Towns
                 return plan;
             }
             finally { FreeCoastalTownJson(report); }
+        }
+
+        private static void NameCartTrackDestinations(TownSettlement[] settlements, TownCartTrackPlan plan)
+        {
+            var names = plan.settlement_names ?? Array.Empty<string>();
+            for (var index = 0; index < Math.Min(settlements.Length, names.Length); ++index)
+                settlements[index].name = names[index];
+            var portals = plan.portal_names ?? Array.Empty<string>();
+            foreach (var departure in plan.departures ?? Array.Empty<TownCartTrackDeparture>())
+            {
+                if ((uint)departure.destination_index < (uint)names.Length)
+                    departure.destination_name = names[departure.destination_index];
+                else if ((uint)departure.portal_side < (uint)portals.Length)
+                    departure.destination_name = portals[departure.portal_side];
+            }
         }
 
         internal static TownPreparedData Generate(string recipeJson, string inputJson,

@@ -61,12 +61,13 @@ namespace Motu.Towns
             bool includeUnplacedPrototypes = false, Material roadMaterial = null,
             TerrainMaterialTextureArrays terrainTextures = null, bool roadsOnTerrain = false,
             bool useBuildingLodBudget = false, Color? terrainDirtColour = null,
-            TownDecorationCatalogue decorationCatalogue = null)
+            TownDecorationCatalogue decorationCatalogue = null, Font roadSignFont = null)
         {
             if (data == null || (!includeUnplacedPrototypes && (data.instances?.Length ?? 0) == 0
                 && (data.settlements?.Length ?? 0) == 0
                 && (data.road_mesh?.indices?.Length ?? 0) == 0 && (data.bridge_candidates?.Length ?? 0) == 0
                 && (data.cartTracks?.run_count ?? 0) == 0
+                && (data.cartTracks?.departures?.Length ?? 0) == 0
                 && (data.bridgePlan?.bridges?.Length ?? 0) == 0
                 && (data.bridgePlan?.diagnostics?.Length ?? 0) == 0 && data.pier == null
                 && (data.roadsideFields?.fields?.Length ?? 0) == 0)) return null;
@@ -79,12 +80,17 @@ namespace Motu.Towns
             // conversion on upload in a linear colour-space project.
             if (terrainDirtColour is Color dirt)
                 renderer.grubDirtColour = QualitySettings.activeColorSpace == ColorSpace.Linear ? dirt.linear : dirt;
-            try { renderer.Build(data, roadMaterial, terrainTextures, roadsOnTerrain, useBuildingLodBudget); return renderer; }
-            catch { DestroyUnityObject(root); throw; }
+            try { renderer.Build(data, roadMaterial, terrainTextures, roadsOnTerrain, useBuildingLodBudget, roadSignFont); return renderer; }
+            catch
+            {
+                renderer.ReleaseOwnedResources();
+                DestroyUnityObject(root);
+                throw;
+            }
         }
 
         private void Build(TownPreparedData data, Material roadMaterial, TerrainMaterialTextureArrays terrainTextures,
-            bool roadsOnTerrain, bool useBuildingLodBudget)
+            bool roadsOnTerrain, bool useBuildingLodBudget, Font roadSignFont)
         {
             var templatesRoot = new GameObject("Shared building prototypes");
             templatesRoot.transform.SetParent(transform, false);
@@ -104,6 +110,7 @@ namespace Motu.Towns
             BuildBridges(data.bridgePlan, churchStone);
             BuildCapitalPier(data.pier, data.pierDiagnostic, churchStone);
             BuildRoadsideFields(data.roadsideFields, churchStone);
+            BuildCartTrackSigns(data.cartTracks?.departures, roadSignFont);
             RoadCount = data.road_count;
             bridgeCandidates = data.bridge_candidates ?? Array.Empty<TownBridgeCandidate>();
             CartTrackRunCount = data.cartTracks?.run_count ?? 0;
@@ -480,7 +487,7 @@ namespace Motu.Towns
         internal static Vector3 Position(float[] native, float worldSize) => Vector(native) - new Vector3(worldSize * 0.5f, 0f, worldSize * 0.5f);
         private void OnDestroy() => ReleaseOwnedResources();
 
-        private void ReleaseOwnedResources()
+        internal void ReleaseOwnedResources()
         {
             foreach (var value in owned) DestroyUnityObject(value);
             owned.Clear();

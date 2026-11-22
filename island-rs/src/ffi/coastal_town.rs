@@ -1,4 +1,6 @@
 //! Additive owned JSON boundary for engine-independent town terrain and clearance.
+mod sign_names;
+
 use super::{Island, c_char, c_void};
 use crate::{
     DecorationClearance, ISLAND_WORLD_METRES, Terrain, TownProtectedTerrain, TownStairFoot, Vec2,
@@ -318,6 +320,8 @@ struct CartTrackRequest {
     #[serde(default)]
     settlement_count: usize,
     settlements: Option<Vec<CartTrackSettlement>>,
+    #[serde(flatten)]
+    sign_names: sign_names::NameOptions,
 }
 
 #[derive(serde::Deserialize)]
@@ -325,6 +329,8 @@ struct CartTrackSettlement {
     kind: String,
     #[serde(default)]
     centre: Option<Vec<f32>>,
+    #[serde(default)]
+    river_index: Option<u32>,
 }
 
 impl CartTrackSettlement {
@@ -401,6 +407,7 @@ pub unsafe extern "C" fn PrepareCoastalCartTracks(
         .flatten()
         .map(CartTrackSettlement::centre)
         .collect();
+    let name_seed = island.seed();
     let report = island
         .prepare_cart_tracks(
             &request.exits,
@@ -410,7 +417,7 @@ pub unsafe extern "C" fn PrepareCoastalCartTracks(
             capital,
             &centres,
         )
-        .and_then(|report| serde_json::to_string(&report).map_err(|err| err.to_string()))
+        .and_then(|report| sign_names::serialize_report(report, &request, name_seed))
         .and_then(|json| CString::new(json).map_err(|err| err.to_string()));
     match report {
         Ok(json) => {

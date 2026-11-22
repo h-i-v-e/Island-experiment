@@ -71,6 +71,12 @@ impl Footprint {
             .all(|axis| delta.dot(axis).abs() <= project(self, axis) + project(other, axis))
     }
 
+    fn intersects_circle(self, point: Vec2, radius: f32) -> bool {
+        let delta = point - self.centre;
+        let local = Vec2::new(self.axis.dot(delta), self.axis.perp_dot(delta));
+        (local.abs() - self.half).max(Vec2::ZERO).length_squared() <= radius * radius
+    }
+
     fn overlaps(self, a: Vec2, b: Vec2) -> bool {
         let local = |p: Vec2| {
             let d = p - self.centre;
@@ -287,6 +293,19 @@ impl<'a> Surface<'a> {
                 .water
                 .nearby(a.min(b) - radius, a.max(b) + radius)
                 .any(|face| face.overlaps(a, b, radius))
+    }
+
+    pub(super) fn clear_sign_ground(&self, point: Vec2, radius: f32) -> bool {
+        let min = point - radius;
+        let max = point + radius;
+        min.min_element() > 0.
+            && max.max_element() < ISLAND_WORLD_METRES
+            && !self.shore.overlaps(point, point, radius)
+            && !self.water_at(point, point, radius)
+            && !self
+                .buildings
+                .nearby(min, max)
+                .any(|area| area.intersects_circle(point, radius))
     }
 
     pub(super) fn dry_cost(&self, a: Vec2, b: Vec2) -> Option<f32> {

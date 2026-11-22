@@ -34,6 +34,7 @@ namespace Motu.Islands
         internal bool TownRoadsRequested { get; }
         internal TownDependencyData[] TownDependencies { get; }
         internal ulong TownSeed { get; }
+        internal string SettlementNameCorpus { get; }
         internal MotuNative.ForestOptions ForestOptions { get; }
         internal HybridForestNative.Options HybridForestOptions => Profile.Forest.HybridOptions;
         internal MotuNative.ReedOptions ReedOptions { get; }
@@ -173,6 +174,8 @@ namespace Motu.Islands
                 TownRecipeJson = Profile.Towns.CaptureJson(out var dependencies, out var villageRecipe);
                 VillageRecipeJson = villageRecipe;
                 TownDependencies = dependencies;
+                var corpus = Profile.Towns.settlementNameCorpus;
+                if (corpus != null) SettlementNameCorpus = corpus.text;
             }
             TownSeed = CoastalStripOptions.HasValue
                 ? ((ulong)(uint)descriptor.Seed << 32) | CoastalStripOptions.Value.sectionIndex : 0UL;
