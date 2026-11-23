@@ -54,7 +54,7 @@ namespace Motu.Towns
         public TownRoadsideField[] fields;
         public TownRoadsideWall[] walls;
         public TownRoadsideGate[] gates;
-        public TownRoadsideWindbreak[] windbreaks;
+        public TownRoadsidePlanting[] windbreaks, bushes;
     }
     [Serializable] internal sealed class TownRoadsideField
     {
@@ -68,10 +68,10 @@ namespace Motu.Towns
         public uint field_id;
         public float[] left, right;
     }
-    [Serializable] internal sealed class TownRoadsideWindbreak
+    [Serializable] internal sealed class TownRoadsidePlanting
     {
         public float[] position;
-        public float yaw, scale;
+        public float yaw, scale, clearance_radius;
     }
     [Serializable] internal sealed class TownCartTrackPlan
     {

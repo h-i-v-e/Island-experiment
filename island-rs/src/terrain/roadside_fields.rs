@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 
 use super::{Island, cart_tracks::CartTrackRun, spatial_bins::SpatialBins};
-use geometry::{bounds, contains_convex, convex, overlaps};
+use geometry::{bounds, contains_convex, convex, overlaps, point_segment_distance_squared};
 use route::{Route, TrackNetwork};
 use surface::Surface;
 
@@ -20,6 +20,13 @@ const MIN_FRONTAGE: f32 = 25.;
 const MAX_FRONTAGE: f32 = 60.;
 const MIN_DEPTH: f32 = 20.;
 const MAX_FIELDS: usize = 512;
+const TREE_WALL_SETBACK: f32 = 1.5;
+const TREE_WALL_CLEARANCE: f32 = 1.35;
+const TREE_SPACING: f32 = 3.;
+const TRUNK_WHEAT_MARGIN: f32 = 0.38;
+const MIN_TRUNK_WHEAT_RADIUS: f32 = 0.72;
+const BUSH_RADIUS_PER_SCALE: f32 = 0.78;
+const BUSH_WHEAT_MARGIN: f32 = 0.27;
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub(crate) struct RoadsideFieldPlan {
@@ -27,6 +34,7 @@ pub(crate) struct RoadsideFieldPlan {
     walls: Vec<Wall>,
     gates: Vec<Gate>,
     windbreaks: Vec<Windbreak>,
+    bushes: Vec<WindbreakBush>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -53,6 +61,17 @@ struct Windbreak {
     position: [f32; 3],
     yaw: f32,
     scale: f32,
+    clearance_radius: f32,
+    #[serde(skip)]
+    bushes: [Option<WindbreakBush>; 2],
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+struct WindbreakBush {
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+    clearance_radius: f32,
 }
 
 impl Island {
@@ -77,6 +96,7 @@ impl Island {
         plan: &mut RoadsideFieldPlan,
         seed: u64,
     ) -> Result<(), String> {
+        plan.bushes.clear();
         if self.forest.hybrid.is_none() {
             plan.windbreaks.clear();
         }
@@ -123,6 +143,7 @@ impl Island {
             });
             true
         });
+        let before = self.forest.placements().len();
         crate::forest::hybrid::extend_plantings(
             seed,
             &mut self.forest,
@@ -130,6 +151,23 @@ impl Island {
             self.forest_options,
             plantings,
         )?;
+        for (tree, trunk) in plan
+            .windbreaks
+            .iter_mut()
+            .zip(self.forest.trunk_colliders().skip(before))
+        {
+            if let Ok(trunk) = trunk {
+                let offset = horizontal_position(tree.position)
+                    .distance(trunk.bottom.truncate() * ISLAND_WORLD_METRES);
+                let footprint_radius = trunk.radius * ISLAND_WORLD_METRES + offset;
+                tree.clearance_radius =
+                    (footprint_radius + TRUNK_WHEAT_MARGIN).max(MIN_TRUNK_WHEAT_RADIUS);
+            }
+        }
+        for tree in &mut plan.windbreaks {
+            plan.bushes
+                .extend(std::mem::take(&mut tree.bushes).into_iter().flatten());
+        }
         self.forest_stats.accepted_trees = self.forest.placements().len();
         if let Some(decorations) = self.decorations.get_mut() {
             decorations.set_tree_anchors(self.forest.placements().iter().map(|tree| tree.anchor));
@@ -346,7 +384,7 @@ impl Planner<'_> {
             self.occupied.insert(min, max, quad);
         }
         for plant in &parcel.output.windbreaks {
-            let point = Vec2::new(plant.position[0], plant.position[1]);
+            let point = horizontal_position(plant.position);
             self.planted.insert(point, point, point);
         }
         self.plan.fields.push(parcel.output.field);
@@ -487,30 +525,99 @@ impl Layout {
         }
         let step = 3.75 + 1.25 * unit(key ^ 4);
         let mut windbreaks = Vec::new();
+        let mut previous_station = None;
         let mut along = 3.5 + 1.5 * unit(key ^ 5);
         while along < length - 3.5 {
-            let (on_edge, segment) = point_along(edge, along);
-            let tangent = (edge[segment + 1] - edge[segment]).normalize_or_zero();
-            let random = mix(key ^ u64::from(along.to_bits()));
-            let point = on_edge + tangent.perp() * self.interior_side * 3.2;
-            let margin = Vec2::splat(3.);
-            if self.quads.iter().any(|quad| contains_convex(quad, point))
+            let point = self.windbreak_point(edge, along, TREE_WALL_SETBACK);
+            let margin = Vec2::splat(TREE_SPACING);
+            if self.contains_plant(point, TREE_WALL_CLEARANCE)
                 && !surface.sheltered(point, wind)
                 && !planted
                     .nearby(point - margin, point + margin)
-                    .any(|other| other.distance(point) < margin.x)
+                    .any(|other| other.distance_squared(point) < TREE_SPACING.powi(2))
+                && !windbreaks.iter().any(|tree: &Windbreak| {
+                    horizontal_position(tree.position).distance_squared(point)
+                        < TREE_SPACING.powi(2)
+                })
                 && let Some(position) = surface.position(point)
             {
+                let random = mix(key ^ u64::from(along.to_bits()));
+                let mut bushes = [None, None];
+                if let Some(previous) =
+                    previous_station.filter(|previous| along - previous < step + 0.05)
+                {
+                    bushes = std::array::from_fn(|index| {
+                        let key = mix(random ^ (index as u64 + 6));
+                        let fraction = if index == 0 { 0.32 } else { 0.68 };
+                        let station =
+                            previous + (along - previous) * (fraction + 0.06 * (unit(key) - 0.5));
+                        self.windbreak_bush(edge, station, key, surface)
+                    });
+                }
                 windbreaks.push(Windbreak {
                     position,
                     yaw: unit(random) * std::f32::consts::TAU,
                     scale: 0.72 + 0.22 * unit(random ^ 1),
+                    clearance_radius: MIN_TRUNK_WHEAT_RADIUS,
+                    bushes,
                 });
+                previous_station = Some(along);
             }
             along += step;
         }
         windbreaks
     }
+
+    fn windbreak_bush(
+        &self,
+        edge: &[Vec2],
+        station: f32,
+        key: u64,
+        surface: &Surface<'_>,
+    ) -> Option<WindbreakBush> {
+        let scale = 1.45 + 0.30 * unit(key ^ 1);
+        let radius = BUSH_RADIUS_PER_SCALE * scale;
+        let setback = TREE_WALL_SETBACK + 0.45 + 0.25 * unit(key ^ 2);
+        let point = self.windbreak_point(edge, station, setback);
+        // Allow for the stonework along the wall centreline and at its corners.
+        if !self.contains_plant(point, radius + 0.5) {
+            return None;
+        }
+        Some(WindbreakBush {
+            position: surface.position(point)?,
+            yaw: unit(key ^ 3) * std::f32::consts::TAU,
+            scale,
+            clearance_radius: radius + BUSH_WHEAT_MARGIN,
+        })
+    }
+
+    fn windbreak_point(&self, edge: &[Vec2], along: f32, setback: f32) -> Vec2 {
+        let (point, segment) = point_along(edge, along);
+        let tangent = (edge[segment + 1] - edge[segment]).normalize_or_zero();
+        point + tangent.perp() * self.interior_side * setback
+    }
+
+    fn contains_plant(&self, point: Vec2, wall_clearance: f32) -> bool {
+        let last = self.front.len() - 1;
+        let sides = [
+            [self.front[last], self.rear[0]],
+            [self.rear[last], self.front[0]],
+        ];
+        self.quads.iter().any(|quad| contains_convex(quad, point))
+            && self
+                .front
+                .windows(2)
+                .chain(self.rear.windows(2))
+                .chain(sides.iter().map(<[Vec2; 2]>::as_slice))
+                .all(|edge| {
+                    point_segment_distance_squared(point, edge[0], edge[1])
+                        >= wall_clearance.powi(2)
+                })
+    }
+}
+
+fn horizontal_position(position: [f32; 3]) -> Vec2 {
+    Vec3::from_array(position).truncate()
 }
 
 fn polyline_length(points: &[Vec2]) -> f32 {

@@ -1,7 +1,9 @@
+using System.IO;
 using System.Linq;
 using Motu.Towns;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Motu.Tests
 {
@@ -68,6 +70,109 @@ namespace Motu.Tests
             static float Ground(float x, float z) => 2f + x * .02f + z * .03f;
             static float[] Run(float ax, float az, float bx, float bz) =>
                 new[] { 1000f + ax, 1000f + az, Ground(ax, az), 1000f + bx, 1000f + bz, Ground(bx, bz) };
+        }
+
+        [Test]
+        public void WindbreakBushesShareTileMeshesAndLeaveBoundaryCollisionUnchanged()
+        {
+            var host = new GameObject("Field windbreak test");
+            try
+            {
+                var data = Field();
+                data.roadsideFields.bushes = new[]
+                {
+                    Bush(1011f, 1014f, 1.6f),
+                    Bush(1012.55f, 1014.17f, 1.5f),
+                    Bush(1035f, 1014f, 1.6f),
+                };
+                var town = TownRenderer.Install(host.transform, data, 2000f);
+                var bushes = town.GetComponentsInChildren<MeshRenderer>()
+                    .Where(renderer => renderer.name == "Windbreak bushes").ToArray();
+                Assert.That(bushes, Has.Length.EqualTo(2));
+                var paired = bushes.Single(renderer => renderer.bounds.size.x > 3f);
+                var single = bushes.Single(renderer => renderer != paired);
+                Assert.That(Mesh(paired).GetIndexCount(0), Is.EqualTo(2 * Mesh(single).GetIndexCount(0)));
+                Assert.That(single.bounds.min.y, Is.EqualTo(1.96f).Within(.001f));
+                Assert.That(single.bounds.max.y, Is.InRange(3.999f, 6.001f));
+                Assert.That(paired.bounds.max.y, Is.EqualTo(single.bounds.max.y).Within(.001f));
+                Assert.That(single.bounds.size.x, Is.InRange(1.5f, 2.5f));
+                Assert.That(single.bounds.size.z, Is.InRange(1.5f, 2.5f));
+                Assert.That(single.sharedMaterial, Is.SameAs(paired.sharedMaterial));
+                Assert.That(single.sharedMaterial.GetTexture("_ForestNoise"), Is.TypeOf<Texture3D>());
+
+                var group = paired.GetComponentInParent<LODGroup>();
+                var lods = group.GetLODs();
+                Assert.That(lods, Has.Length.EqualTo(3));
+                var branches = lods[0].renderers.Single(renderer => renderer.name == "Windbreak branches");
+                Assert.That(branches.sharedMaterial, Is.SameAs(paired.sharedMaterial));
+                Assert.That(branches.sharedMaterial.GetTexture("_TwigCard").name, Is.EqualTo("TreeBranchFan"));
+                Assert.That(Mesh(branches).GetIndexCount(0), Is.EqualTo(2 * 8 * 6));
+                Assert.That(branches.bounds.max.y, Is.LessThan(paired.bounds.max.y));
+                Assert.That(lods[0].renderers.Contains(paired), Is.True);
+                Assert.That(lods[1].renderers.Contains(paired), Is.True);
+                Assert.That(lods[1].renderers.Contains(branches), Is.False);
+                Assert.That(lods[2].renderers.Select(renderer => renderer.name),
+                    Is.EquivalentTo(new[] { "Stone walls", "Timber gates" }));
+                Assert.That(town.GetComponentsInChildren<Collider>(), Has.Length.EqualTo(2));
+                AssertBushRenders(paired, branches, group, host.transform);
+            }
+            finally { Object.DestroyImmediate(host); }
+
+            static TownRoadsidePlanting Bush(float x, float z, float scale) =>
+                new TownRoadsidePlanting { position = new[] { x, z, 2f }, yaw = .4f, scale = scale };
+        }
+
+        private static void AssertBushRenders(MeshRenderer bush, Renderer branches, LODGroup group, Transform host)
+        {
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) return;
+            const int layer = 30;
+            bush.gameObject.layer = layer;
+            branches.gameObject.layer = layer;
+            var camera = new GameObject("Windbreak review camera").AddComponent<Camera>();
+            camera.transform.SetParent(host, false);
+            camera.transform.position = bush.bounds.center + new Vector3(1.6f, -.95f, -2.4f);
+            camera.transform.LookAt(bush.bounds.center);
+            camera.cullingMask = 1 << layer;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(.38f, .42f, .46f);
+            camera.orthographic = true;
+            camera.orthographicSize = bush.bounds.size.y * .6f;
+            camera.enabled = false;
+            var previous = RenderTexture.active;
+            var target = new RenderTexture(384, 256, 24);
+            var image = new Texture2D(384, 256, TextureFormat.RGB24, false);
+            try
+            {
+                camera.targetTexture = target;
+                var nearby = Render(0);
+                var directory = System.Environment.GetEnvironmentVariable("MOTU_TOWN_RENDER_DIR");
+                if (!string.IsNullOrEmpty(directory))
+                    File.WriteAllBytes(Path.Combine(directory, "windbreak-bush.png"), image.EncodeToPNG());
+                var farther = Render(1);
+                Assert.That(nearby.Count(IsGreen), Is.GreaterThan(1800));
+                Assert.That(farther.Count(IsGreen), Is.GreaterThan(1800));
+                Assert.That(nearby.Count(IsWood), Is.GreaterThan(farther.Count(IsWood) + 10),
+                    "Bare branches should be visible through gaps in the canopy only at LOD0.");
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+                Object.DestroyImmediate(image);
+                Object.DestroyImmediate(target);
+            }
+
+            Color32[] Render(int lod)
+            {
+                group.ForceLOD(lod);
+                camera.Render();
+                RenderTexture.active = target;
+                image.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
+                return image.GetPixels32();
+            }
+
+            static bool IsGreen(Color32 pixel) => pixel.g > pixel.r && pixel.g > pixel.b;
+            static bool IsWood(Color32 pixel) => pixel.r > pixel.g && pixel.g > pixel.b;
         }
 
         private static Mesh Mesh(Renderer renderer) => renderer.GetComponent<MeshFilter>().sharedMesh;

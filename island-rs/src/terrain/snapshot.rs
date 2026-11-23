@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use super::{
     Decorations, GenerationMethod, Island, IslandOptions, Mesh, Terrain, TerrainEnvironmentField,
     TerrainMaterialField,
+    forest_edge_shrubs::{self, ShrubSurface},
 };
 use crate::{
     ferns::FernMeshes,
@@ -22,7 +23,8 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: [u8; 8] = *b"MOTUSNP\0";
-const SNAPSHOT_VERSION: u16 = 20;
+const SNAPSHOT_VERSION: u16 = 21;
+const PRE_SHRUB_SNAPSHOT_VERSION: u16 = 20;
 const COMPRESSION_ZSTD: u8 = 1;
 const HEADER_LENGTH: u64 = 8 + 2 + 1 + 1 + 8 + 32;
 const MAXIMUM_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -158,7 +160,7 @@ fn save_to_temporary_file(island: &Island, path: &Path) -> io::Result<()> {
 
 pub(super) fn load(path: &Path) -> io::Result<Island> {
     let mut file = File::open(path)?;
-    let payload_length = read_header(&mut file)?;
+    let (version, payload_length) = read_header(&mut file)?;
     let actual_length = file.metadata()?.len();
     if actual_length != HEADER_LENGTH + payload_length {
         return Err(invalid_data("snapshot length does not match its header"));
@@ -177,11 +179,11 @@ pub(super) fn load(path: &Path) -> io::Result<Island> {
         .with_limit(MAXIMUM_DECOMPRESSED_BYTES)
         .deserialize_from(decoder)
         .map_err(invalid_data)?;
-    snapshot.into_island()
+    snapshot.into_island(version)
 }
 
 impl IslandSnapshotOwned {
-    fn into_island(self) -> io::Result<Island> {
+    fn into_island(mut self, version: u16) -> io::Result<Island> {
         validate_mesh(&self.terrain.mesh, "terrain")?;
         for (index, mesh) in self.coarser_lods.iter().enumerate() {
             validate_mesh(mesh, &format!("terrain LOD {}", index + 1))?;
@@ -211,6 +213,18 @@ impl IslandSnapshotOwned {
         self.forest_options.validate().map_err(invalid_data)?;
 
         self.caves.validate().map_err(invalid_data)?;
+        if version == PRE_SHRUB_SNAPSHOT_VERSION {
+            self.decorations.bushes = forest_edge_shrubs::scatter(
+                self.seed,
+                ShrubSurface {
+                    terrain: &self.terrain,
+                    water: &self.river_mesh,
+                    forest: &self.forest,
+                    caves: &self.caves,
+                    boulders: &self.decorations.boulders,
+                },
+            );
+        }
         Ok(Island {
             caves: self.caves,
             seed: self.seed,
@@ -276,14 +290,14 @@ fn validate_mesh(mesh: &Mesh, label: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn read_header(file: &mut File) -> io::Result<u64> {
+fn read_header(file: &mut File) -> io::Result<(u16, u64)> {
     let mut magic = [0_u8; 8];
     file.read_exact(&mut magic)?;
     if magic != SNAPSHOT_MAGIC {
         return Err(invalid_data("not a Motu generated-island snapshot"));
     }
     let version = read_u16(file)?;
-    if version != SNAPSHOT_VERSION {
+    if !matches!(version, PRE_SHRUB_SNAPSHOT_VERSION | SNAPSHOT_VERSION) {
         return Err(invalid_data(format!(
             "unsupported generated-island snapshot version {version}"
         )));
@@ -299,7 +313,7 @@ fn read_header(file: &mut File) -> io::Result<u64> {
             "compressed snapshot exceeds the supported size",
         ));
     }
-    Ok(payload_length)
+    Ok((version, payload_length))
 }
 
 fn read_checksum(file: &mut File) -> io::Result<[u8; 32]> {
@@ -378,6 +392,42 @@ fn invalid_data(error: impl std::fmt::Display) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_snapshot_replaces_generic_bushes_using_its_saved_forest() {
+        use crate::{ISLAND_WORLD_METRES, Vec3, forest::TreePlacement};
+
+        let mut island = Island::shared_forest_fixture(ForestOptions::default());
+        island.forest.placements = (0_u16..10)
+            .map(|index| TreePlacement {
+                seed_ordinal: u32::from(index),
+                terrain_vertex: u32::from(index),
+                anchor: Vec3::new(630. + 9. * f32::from(index), 650., 40.) / ISLAND_WORLD_METRES,
+                yaw_radians: 0.,
+                scale: 1.,
+                prototype: 0,
+            })
+            .collect();
+        let old_bush = Vec3::new(0.31, 0.36, 0.02);
+        island.decorations.get_mut().unwrap().bushes = vec![old_bush];
+        let path = temporary_path(&std::env::temp_dir().join("motu-shrub-snapshot"));
+        save(&island, &path).unwrap();
+        let current = load(&path).unwrap();
+        assert_eq!(current.decorations().bushes(), &[old_bush]);
+        {
+            let mut file = OpenOptions::new().write(true).open(&path).unwrap();
+            file.seek(SeekFrom::Start(SNAPSHOT_MAGIC.len() as u64))
+                .unwrap();
+            file.write_all(&PRE_SHRUB_SNAPSHOT_VERSION.to_le_bytes())
+                .unwrap();
+        }
+        let upgraded = load(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert_eq!(upgraded.terrain, current.terrain);
+        assert_eq!(upgraded.forest, current.forest);
+        assert!(!upgraded.decorations().bushes().is_empty());
+        assert!(!upgraded.decorations().bushes().contains(&old_bush));
+    }
 
     #[test]
     fn shared_forest_snapshot_roundtrip_retains_catalog_placements_and_collision_proxies() {
@@ -584,7 +634,7 @@ mod tests {
     fn header_rejects_an_unknown_version() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&SNAPSHOT_MAGIC);
-        bytes.extend_from_slice(&(SNAPSHOT_VERSION - 1).to_le_bytes());
+        bytes.extend_from_slice(&(SNAPSHOT_VERSION + 1).to_le_bytes());
         bytes.extend_from_slice(&[COMPRESSION_ZSTD, 0]);
         bytes.extend_from_slice(&0_u64.to_le_bytes());
         bytes.extend_from_slice(&[0_u8; 32]);

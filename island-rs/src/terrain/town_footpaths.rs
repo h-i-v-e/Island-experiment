@@ -68,6 +68,7 @@ impl Island {
         }
         let count = marked.len();
         terrain.footpaths = FootpathPaint::new(terrain.mesh(), &terrain.triangle_index, marked);
+        self.clear_shrubs(&wear);
         self.wear_settlement_ground(&wear);
         Ok(count)
     }
@@ -141,6 +142,7 @@ impl Island {
             .map_or_else(BTreeSet::new, |paint| paint.vertices);
         marked.extend(access.0);
         terrain.footpaths = FootpathPaint::new(terrain.mesh(), &terrain.triangle_index, marked);
+        self.clear_shrubs(&wear);
         self.wear_settlement_ground(&wear);
     }
 }

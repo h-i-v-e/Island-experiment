@@ -1,5 +1,5 @@
 //! Engine-independent settlement clearance, applied before decoration export.
-use super::Island;
+use super::{Island, forest_edge_shrubs::SHRUB_RADIUS_METRES};
 use crate::ferns::MAX_FERN_OUTER_RADIUS_METRES;
 use crate::forest::{ForestMeshes, MeshRange, TreePlacement, forest_floor_mask, log_site_keys};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2};
@@ -109,12 +109,10 @@ impl Island {
             .accepted_trees
             .saturating_sub(trees_removed);
         self.forest_stats.exclusion_zone += trees_removed;
+        self.clear_shrubs(clearance);
         let mut boulders_removed = 0;
         if let Some(decorations) = self.decorations.get_mut() {
             decorations.set_tree_anchors(self.forest.placements.iter().map(|tree| tree.anchor));
-            decorations
-                .bushes
-                .retain(|point| !intersects(clearance, point.truncate(), 1. / ISLAND_WORLD_METRES));
             let count = decorations.boulders.len();
             decorations
                 .boulders
@@ -142,6 +140,18 @@ impl Island {
             logs_removed: logs_before - self.forest.logs.len(),
             boulders_removed,
         })
+    }
+
+    pub(super) fn clear_shrubs(&mut self, clearance: &[DecorationClearance]) {
+        if let Some(decorations) = self.decorations.get_mut() {
+            decorations.bushes.retain(|point| {
+                !intersects(
+                    clearance,
+                    point.truncate(),
+                    SHRUB_RADIUS_METRES / ISLAND_WORLD_METRES,
+                )
+            });
+        }
     }
 
     fn clear_forest_floor(

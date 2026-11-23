@@ -1,5 +1,5 @@
 //! Conforming local refinement of the resident terrain before any town exports.
-use super::{Island, Terrain, TriangleIndex};
+use super::{Island, Terrain, TriangleIndex, forest_edge_shrubs::SHRUB_RADIUS_METRES};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, mesh::EdgeSplitStencil, roads::RoadNetwork};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -126,6 +126,15 @@ impl Island {
         extend_field(&mut self.environment.values, &additions);
         extend_field(&mut self.distance_to_land, &additions);
         extend_field(&mut self.submerged_river_carve, &additions);
+        if let Some(decorations) = self.decorations.get_mut() {
+            decorations.bushes.retain(|point| {
+                let centre = point.truncate() * ISLAND_WORLD_METRES;
+                !terrain.road_corridor_overlaps(
+                    centre - SHRUB_RADIUS_METRES,
+                    centre + SHRUB_RADIUS_METRES,
+                )
+            });
+        }
         self.terrain = terrain;
         self.coarser_lods = [lod1, lod2];
         #[cfg(feature = "surface-atlas")]

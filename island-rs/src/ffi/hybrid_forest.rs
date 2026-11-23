@@ -1,5 +1,10 @@
 //! Compact borrowed-placement / owned-prototype exports for the shared forest renderer.
 use super::{ExportMesh, ISLAND_WORLD_METRES, Vec3, Vec4, c_void, export_mesh, island_ref};
+use crate::{
+    Mesh, Vec2,
+    clustered_foliage::{FoliageCrown, generate_cluster_foliage},
+    rng::Rng,
+};
 
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
@@ -243,6 +248,92 @@ impl PrototypeSpecies {
     }
 }
 
+const SHRUB_PROTOTYPES: [(u64, f32); 4] = [(137, 2.), (2718, 2.6), (2018, 3.3), (98765, 4.)];
+const SHRUB_RADIUS: f32 = 0.78;
+
+/// Export one owned foliage-only broadleaf shrub, with metres normalized to the native island size.
+/// Release successful exports with `ReleaseMesh`.
+///
+/// # Safety
+/// `output` must be null or writable for one `ExportMesh`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateBroadleafShrubPrototype(index: u32, output: *mut ExportMesh) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMesh::default();
+    if let Some((mesh, material)) = shrub_prototype(index as usize) {
+        *output = export_mesh(mesh, material, Vec::new());
+    }
+}
+
+fn shrub_prototype(index: usize) -> Option<(Mesh, Vec<Vec4>)> {
+    let &(seed, height) = SHRUB_PROTOTYPES.get(index)?;
+    let mut rng = Rng::new(seed);
+    let mut tips = [Vec3::ZERO; 8];
+    for (i, tip) in (0_u8..7).zip(&mut tips[..7]) {
+        let angle = f32::from(i) * (std::f32::consts::TAU / 7.) + rng.range(-0.18, 0.18);
+        let offset = Vec2::from_angle(angle) * rng.range(0.42, 0.78);
+        *tip = offset.extend(rng.range(0.9, 1.55)) / ISLAND_WORLD_METRES;
+    }
+    tips[7] = Vec3::new(
+        rng.range(-0.2, 0.2),
+        rng.range(-0.2, 0.2),
+        rng.range(1.6, 2.2),
+    ) / ISLAND_WORLD_METRES;
+    let foliage = generate_cluster_foliage(
+        seed,
+        &[FoliageCrown {
+            trunk: Vec3::ZERO,
+            tips: &tips,
+            scale: 0.65,
+        }],
+    )
+    .ok()?;
+    let leaves = crate::tree_shells(&foliage.lod1, false);
+    let mut mesh = foliage.lod0;
+    let mut material = vec![Vec4::new(0., 1., 1., 1.); mesh.vertices.len()];
+    material.extend(
+        leaves
+            .layers
+            .into_iter()
+            .map(|layer| Vec4::new(layer, 1., 1., 1.)),
+    );
+    let offset = u32::try_from(mesh.vertices.len()).ok()?;
+    mesh.vertices.extend(leaves.mesh.vertices);
+    mesh.normals.extend(leaves.mesh.normals);
+    mesh.triangles.extend(
+        leaves
+            .mesh
+            .triangles
+            .into_iter()
+            .map(|index| index + offset),
+    );
+    mesh.uv.clear();
+
+    let mut min_z = f32::INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    let mut radius = 0.0_f32;
+    for vertex in &mesh.vertices {
+        min_z = min_z.min(vertex.z);
+        max_z = max_z.max(vertex.z);
+        radius = radius.max(vertex.truncate().length());
+    }
+    if min_z >= max_z || radius == 0. {
+        return None;
+    }
+    let width_scale = SHRUB_RADIUS / (radius * ISLAND_WORLD_METRES);
+    let height_scale = (height + 0.04) / ((max_z - min_z) * ISLAND_WORLD_METRES);
+    let scale = Vec3::new(width_scale, width_scale, height_scale);
+    let base = Vec3::Z * min_z;
+    let origin = Vec3::new(0.5, 0.5, -0.04 / ISLAND_WORLD_METRES);
+    for (vertex, normal) in mesh.vertices.iter_mut().zip(&mut mesh.normals) {
+        *vertex = (*vertex - base) * scale + origin;
+        *normal = (*normal / scale).normalize_or(Vec3::Z);
+    }
+    Some((mesh, material))
+}
+
 // Exports own their mesh buffers because callers release them independently.
 fn prototype_mesh(
     tree: &crate::TreeMeshes,
@@ -297,6 +388,36 @@ fn prototype_mesh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shrub_prototypes_are_grounded_broadleaf_canopies_with_leaf_shells() {
+        for (index, &(_, height)) in SHRUB_PROTOTYPES.iter().enumerate() {
+            let (mesh, material) = shrub_prototype(index).expect("valid shrub prototype");
+            assert!(!mesh.triangles.is_empty());
+            assert_eq!(mesh.vertices.len(), mesh.normals.len());
+            assert_eq!(mesh.vertices.len(), material.len());
+            assert!(material.iter().all(|color| color.y == 1. && color.z == 1.));
+            assert!(material.iter().any(|color| color.x == 0.));
+            assert!(material.iter().any(|color| color.x == 1.));
+            let min = mesh
+                .vertices
+                .iter()
+                .map(|v| v.z)
+                .fold(f32::INFINITY, f32::min);
+            let max = mesh
+                .vertices
+                .iter()
+                .map(|v| v.z)
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((min * ISLAND_WORLD_METRES + 0.04).abs() < 0.001);
+            assert!((max * ISLAND_WORLD_METRES - height).abs() < 0.001);
+            assert!(mesh.vertices.iter().all(|v| {
+                (v.truncate() - Vec2::splat(0.5)).length() * ISLAND_WORLD_METRES
+                    <= SHRUB_RADIUS + 0.001
+            }));
+        }
+        assert!(shrub_prototype(SHRUB_PROTOTYPES.len()).is_none());
+    }
 
     #[test]
     fn shadow_mask_ffi_matches_the_shared_rust_bake_without_touching_padding() {

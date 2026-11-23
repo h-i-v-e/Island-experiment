@@ -18,13 +18,44 @@ namespace Motu.Interop
     {
         internal static IslandPreparedForestData PrepareForestData(
             IntPtr handle,
-            float worldSize)
+            float worldSize, bool hasWindbreakShrubs = false)
         {
+            var edgeShrubs = PrepareForestEdgeShrubs(handle, worldSize);
+            if (edgeShrubs.Length != 0 || hasWindbreakShrubs) _ = HybridForestNative.SharedShrubPrototypes;
             return new IslandPreparedForestData(
                 HybridForestNative.Prepare(handle, worldSize),
                 PrepareForestTrunkColliders(handle, worldSize),
                 PrepareForestTrunkColliders(handle, worldSize, fallenLogs: true),
-                HybridForestNative.PrepareFallenLogs(handle, worldSize));
+                HybridForestNative.PrepareFallenLogs(handle, worldSize),
+                edgeShrubs);
+        }
+
+        internal static IslandPreparedForestShrub[] PrepareForestEdgeShrubs(IntPtr handle, float worldSize)
+        {
+            MotuNative.GetDecoration(handle, out var decoration);
+            var source = decoration.bushes;
+            ValidateBorrowedArray(source, "forest-edge shrub");
+            if (source.length == 0) return Array.Empty<IslandPreparedForestShrub>();
+
+            var coordinates = new float[checked(source.length * 3)];
+            Marshal.Copy(source.data, coordinates, 0, coordinates.Length);
+            var shrubs = new IslandPreparedForestShrub[source.length];
+            for (int i = 0; i < shrubs.Length; i++)
+            {
+                int offset = i * 3;
+                var anchor = new MotuNative.NativeVector3(coordinates[offset], coordinates[offset + 1], coordinates[offset + 2]);
+                if (!IsFiniteNative(anchor) || anchor.x is < 0f or > 1f || anchor.y is < 0f or > 1f || anchor.z <= 0f)
+                    throw new InvalidOperationException($"The native forest-edge shrub {i} has an invalid anchor.");
+
+                // Anchor-based variation stays stable when a town removes other shrubs from the array.
+                uint seed = unchecked((uint)BitConverter.SingleToInt32Bits(anchor.x) * 0x9e3779b9u
+                    ^ (uint)BitConverter.SingleToInt32Bits(anchor.y) * 0x85ebca6bu);
+                uint style = IslandRandom.Mix(seed);
+                float yaw = (style & 0xffffu) * (2f * Mathf.PI / 65536f);
+                float scale = 1.35f + (style >> 16) * (.35f / 65536f);
+                shrubs[i] = new IslandPreparedForestShrub(NativePositionToUnity(anchor, worldSize), yaw, scale);
+            }
+            return shrubs;
         }
         internal static IslandPreparedMesh[] PrepareFernMeshGrid(
             IntPtr handle,

@@ -80,7 +80,7 @@ pub(super) fn segments_within(a: Vec2, b: Vec2, c: Vec2, d: Vec2, radius: f32) -
         || point_segment_distance_squared(d, a, b) <= limit
 }
 
-fn point_segment_distance_squared(point: Vec2, a: Vec2, b: Vec2) -> f32 {
+pub(super) fn point_segment_distance_squared(point: Vec2, a: Vec2, b: Vec2) -> f32 {
     let span = b - a;
     let fraction = if span == Vec2::ZERO {
         0.

@@ -491,6 +491,8 @@ namespace Motu.Towns
         {
             foreach (var value in owned) DestroyUnityObject(value);
             owned.Clear();
+            shrubNoise?.Dispose();
+            shrubNoise = null;
         }
     }
 }

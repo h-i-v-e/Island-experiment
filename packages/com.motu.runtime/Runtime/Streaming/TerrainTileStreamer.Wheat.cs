@@ -29,7 +29,8 @@ namespace Motu.Streaming
             var clumps = Resources.Load<Material>("Motu/Variants/WheatClumps")
                 ?? throw new System.InvalidOperationException("The wheat clump material is unavailable.");
             wheatCanopyMaterial = new Material(canopy) { name = "Wheat fields" };
-            wheatMaskTexture = wheat.Mask?.Bind(terrainMaterial, terrainLod1Material, terrainLod2Material, grassMaterial);
+            wheatMaskTexture = wheat.Mask?.Bind(terrainMaterial, terrainLod1Material, terrainLod2Material, grassMaterial,
+                wheat.Mask.HasExclusions ? wheatCanopyMaterial : null);
             wheatClumps = new WheatClumpRenderer(transform, clumps);
         }
 

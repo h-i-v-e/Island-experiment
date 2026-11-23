@@ -141,7 +141,7 @@ fn curves_fit_both_sides_and_emit_real_grounded_gate_openings() {
 }
 
 #[test]
-fn open_windbreak_uses_the_doubled_planting_density() {
+fn open_windbreak_keeps_dense_rows_and_places_bushes_close_to_the_wall() {
     let island = fixture(|_| 35.);
     let surface = Surface::new(&island, &[]);
     let run = straight(640., 960.);
@@ -153,9 +153,35 @@ fn open_windbreak_uses_the_doubled_planting_density() {
         "{} trees in a 55 m row",
         plants.len()
     );
+    let rear_wall = TRACK_Y + FRONT_SETBACK + 30.;
+    for tree in &plants {
+        assert!((rear_wall - tree.position[1] - 1.5).abs() < 0.001);
+    }
+    assert!(plants[0].bushes.iter().all(Option::is_none));
     for pair in plants.windows(2) {
-        let step = (pair[0].position[0] - pair[1].position[0]).abs();
+        let high_x = pair[0].position[0];
+        let low_x = pair[1].position[0];
+        let step = high_x - low_x;
         assert!((3.749..=5.001).contains(&step), "tree spacing {step} m");
+        let [Some(first), Some(second)] = &pair[1].bushes else {
+            panic!("two shrubs must fill each gap on an open, straight wall");
+        };
+        for bush in [first, second] {
+            let radius = BUSH_RADIUS_PER_SCALE * bush.scale;
+            assert!((1.45..=1.75).contains(&bush.scale));
+            assert!((1.949..=2.201).contains(&(rear_wall - bush.position[1])));
+            assert!((low_x..high_x).contains(&bush.position[0]));
+            assert_eq!(bush.clearance_radius, radius + BUSH_WHEAT_MARGIN);
+            assert!((bush.position[2] - 35.).abs() < 0.001);
+        }
+        let first_radius = first.scale * BUSH_RADIUS_PER_SCALE;
+        let second_radius = second.scale * BUSH_RADIUS_PER_SCALE;
+        assert!(first.position[0] + first_radius >= high_x - 0.7);
+        assert!(second.position[0] - second_radius <= low_x + 0.7);
+        assert!(
+            horizontal_position(first.position).distance(horizontal_position(second.position))
+                < first_radius + second_radius
+        );
     }
 }
 
@@ -192,11 +218,22 @@ fn windbreak_uses_shared_forest_catalogue_and_collision() {
             position: (point * ISLAND_WORLD_METRES).to_array(),
             yaw: 0.4,
             scale: 0.8,
+            clearance_radius: MIN_TRUNK_WHEAT_RADIUS,
+            bushes: [
+                Some(WindbreakBush {
+                    position: ((point * ISLAND_WORLD_METRES) + Vec3::X * 2.).to_array(),
+                    yaw: 0.7,
+                    scale: 0.9,
+                    clearance_radius: 0.972,
+                }),
+                None,
+            ],
         }],
         ..RoadsideFieldPlan::default()
     };
     island.plant_roadside_windbreaks(&mut plan, 42).unwrap();
     assert_eq!(plan.windbreaks.len(), 1);
+    assert_eq!(plan.bushes.len(), 1);
     let (catalogue_after, placements) = island.hybrid_forest().unwrap();
     assert!(std::sync::Arc::ptr_eq(
         &catalogue,
@@ -208,17 +245,20 @@ fn windbreak_uses_shared_forest_catalogue_and_collision() {
     assert!((tree.anchor.truncate() - point.truncate()).length() < 1e-6);
     assert!(usize::from(tree.prototype) < catalogue.len());
     assert_eq!(island.forest.lod1_foliage.vertices.len(), before_crowns + 5);
-    assert_eq!(
-        island
-            .forest
-            .trunk_colliders()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
-            .len(),
-        before + 1
-    );
+    let colliders = island
+        .forest
+        .trunk_colliders()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(colliders.len(), before + 1);
+    let trunk = colliders.last().unwrap();
+    let tree = &plan.windbreaks[0];
+    let centre = horizontal_position(tree.position);
+    let trunk_offset = centre.distance(trunk.bottom.truncate() * ISLAND_WORLD_METRES);
+    assert!(tree.clearance_radius >= trunk.radius * ISLAND_WORLD_METRES + trunk_offset + 0.37);
     island.plant_roadside_windbreaks(&mut plan, 42).unwrap();
     assert!(plan.windbreaks.is_empty());
+    assert!(plan.bushes.is_empty());
     assert_eq!(island.forest.placements().len(), before + 1);
 }
 

@@ -10,7 +10,7 @@ namespace Motu.Streaming
 {
     // Visual trees belong to one instanced renderer. Only the player's 3x3
     // finest terrain neighborhood creates trunk and fallen-log collision objects.
-    internal sealed class ForestTileStreamer : IDisposable
+    internal sealed partial class ForestTileStreamer : IDisposable
     {
         internal const int Lod0Resolution = 64;
         internal const int Lod0TileCount = Lod0Resolution * Lod0Resolution;
@@ -248,6 +248,7 @@ namespace Motu.Streaming
             renderer = null;
             foreach (var tile in fallenLogs) tile.Dispose();
             fallenLogs.Clear();
+            DisposeEdgeShrubs();
             DestroyUnityObject(forestRoot);
             forestRoot = null;
             trunks = logs = null;

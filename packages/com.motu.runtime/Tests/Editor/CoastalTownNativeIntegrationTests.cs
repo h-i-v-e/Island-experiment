@@ -198,6 +198,7 @@ namespace Motu.Tests
             internal RealWheatScene wheat;
             internal TownCartTrackDeparture sign;
             internal IslandPreparedMesh signTerrain;
+            internal IslandPreparedForestShrub[] forestEdgeShrubs;
         }
 
         private sealed class RealWheatScene
@@ -211,7 +212,8 @@ namespace Motu.Tests
         private static RealWheatScene PrepareRealWheat(IntPtr handle, IslandPreparedWheat data, IslandPreparedMesh[] overview)
         {
             if (data == null) return null;
-            var field = data.Fields.OrderByDescending(plot => plot.HalfExtents.x * plot.HalfExtents.y).First();
+            var field = data.Fields.OrderByDescending(plot => plot.Exclusions.Length != 0)
+                .ThenByDescending(plot => plot.HalfExtents.x * plot.HalfExtents.y).First();
             var centre = field.Centre + Vector2.one * 1000f;
             var area = CropArea(centre.x, centre.y, field.HalfExtents.magnitude + 8f);
             IslandPreparedMesh Prepare(int lod) =>
@@ -269,6 +271,7 @@ namespace Motu.Tests
                     bridge = bridge, bridgeTerrain = bridge == null ? null : TerrainCrop(handle, bridgeArea),
                     bridgeRiver = bridge == null ? null : RiverCrop(handle, bridgeArea),
                     wheat = PrepareRealWheat(handle, wheat, overview),
+                    forestEdgeShrubs = VegetationPreparation.PrepareForestEdgeShrubs(handle, 2000f),
                     sign = sign, signTerrain = sign == null ? null : TerrainCrop(handle, CropArea(sign.position[0], sign.position[1], 25f)),
                     roadHeightMapError = RoadHeightMapError(handle, result.road_mesh),
                     overviewHasRoadCore = overview
@@ -318,6 +321,8 @@ namespace Motu.Tests
             Assert.That(plan.fields.Length, Is.GreaterThan(0), "The fixed coastal seed has open frontage.");
             Assert.That(plan.walls, Is.Not.Empty);
             Assert.That(plan.windbreaks, Is.Not.Empty);
+            Assert.That(plan.bushes, Is.Not.Empty);
+            Assert.That(plan.windbreaks.Concat(plan.bushes).All(planting => planting.clearance_radius > 0f), Is.True);
             Assert.That(plan.gates.Select(gate => gate.field_id), Is.EquivalentTo(plan.fields.Select(field => field.id)));
             foreach (var gate in plan.gates)
             {
@@ -336,7 +341,17 @@ namespace Motu.Tests
             }
             finally { Object.DestroyImmediate(owner); }
             TestContext.Progress.WriteLine($"Seed-42 roadside parcels: {plan.fields.Length} fields, "
-                + $"{plan.fields.Count(field => field.wheat)} wheat, {plan.windbreaks.Length} windbreak plants.");
+                + $"{plan.fields.Count(field => field.wheat)} wheat, {plan.windbreaks.Length} trees, {plan.bushes.Length} bushes.");
+        }
+
+        [Test, Category("NativeIntegration"), Timeout(300000)]
+        public void RealCoastExportsForestEdgeShrubsAfterTownClearance()
+        {
+            var shrubs = RealFixture.Value.forestEdgeShrubs;
+            Assert.That(shrubs, Is.Not.Empty);
+            Assert.That(shrubs.All(shrub => shrub.position.y > 0f
+                && Mathf.Abs(shrub.position.x) < 1000f && Mathf.Abs(shrub.position.z) < 1000f), Is.True);
+            Assert.That(shrubs.All(shrub => shrub.scale is >= 1.35f and <= 1.70f), Is.True);
         }
 
         [Test, Category("NativeIntegration"), Timeout(300000)]
@@ -1021,7 +1036,7 @@ namespace Motu.Tests
             var field = wheat.field;
             var plants = wheat.detail.wheat.Plants;
             var middle = plants.OrderBy(plant => (new Vector2(plant.Root.x, plant.Root.z) - field.Centre).sqrMagnitude).First().Root;
-            var mask = wheat.data.Mask.Bind(groundMaterial);
+            Texture2D mask = null;
             var sourceMesh = ground.sharedMesh;
             Mesh distantGround = null;
             Mesh canopy = null;
@@ -1030,6 +1045,8 @@ namespace Motu.Tests
             canopyHost.transform.SetParent(root, false);
             try
             {
+                canopyMaterial = new Material(Resources.Load<Shader>("WheatCanopy"));
+                mask = wheat.data.Mask.Bind(groundMaterial, wheat.data.Mask.HasExclusions ? canopyMaterial : null);
                 camera.orthographicSize = 3.7f;
                 camera.transform.position = middle + new Vector3(6f, 4f, -7f);
                 camera.transform.LookAt(middle + Vector3.up * 0.45f);
@@ -1047,7 +1064,6 @@ namespace Motu.Tests
                 distantGround = IslandMeshInterop.CreateTerrainMesh(wheat.distant, 2);
                 ground.sharedMesh = distantGround;
                 canopy = IslandMeshInterop.CreateGeneratedMesh(wheat.distant.wheat.Canopy);
-                canopyMaterial = new Material(Resources.Load<Shader>("WheatCanopy"));
                 camera.orthographicSize = field.HalfExtents.magnitude * 1.15f;
                 camera.transform.position = middle + new Vector3(27f, 26f, -35f);
                 camera.transform.LookAt(middle);

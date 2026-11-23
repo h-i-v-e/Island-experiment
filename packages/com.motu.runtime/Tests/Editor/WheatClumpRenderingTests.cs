@@ -127,6 +127,39 @@ namespace Motu.Tests
             }
         }
 
+        [Test]
+        public void CanopyLeavesOpeningsAtTheGroundMaskExclusions()
+        {
+            using var scene = new RenderScene();
+            var canopy = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            canopy.layer = scene.Owner.layer;
+            canopy.transform.SetParent(scene.Owner.transform, false);
+            var material = new Material(Resources.Load<Shader>("WheatCanopy"));
+            canopy.GetComponent<MeshRenderer>().sharedMaterial = material;
+            material.SetFloat("_WheatPorosity", 0f);
+            Texture2D mask = null;
+            try
+            {
+                scene.Camera.orthographic = true;
+                scene.Camera.orthographicSize = 5f;
+                scene.Camera.transform.SetPositionAndRotation(scene.Owner.transform.position + Vector3.up * 9f,
+                    Quaternion.Euler(90f, 0f, 0f));
+                var solid = scene.Render(goldOnly: false).count;
+                Assert.That(solid, Is.GreaterThan(10000));
+                var field = new WheatField(Vector2.zero, Vector2.one * 5f, 0f, 0,
+                    exclusions: new[] { new WheatExclusion(Vector2.zero, 2f) });
+                mask = WheatGroundMask.Build(new[] { field }, default).Bind(material);
+                var cut = scene.Render(goldOnly: false).count;
+                Assert.That(cut, Is.InRange(solid * .82f, solid * .90f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(canopy);
+                Object.DestroyImmediate(mask);
+                Object.DestroyImmediate(material);
+            }
+        }
+
         private sealed class RenderScene : IDisposable
         {
             private const int Layer = 30;

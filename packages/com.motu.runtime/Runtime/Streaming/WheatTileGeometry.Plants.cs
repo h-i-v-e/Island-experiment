@@ -34,11 +34,13 @@ namespace Motu.Streaming
             // Stable row order is independent of the tile's triangle order and tessellation.
             var cells = new List<Vector2Int>(heights.Keys);
             cells.Sort((a, b) => a.y == b.y ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
-            foreach (var cell in cells)
+            for (int i = 0; i < cells.Count; i++)
             {
-                if ((plants.Count & 255) == 0) token.ThrowIfCancellationRequested();
+                if ((i & 255) == 0) token.ThrowIfCancellationRequested();
+                var cell = cells[i];
                 var seed = CellSeed(space.Field.Seed, cell.x, cell.y);
                 var root = PlantPosition(space, cell.x, cell.y, seed, heights[cell]);
+                if (space.Field.Excludes(root)) continue;
                 var yaw = space.Field.Yaw + (Unit(seed ^ 0x7f4a7c15u) - 0.5f) * 0.82f;
                 var height = CanopyHeight + (Unit(seed ^ 0xd1b54a35u) - 0.5f) * 0.36f;
                 var width = 0.34f + Unit(seed ^ 0x9e3779b9u) * 0.08f;

@@ -1,7 +1,9 @@
 use super::geometry::{
     bounds, intersects_circle, intersects_marked_triangle, overlaps, segment_near,
 };
-use crate::terrain::{Island, TriangleIndex, spatial_bins::SpatialBins};
+use crate::terrain::{
+    Island, TriangleIndex, forest_edge_shrubs::SHRUB_RADIUS_METRES, spatial_bins::SpatialBins,
+};
 use crate::{DecorationClearance, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3};
 
 const TILE_MARGIN: f32 = 5.;
@@ -60,6 +62,9 @@ impl<'a> Surface<'a> {
             );
         }
         if let Some(decorations) = island.decorations.get() {
+            for &shrub in decorations.bushes() {
+                insert_circle(&mut obstacles, world_xy(shrub), SHRUB_RADIUS_METRES);
+            }
             for rock in &decorations.boulders {
                 insert_circle(
                     &mut obstacles,

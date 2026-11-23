@@ -47,6 +47,7 @@ mod coastal_uplift;
 pub use coastal_strip::CoastalStripOptions;
 mod decorations;
 mod erosion;
+mod forest_edge_shrubs;
 mod generation;
 mod generation_method;
 #[cfg(feature = "gpu-generation")]

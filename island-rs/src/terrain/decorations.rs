@@ -1,5 +1,5 @@
 use super::{
-    GenerationMethod, ISLAND_WORLD_METRES, Mesh, River, Rng, StageTimer, Terrain, Vec2, Vec3,
+    GenerationMethod, ISLAND_WORLD_METRES, Mesh, Rng, StageTimer, Terrain, Vec2, Vec3,
     bin_coordinate, noise, sample_mesh_triangle,
 };
 
@@ -59,77 +59,6 @@ pub(super) const ROCK_STONE_MINIMUM_DIAMETER_METRES: f32 = 0.10;
 pub(super) const ROCK_STONE_MAXIMUM_DIAMETER_METRES: f32 = 0.30;
 pub(super) const ROCK_BOULDER_MINIMUM_DIAMETER_METRES: f32 = 0.30;
 pub(super) const ROCK_BOULDER_MAXIMUM_DIAMETER_METRES: f32 = 0.60;
-pub(super) const RIVER_POINT_SAMPLE_SPACING: f32 = 2.0 / ISLAND_WORLD_METRES;
-pub(super) struct RiverPointIndex {
-    pub(super) dimension: usize,
-    pub(super) offsets: Vec<usize>,
-    pub(super) points: Vec<Vec2>,
-}
-
-impl RiverPointIndex {
-    pub(super) fn new(rivers: &[River]) -> Self {
-        let maximum_step = RIVER_POINT_SAMPLE_SPACING;
-        let mut sampled_points = Vec::new();
-        for river in rivers {
-            for segment in river.nodes.windows(2) {
-                let start = segment[0].position.truncate();
-                let end = segment[1].position.truncate();
-                let steps = ((end - start).length() / maximum_step).ceil().max(1.0) as usize;
-                sampled_points
-                    .extend((0..steps).map(|step| start.lerp(end, step as f32 / steps as f32)));
-            }
-            if let Some(node) = river.nodes.last() {
-                sampled_points.push(node.position.truncate());
-            }
-        }
-        let point_count = sampled_points.len();
-        let dimension = ((point_count as f32 / 4.0).sqrt().ceil() as usize).clamp(8, 512);
-        let mut counts = vec![0_usize; dimension * dimension];
-        for &point in &sampled_points {
-            let x = bin_coordinate(point.x, dimension);
-            let y = bin_coordinate(point.y, dimension);
-            counts[y * dimension + x] += 1;
-        }
-        let mut offsets = Vec::with_capacity(counts.len() + 1);
-        offsets.push(0);
-        for count in counts {
-            offsets.push(offsets.last().copied().unwrap_or_default() + count);
-        }
-        let mut cursor = offsets[..dimension * dimension].to_vec();
-        let mut points = vec![Vec2::ZERO; point_count];
-        for point in sampled_points {
-            let x = bin_coordinate(point.x, dimension);
-            let y = bin_coordinate(point.y, dimension);
-            let bin = y * dimension + x;
-            points[cursor[bin]] = point;
-            cursor[bin] += 1;
-        }
-        Self {
-            dimension,
-            offsets,
-            points,
-        }
-    }
-
-    pub(super) fn contains_within(&self, point: Vec2, distance_squared: f32) -> bool {
-        let radius = distance_squared.sqrt();
-        let cell_radius = (radius * self.dimension as f32).ceil() as usize;
-        let origin_x = bin_coordinate(point.x, self.dimension);
-        let origin_y = bin_coordinate(point.y, self.dimension);
-        let minimum_x = origin_x.saturating_sub(cell_radius);
-        let maximum_x = (origin_x + cell_radius).min(self.dimension - 1);
-        let minimum_y = origin_y.saturating_sub(cell_radius);
-        let maximum_y = (origin_y + cell_radius).min(self.dimension - 1);
-        (minimum_y..=maximum_y).any(|y| {
-            (minimum_x..=maximum_x).any(|x| {
-                let bin = y * self.dimension + x;
-                self.points[self.offsets[bin]..self.offsets[bin + 1]]
-                    .iter()
-                    .any(|river_point| river_point.distance_squared(point) < distance_squared)
-            })
-        })
-    }
-}
 
 impl Decorations {
     #[must_use]
@@ -153,48 +82,17 @@ impl Decorations {
     pub(super) fn generate(
         seed: u64,
         terrain: &Terrain,
-        rivers: &[River],
         target: usize,
         method: GenerationMethod,
     ) -> Result<(Self, Vec<SettledRock>), String> {
         let _timer = StageTimer::new("decorations.lazy");
-        let mut rng = Rng::new(seed ^ 0xe703_7ed1_a0b4_28db);
-        let mut out = Self::default();
-        out.trees.reserve(target * 3 / 5);
-        out.bushes.reserve(target / 4);
-        let vegetation_target = target * 15 / 16;
-        let river_index = RiverPointIndex::new(rivers);
-        for _ in 0..target * 6 {
-            if out.trees.len() + out.bushes.len() >= vegetation_target {
-                break;
-            }
-            let u = rng.range(0.01, 0.99);
-            let v = rng.range(0.01, 0.99);
-            let (height, normal) = terrain.sample_surface(u, v);
-            if height <= 0.001 {
-                continue;
-            }
-            let slope = 1.0 - normal.z;
-            let point = Vec3::new(u, v, height);
-            if river_index.contains_within(point.truncate(), 0.000_025) {
-                continue;
-            }
-            let moisture = noise::fractal(seed ^ 0x8ebc_6af0_9c88_c6e3, u * 7.0, v * 7.0, 3);
-            if slope > 0.38 || height > 0.145 {
-                continue;
-            }
-            if moisture > -0.05 && height > 0.012 && height < 0.13 {
-                if rng.unit() < 0.72 {
-                    out.trees.push(point);
-                }
-            } else if rng.unit() < 0.54 {
-                out.bushes.push(point);
-            }
-        }
         let (settled_rocks, stone_vertices) =
             generate_settled_rocks(seed, terrain, target * ROCK_BODY_COUNT_MULTIPLIER, method)?;
-        out.stone_vertices = stone_vertices;
-        Ok((out, settled_rocks))
+        let decorations = Self {
+            stone_vertices,
+            ..Self::default()
+        };
+        Ok((decorations, settled_rocks))
     }
 }
 

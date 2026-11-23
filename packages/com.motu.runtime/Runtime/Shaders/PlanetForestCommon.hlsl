@@ -95,26 +95,29 @@ void PalmClip(float3 root, float2 uv, float4 data, float2 pixel)
 void ForestClip(float3 worldPoint, float3 root, float3 up, float2 uv, float4 data, float2 pixel)
 {
     if (data.b > 1.5) { PalmClip(root,uv,data,pixel); return; }
-    if (_ForestKind > 3.5)
+    bool shrub = _ForestKind > 4.5;
+    if (_ForestKind > 3.5 && (!shrub || data.g < 0.5))
     {
-        // One cutout is shared by both tree species and every rendering pass.
+        // The branch mask clips identically in colour, depth and shadow passes.
         clip(ForestTwigSample(uv).a - 0.5);
+        if (shrub) return;
         float fade = 1-smoothstep(25.0,30.0,distance(root,_MotuForestViewer));
         float3 cell = floor(ForestStable(worldPoint).xzy*128.0);
         float threshold = frac(sin(dot(cell,float3(12.9898,78.233,37.719)))*43758.5453);
         clip(fade-threshold);
         return;
     }
-    if (_ForestKind < 0.5 || _ForestKind > 2.5) return;
+    if (_ForestKind < 0.5 || (_ForestKind > 2.5 && !shrub)) return;
     if (data.b > 0.5)
     {
         float3 column = (ForestStable(worldPoint) - up * dot(worldPoint-root,up)).xzy;
         float3 broad = ForestNoise(column/32.0 + float3(0.13,0.47,0.71));
         float3 detail = ForestNoise(column/13.0 + 0.37);
         clip(smoothstep(0.30,0.38,broad.r*0.65+detail.b*0.35)-0.5);
-        if (_ForestKind > 1.5)
+        if (shrub ? data.r > 0.0 : _ForestKind > 1.5)
         {
-            clip(28.0-distance(worldPoint,_MotuForestViewer));
+            float3 viewer = shrub ? GetCameraPositionWS() : _MotuForestViewer;
+            clip(28.0-distance(worldPoint,viewer));
             float3 p = ForestStable(worldPoint).xzy/1.25;
             float3 leaves = ForestNoise(p+float3(0.41,0.17,0.73));
             float3 fine = ForestNoise(p*1.85+float3(0.13,0.79,0.37));
@@ -158,7 +161,8 @@ ForestOutput ForestVertex(ForestInput input)
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
     float3 root = ForestRoot();
     output.world = TransformObjectToWorld(input.position);
-    output.world += ForestWind(output.world,root);
+    // Bush meshes contain multiple ground-level roots per tile.
+    if (_ForestKind < 4.5) output.world += ForestWind(output.world,root);
     output.normal = TransformObjectToWorldNormal(input.normal);
 #ifdef FOREST_SHADOW
     output.position = MotuShadowPosition(output.world,output.normal);
@@ -188,9 +192,14 @@ half4 ForestFragment(ForestOutput input, bool front : SV_IsFrontFace) : SV_Targe
     half3 colour;
     half transmission = 0;
     half occlusion = 1;
-    bool twig = _ForestKind > 3.5;
-    bool wood = twig || _ForestKind < 0.5 || (_ForestKind > 2.5 && input.data.g < 0.5);
-    if (wood)
+    bool twig = _ForestKind > 3.5 && _ForestKind < 4.5;
+    bool wood = twig || _ForestKind < 0.5 || (_ForestKind > 2.5 && _ForestKind < 3.5 && input.data.g < 0.5);
+    if (_ForestKind > 4.5 && input.data.g < 0.5)
+    {
+        colour = lerp(half3(0.042,0.025,0.013),half3(0.105,0.064,0.033),input.data.r)
+            * lerp(0.86,1.14,detail.r);
+    }
+    else if (wood)
     {
         ForestBarkSample bark = SampleForestBark(input.barkPosition,input.world,normal,input.uv,input.data.b,twig);
         colour = bark.colour*lerp(0.96,1.04,broad.r);

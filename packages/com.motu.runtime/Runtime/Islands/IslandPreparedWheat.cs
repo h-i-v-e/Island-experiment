@@ -15,20 +15,58 @@ namespace Motu.Islands
         internal readonly float Yaw;
         internal readonly uint Seed;
         internal readonly WheatFieldOutline Outline;
+        internal readonly WheatExclusion[] Exclusions;
 
-        internal WheatField(Vector2 centre, Vector2 halfExtents, float yaw, uint seed, WheatFieldOutline outline = null)
+        internal WheatField(Vector2 centre, Vector2 halfExtents, float yaw, uint seed,
+            WheatFieldOutline outline = null, WheatExclusion[] exclusions = null)
         {
             Centre = centre;
             HalfExtents = halfExtents;
             Yaw = yaw;
             Seed = seed;
             Outline = outline;
+            Exclusions = exclusions ?? Array.Empty<WheatExclusion>();
         }
 
         internal double InwardDistance(double x, double z)
         {
             return Outline == null ? Math.Min(HalfExtents.x - Math.Abs(x), HalfExtents.y - Math.Abs(z))
                 : Outline.InwardDistance(x, z);
+        }
+
+        internal WheatField WithExclusions(List<WheatExclusion> exclusions)
+        {
+            var nearby = new List<WheatExclusion>();
+            var axis = new Vector2(Mathf.Cos(Yaw), Mathf.Sin(Yaw));
+            foreach (var exclusion in exclusions)
+            {
+                var offset = exclusion.Centre - Centre;
+                var local = new Vector2(Vector2.Dot(offset, axis), Vector2.Dot(offset, new Vector2(-axis.y, axis.x)));
+                if (Mathf.Abs(local.x) < HalfExtents.x + exclusion.Radius
+                    && Mathf.Abs(local.y) < HalfExtents.y + exclusion.Radius) nearby.Add(exclusion);
+            }
+            return new WheatField(Centre, HalfExtents, Yaw, Seed, Outline, nearby.ToArray());
+        }
+
+        internal bool Excludes(Vector3 root)
+        {
+            foreach (var exclusion in Exclusions)
+                if (exclusion.Contains(root)) return true;
+            return false;
+        }
+    }
+
+    internal readonly struct WheatExclusion
+    {
+        internal readonly Vector2 Centre;
+        internal readonly float Radius;
+
+        internal WheatExclusion(Vector2 centre, float radius) { Centre = centre; Radius = radius; }
+
+        internal bool Contains(Vector3 root)
+        {
+            var offset = new Vector2(root.x, root.z) - Centre;
+            return offset.sqrMagnitude <= Radius * Radius;
         }
     }
 
@@ -89,8 +127,36 @@ namespace Motu.Islands
                 }
             }
             if (fields.Count == 0) return null;
+            var exclusions = WindbreakExclusions(town.roadsideFields, scale);
+            if (exclusions.Count != 0)
+                for (int i = 0; i < fields.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    fields[i] = fields[i].WithExclusions(exclusions);
+                }
             var prepared = fields.ToArray();
             return new IslandPreparedWheat(prepared, WheatGroundMask.Build(prepared, cancellationToken));
+        }
+
+        private static List<WheatExclusion> WindbreakExclusions(TownRoadsideFieldPlan plan, float scale)
+        {
+            var exclusions = new List<WheatExclusion>();
+            Add(plan?.windbreaks);
+            Add(plan?.bushes);
+            return exclusions;
+
+            void Add(TownRoadsidePlanting[] plantings)
+            {
+                if (plantings == null) return;
+                foreach (var planting in plantings)
+                {
+                    var position = planting?.position;
+                    if (position?.Length != 3 || !float.IsFinite(planting.clearance_radius) || planting.clearance_radius <= 0f
+                        || !float.IsFinite(position[0]) || !float.IsFinite(position[1])) continue;
+                    exclusions.Add(new WheatExclusion(new Vector2(position[0] - 1000f, position[1] - 1000f) * scale,
+                        planting.clearance_radius * scale));
+                }
+            }
         }
     }
 }

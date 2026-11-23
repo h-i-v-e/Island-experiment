@@ -114,7 +114,7 @@ namespace Motu.Islands
                 var riverRockTiles = PrepareRiverRockTiles(handle, worldSize);
                 var boulderColliders = PrepareBoulderColliders(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
-                var forest = PrepareForestData(handle, worldSize);
+                var forest = PrepareForestData(handle, worldSize, (town?.roadsideFields?.bushes?.Length ?? 0) > 0);
                 cancellationToken.ThrowIfCancellationRequested();
                 var reedTiles = ReedInstancesNative.Prepare(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();

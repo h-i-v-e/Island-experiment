@@ -2,9 +2,11 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Streaming;
+using Motu.World;
 using NUnit.Framework;
 using Unity.Profiling;
 using UnityEngine;
@@ -64,6 +66,71 @@ namespace Motu.Tests
             Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(24, 24), () => true));
             Assert.AreEqual(9, scene.Streamer.ColliderTileCount);
             Assert.IsTrue(scene.Host.GetComponentsInChildren<Transform>(true).All(item => item.gameObject.layer == 27));
+        }
+
+        [Test]
+        public void ForestEdgeShrubsBatchByTileAndFollowForestVisibilityAndOrigin()
+        {
+            using var scene = new ForestFixture(ForestData());
+            scene.Host.transform.SetPositionAndRotation(new Vector3(9000f, 30f, -12000f),
+                Quaternion.Euler(0f, 90f, 0f));
+            scene.Host.transform.localScale = Vector3.one * 1.5f;
+            scene.Streamer.SetVisible(false);
+            scene.Streamer.InstallEdgeShrubsAsync(new[]
+            {
+                new IslandPreparedForestShrub(new Vector3(-6f, 35f, 2f), .4f, 1.6f),
+                new IslandPreparedForestShrub(new Vector3(-2f, 35f, 2f), .4f, 1.6f),
+                new IslandPreparedForestShrub(new Vector3(2f, 35f, 2f), .4f, 1.6f),
+            }, new UnityFrameBudget(float.MaxValue), CancellationToken.None).GetAwaiter().GetResult();
+
+            var groups = scene.Host.GetComponentsInChildren<LODGroup>(true);
+            Assert.That(groups, Has.Length.EqualTo(2));
+            Assert.That(scene.Host.GetComponentsInChildren<MeshRenderer>(), Is.Empty);
+            scene.Streamer.SetVisible(true);
+            Assert.That(scene.Host.GetComponentsInChildren<MeshRenderer>(), Has.Length.EqualTo(4));
+            Assert.That(scene.Host.GetComponentsInChildren<Collider>(), Is.Empty);
+
+            var paired = groups.Single(group => group.transform.localPosition.x < 0f);
+            var single = groups.Single(group => group != paired);
+            var pairedLods = paired.GetLODs();
+            var singleLods = single.GetLODs();
+            Assert.That(pairedLods, Has.Length.EqualTo(2));
+            Assert.That(singleLods, Has.Length.EqualTo(2));
+            var pairedRenderer = pairedLods[1].renderers.Single();
+            var singleRenderer = singleLods[1].renderers.Single();
+            var pairedBranches = pairedLods[0].renderers.Single(renderer => renderer != pairedRenderer);
+            var singleBranches = singleLods[0].renderers.Single(renderer => renderer != singleRenderer);
+            var pairedMesh = paired.GetComponent<MeshFilter>().sharedMesh;
+            var singleMesh = single.GetComponent<MeshFilter>().sharedMesh;
+            var pairedBranchMesh = pairedBranches.GetComponent<MeshFilter>().sharedMesh;
+            var singleBranchMesh = singleBranches.GetComponent<MeshFilter>().sharedMesh;
+            var material = pairedRenderer.sharedMaterial;
+            Assert.That(pairedMesh.GetIndexCount(0), Is.EqualTo(2 * singleMesh.GetIndexCount(0)));
+            Assert.That(singleBranchMesh.GetIndexCount(0), Is.EqualTo(8 * 6));
+            Assert.That(pairedBranchMesh.GetIndexCount(0), Is.EqualTo(2 * singleBranchMesh.GetIndexCount(0)));
+            Assert.That(singleRenderer.sharedMaterial, Is.SameAs(material));
+            Assert.That(singleBranches.sharedMaterial, Is.SameAs(material));
+            Assert.That(paired.size, Is.EqualTo(single.size));
+            Assert.That(pairedLods[1].screenRelativeTransitionHeight, Is.EqualTo(.1f));
+            Assert.That(singleLods[1].screenRelativeTransitionHeight, Is.EqualTo(.1f));
+            Assert.That(pairedRenderer.gameObject.layer, Is.EqualTo(scene.Host.layer));
+            Assert.That(singleBranches.gameObject.layer, Is.EqualTo(scene.Host.layer));
+            Assert.That(singleRenderer.bounds.max.y, Is.InRange(30f + 1.5f * 37f - .001f, 30f + 1.5f * 39f + .001f));
+
+            var previousCenter = singleRenderer.bounds.center;
+            var localCenter = scene.Host.transform.InverseTransformPoint(previousCenter);
+            Assert.That(localCenter.x, Is.EqualTo(2f).Within(.5f));
+            Assert.That(localCenter.z, Is.EqualTo(2f).Within(.5f));
+            var originShift = new Vector3(-8000f, 27f, 9000f);
+            scene.Host.transform.position += originShift;
+            Assert.That(Vector3.Distance(singleRenderer.bounds.center, previousCenter + originShift), Is.LessThan(.01f));
+
+            scene.Streamer.Dispose();
+            Assert.That(pairedMesh == null, Is.True);
+            Assert.That(singleMesh == null, Is.True);
+            Assert.That(pairedBranchMesh == null, Is.True);
+            Assert.That(singleBranchMesh == null, Is.True);
+            Assert.That(material == null, Is.True);
         }
 
         [Test]

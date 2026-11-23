@@ -8,6 +8,8 @@ Shader "Motu/Wheat Canopy"
         [HideInInspector] _WheatFade ("Island Coverage", Range(0, 1)) = 1
         [HideInInspector] _WheatDetailPresence ("Detailed Wheat", Range(0, 1)) = 0
         [HideInInspector] _WheatDetailBlend ("Detail Fade", Vector) = (0, 0, 0, 0)
+        [NoScaleOffset] [HideInInspector] _MotuWheatGroundMask ("Wheat ground coverage", 2D) = "black" {}
+        [HideInInspector] _MotuWheatGroundUV ("Wheat ground coordinates", Vector) = (0, 0, 0, 0)
     }
 
     SubShader
@@ -18,6 +20,7 @@ Shader "Motu/Wheat Canopy"
         #include "../MotuUrp.hlsl"
         #include "../CloudCommon.cginc"
         #include "../WheatDetailBlend.hlsl"
+        #include "../WheatGroundCommon.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Random.hlsl"
 
         CBUFFER_START(UnityPerMaterial)
@@ -49,8 +52,9 @@ Shader "Motu/Wheat Canopy"
                 blend.y);
         }
 
-        void ClipCoverage(float2 pixelPosition, float2 fieldPosition, float fieldSeed, float2 worldXZ)
+        void ClipCoverage(float2 pixelPosition, float2 fieldPosition, float fieldSeed, float2 worldXZ, float2 islandXZ)
         {
+            clip(0.5h - MotuWheatCanopyExclusion(islandXZ));
             float detail = _WheatDetailPresence * MotuWheatDetailCoverage(worldXZ, _WheatDetailBlend);
             float coverage = _WheatFade * (1.0 - detail);
             // Match the opposite side of the clump shader's dither threshold.
@@ -111,6 +115,7 @@ Shader "Motu/Wheat Canopy"
                 half2 crop : TEXCOORD3;
                 float3 shadowRelativePosition : TEXCOORD4;
                 UNITY_FOG_COORDS(5)
+                float2 islandXZ : TEXCOORD6;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -123,6 +128,7 @@ Shader "Motu/Wheat Canopy"
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.fieldPosition = input.fieldPosition;
+                output.islandXZ = input.positionOS.xz;
                 output.crop = input.colour.rg;
                 output.shadowRelativePosition = MotuCameraRelativePosition(output.positionWS);
                 UNITY_TRANSFER_FOG(output, output.positionCS);
@@ -131,7 +137,7 @@ Shader "Motu/Wheat Canopy"
 
             half4 Fragment(Varyings input) : SV_Target
             {
-                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.crop.y, input.positionWS.xz);
+                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.crop.y, input.positionWS.xz, input.islandXZ);
                 half3 normal = normalize(input.normalWS);
                 half3 albedo = WheatAlbedo(input.fieldPosition, input.crop);
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.positionWS);
@@ -168,6 +174,7 @@ Shader "Motu/Wheat Canopy"
                 float2 fieldPosition : TEXCOORD0;
                 half fieldSeed : TEXCOORD1;
                 float2 worldXZ : TEXCOORD2;
+                float2 islandXZ : TEXCOORD3;
             };
 
             ShadowVaryings ShadowVertex(Attributes input)
@@ -180,12 +187,13 @@ Shader "Motu/Wheat Canopy"
                 output.fieldPosition = input.fieldPosition;
                 output.fieldSeed = input.colour.g;
                 output.worldXZ = positionWS.xz;
+                output.islandXZ = input.positionOS.xz;
                 return output;
             }
 
             half4 ShadowFragment(ShadowVaryings input) : SV_Target
             {
-                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.fieldSeed, input.worldXZ);
+                ClipCoverage(input.positionCS.xy, input.fieldPosition, input.fieldSeed, input.worldXZ, input.islandXZ);
                 return 0;
             }
             ENDHLSL

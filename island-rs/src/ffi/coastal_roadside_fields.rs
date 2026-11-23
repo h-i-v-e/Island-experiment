@@ -17,7 +17,8 @@ struct Request {
     blockers: Vec<DecorationClearance>,
 }
 
-/// Prepare fields and plant their windbreaks after roads, bridges and town wheat are fitted.
+/// Prepare fields and plant their windbreak trees after roads, bridges and town wheat are fitted.
+/// The report includes the accompanying bushes and horizontal wheat clearance radii in metres.
 /// The caller releases a successful report with `FreeCoastalTownJson`.
 ///
 /// # Safety
@@ -87,7 +88,7 @@ mod tests {
         let bytes = unsafe { CStr::from_ptr(report) }.to_bytes();
         assert_eq!(
             bytes,
-            br#"{"fields":[],"walls":[],"gates":[],"windbreaks":[]}"#
+            br#"{"fields":[],"walls":[],"gates":[],"windbreaks":[],"bushes":[]}"#
         );
         unsafe { FreeCoastalTownJson(report) };
     }

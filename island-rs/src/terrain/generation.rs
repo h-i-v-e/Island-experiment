@@ -2,6 +2,7 @@
 use super::GpuParticleErosionScratch;
 use super::coastal_uplift;
 use super::erosion::{projected_face_area, projected_face_area_with_vertex};
+use super::forest_edge_shrubs::{self, ShrubSurface};
 use super::lod::regenerate_lods;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
@@ -765,22 +766,14 @@ impl Island {
                 })
             },
         )?;
-        let (mut decorations, mut settled_rocks) = Decorations::generate(
-            seed,
-            &terrain,
-            &rivers,
-            options.terrain_size as usize * 4,
-            method,
-        )?;
+        let (mut decorations, mut settled_rocks) =
+            Decorations::generate(seed, &terrain, options.terrain_size as usize * 4, method)?;
         settled_rocks.retain(|rock| {
             !caves.excludes(
                 rock.anchor * ISLAND_WORLD_METRES,
                 rock.radius * ISLAND_WORLD_METRES,
             )
         });
-        decorations
-            .bushes
-            .retain(|point| !caves.excludes(*point * ISLAND_WORLD_METRES, 2.0));
         decorations.boulders = append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         let reeds = generate_reeds(
             seed,
@@ -809,6 +802,16 @@ impl Island {
             &caves,
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
+        decorations.bushes = forest_edge_shrubs::scatter(
+            seed,
+            ShrubSurface {
+                terrain: &terrain,
+                water: &river_mesh,
+                forest: &forest,
+                caves: &caves,
+                boulders: &decorations.boulders,
+            },
+        );
         let ferns = generate_ferns_with_caves(
             seed,
             &terrain,

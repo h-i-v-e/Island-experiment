@@ -339,6 +339,7 @@ namespace Motu.Streaming
             forestStreamer = new ForestTileStreamer();
             forestStreamer.Initialize(transform, preparedForest, showForests,
                 uploadBudgetMilliseconds, terrainMaterial.GetTexture("_CliffNoise3D"), fallenLogMaterial);
+            await forestStreamer.InstallEdgeShrubsAsync(preparedForest.edgeShrubs, installationBudget, cancellationToken);
             forestShadowMask = new ForestShadowMask(preparedForest.hybrid,
                 terrainMaterial, terrainLod1Material, terrainLod2Material);
             forestShadowMask.SetVisible(showForests);

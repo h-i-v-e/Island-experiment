@@ -37,7 +37,9 @@ namespace Motu.Interop
         private static readonly object PrototypeLock = new object();
         private static readonly Lazy<IslandPreparedMaterialTexture[]> BarkMaps =
             new Lazy<IslandPreparedMaterialTexture[]>(() => new[] { PrepareBark(0), PrepareBark(1), PrepareBark(2) });
+        private static readonly Lazy<IslandPreparedMesh[]> ShrubPrototypes = new Lazy<IslandPreparedMesh[]>(PrepareShrubPrototypes);
         internal static IslandPreparedMaterialTexture[] SharedBarkMaps => BarkMaps.Value;
+        internal static IslandPreparedMesh[] SharedShrubPrototypes => ShrubPrototypes.Value;
         private static readonly Dictionary<(uint count, float size), WeakReference<IslandPreparedMesh[][]>> Prototypes
             = new Dictionary<(uint, float), WeakReference<IslandPreparedMesh[][]>>();
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -87,6 +89,27 @@ namespace Motu.Interop
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         private static extern void CreateHybridForestPrototypeMesh(IntPtr handle, uint prototype, uint kind,
             out MotuNative.ExportMesh mesh);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void CreateBroadleafShrubPrototype(uint prototype, out MotuNative.ExportMesh mesh);
+
+        private static IslandPreparedMesh[] PrepareShrubPrototypes()
+        {
+            const float nativeWorldSize = 2000f;
+            var prototypes = new IslandPreparedMesh[4];
+            for (uint i = 0; i < prototypes.Length; i++)
+            {
+                CreateBroadleafShrubPrototype(i, out var mesh);
+                try
+                {
+                    if (mesh.handle == IntPtr.Zero)
+                        throw new InvalidOperationException($"Could not generate broadleaf shrub prototype {i}.");
+                    prototypes[i] = IslandMeshInterop.CopyGeneratedMeshData(mesh, nativeWorldSize);
+                }
+                finally { MotuNative.ReleaseMesh(ref mesh); }
+            }
+            return prototypes;
+        }
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         private static extern void CreateForestLogMeshGrid(IntPtr handle, out MotuNative.ExportMeshGrid output);

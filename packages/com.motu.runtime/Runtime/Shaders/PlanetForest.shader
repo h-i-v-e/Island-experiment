@@ -13,7 +13,7 @@ Shader "Motu/Planet Forest"
         _ForestBarkTileSizes ("Broadleaf XY and pine ZW tile metres", Vector) = (1.2,1.6,0.85,1.5)
         _ForestPalmBarkTileSize ("Palm XY tile metres", Vector) = (0.8,1.2,0,0)
         [HideInInspector] _MotuForestViewer ("Forest viewer", Vector) = (0,0,0,0)
-        [HideInInspector] _ForestKind ("Wood, leaves, shells, distant, twig cards", Float) = 0
+        [HideInInspector] _ForestKind ("Wood, leaves, shells, distant, twig cards, bushes", Float) = 0
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Culling", Float) = 2
     }
     SubShader

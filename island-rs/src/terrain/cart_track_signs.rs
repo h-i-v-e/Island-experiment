@@ -7,6 +7,7 @@ use super::{
     Island,
     cart_track_surface::CartTrackSurface,
     cart_tracks::{CartTrackExit, CartTrackPlan, CartTrackPlanner},
+    forest_edge_shrubs::SHRUB_RADIUS_METRES,
     road_grade::segment_distance_squared,
     spatial_bins::SpatialBins,
 };
@@ -510,7 +511,7 @@ impl<'a> SignVerge<'a> {
             }
             for bush in &decorations.bushes {
                 let centre = xy(*bush);
-                add(centre, centre, 0.65);
+                add(centre, centre, SHRUB_RADIUS_METRES);
             }
         }
         for reed in island.reeds.instances() {

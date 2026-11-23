@@ -278,17 +278,33 @@ namespace Motu.Islands
         }
     }
 
+    internal readonly struct IslandPreparedForestShrub
+    {
+        internal readonly Vector3 position;
+        internal readonly float yawRadians;
+        internal readonly float scale;
+
+        internal IslandPreparedForestShrub(Vector3 position, float yawRadians, float scale)
+        {
+            this.position = position;
+            this.yawRadians = yawRadians;
+            this.scale = scale;
+        }
+    }
+
     internal sealed class IslandPreparedForestData
     {
         internal readonly HybridForestData hybrid;
         internal readonly IslandPreparedMesh[] fallenLogTiles;
         internal readonly IslandPreparedTreeCollider[][] lod0TrunkColliderTiles;
         internal readonly IslandPreparedTreeCollider[][] lod0LogColliderTiles;
+        internal readonly IslandPreparedForestShrub[] edgeShrubs;
 
         internal IslandPreparedForestData(HybridForestData hybrid,
             IslandPreparedTreeCollider[][] lod0TrunkColliderTiles,
             IslandPreparedTreeCollider[][] lod0LogColliderTiles = null,
-            IslandPreparedMesh[] fallenLogTiles = null)
+            IslandPreparedMesh[] fallenLogTiles = null,
+            IslandPreparedForestShrub[] edgeShrubs = null)
         {
             this.hybrid = hybrid ?? throw new ArgumentNullException(nameof(hybrid));
             this.fallenLogTiles = fallenLogTiles ?? new IslandPreparedMesh[64];
@@ -298,6 +314,7 @@ namespace Motu.Islands
             this.lod0LogColliderTiles = lod0LogColliderTiles
                 ?? new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
             ValidateLength(this.lod0LogColliderTiles, ForestTileStreamer.Lod0TileCount);
+            this.edgeShrubs = edgeShrubs ?? Array.Empty<IslandPreparedForestShrub>();
         }
 
         private static void ValidateLength<T>(T[] tiles, int expectedLength)

@@ -175,8 +175,12 @@ namespace Motu.Tests
                 var unplanted = Sample(material, target, readback, centreX, sectionOffset, centreZ);
                 Assert.That(Vector4.Distance(unplanted, new Vector4(0, 1, 0, 0)), Is.LessThan(.001f));
 
-                var field = new WheatField(new Vector2(centreX, centreZ), new Vector2(6, 2), Mathf.PI / 4f, 1);
+                var hole = new Vector2(centreX - 3 * diagonal, centreZ - 3 * diagonal);
+                var field = new WheatField(new Vector2(centreX, centreZ), new Vector2(6, 2), Mathf.PI / 4f, 1,
+                    exclusions: new[] { new WheatExclusion(hole, .8f) });
                 mask = WheatGroundMask.Build(new[] { field }, CancellationToken.None).Bind(material);
+                var besideTrunk = Sample(material, target, readback, hole.x, sectionOffset, hole.y);
+                Assert.That(Vector4.Distance(besideTrunk, unplanted), Is.LessThan(.001f));
                 var planted = Sample(material, target, readback,
                     centreX + 4f * diagonal, sectionOffset, centreZ + 4f * diagonal);
                 Assert.That(Vector4.Distance(planted, new Vector4(1, 0, 0, 0)), Is.LessThan(.001f));

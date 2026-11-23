@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Motu.Rendering;
 using Motu.Streaming;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -18,6 +19,7 @@ namespace Motu.Towns
         private readonly List<(Vector3 centre, Quaternion rotation, Vector3 size)> roadsideBoundaryNavigation =
             new List<(Vector3 centre, Quaternion rotation, Vector3 size)>();
         private TownRoadsideFieldPlan roadsideFields;
+        private SharedNoiseTexture shrubNoise;
 
         /// <summary>Parcels established alongside completed cart tracks.</summary>
         public int RoadsideFieldCount => roadsideFields?.fields?.Length ?? 0;
@@ -37,10 +39,11 @@ namespace Motu.Towns
 
             var stone = churchStone ?? CreateMaterial(TownNative.ChurchStone, "field wall stone");
             var timber = CreatePierTimber();
+            var bushes = BuildFieldBushes(tiles, plan.bushes);
             var root = new GameObject("Roadside fields").transform;
             root.SetParent(transform, false);
             foreach (var pair in tiles)
-                BuildFieldTile(root, pair.Key, pair.Value, stone, timber);
+                BuildFieldTile(root, pair.Key, pair.Value, stone, timber, bushes);
         }
 
         private static Vector3 FieldPosition(float[] source, int offset = 0) => Vector(source, offset) - FieldWorldOffset;
@@ -58,13 +61,14 @@ namespace Motu.Towns
             return tile;
         }
 
-        private void BuildFieldTile(Transform root, Vector2Int key, FieldTile tile, Material stone, Material timber)
+        private void BuildFieldTile(Transform root, Vector2Int key, FieldTile tile, Material stone, Material timber,
+            Material bushes)
         {
             var child = new GameObject($"Field tile {key.x}, {key.y}");
             child.transform.SetParent(root, false);
             child.transform.localPosition = tile.Origin;
 
-            var renderers = new List<Renderer>(2);
+            var renderers = new List<Renderer>(3);
             if (!tile.Stone.IsEmpty)
             {
                 var mesh = Own(tile.Stone.CreateMesh("Stone walls"));
@@ -87,8 +91,42 @@ namespace Motu.Towns
                 mesh.UploadMeshData(true);
             }
             var group = child.AddComponent<LODGroup>();
-            group.SetLODs(new[] { new LOD(.025f, renderers.ToArray()) });
+            var boundaries = new LOD(.025f, renderers.ToArray());
+            if (tile.Bushes != null)
+            {
+                var mesh = Own(tile.Bushes.CreateMesh("Windbreak bushes"));
+                renderers.Add(AddMesh(child.transform, mesh, bushes, mesh.name).GetComponent<Renderer>());
+                mesh.UploadMeshData(true);
+                var planted = new LOD(.08f, renderers.ToArray());
+
+                var branches = Own(tile.Bushes.CreateBranchMesh("Windbreak branches"));
+                renderers.Add(AddMesh(child.transform, branches, bushes, branches.name).GetComponent<Renderer>());
+                branches.UploadMeshData(true);
+                var nearby = new LOD(BushMeshBuilder.BranchLodHeight, renderers.ToArray());
+                group.SetLODs(boundaries.renderers.Length == 0
+                    ? new[] { nearby, planted }
+                    : new[] { nearby, planted, boundaries });
+            }
+            else
+            {
+                group.SetLODs(new[] { boundaries });
+            }
             group.RecalculateBounds();
+        }
+
+        private Material BuildFieldBushes(Dictionary<Vector2Int, FieldTile> tiles, TownRoadsidePlanting[] bushes)
+        {
+            if (bushes == null || bushes.Length == 0) return null;
+            foreach (var bush in bushes)
+            {
+                var root = FieldPosition(bush.position);
+                var tile = GetFieldTile(tiles, root);
+                tile.Bushes ??= new BushMeshBuilder();
+                tile.Bushes.AddBush(root - tile.Origin, -bush.yaw * Mathf.Rad2Deg, bush.scale);
+            }
+
+            shrubNoise = SharedNoiseTexture.Acquire(SharedNoiseTexture.Kind.Cliff);
+            return Own(BushMeshBuilder.CreateMaterial("Field windbreak bushes", shrubNoise.Texture));
         }
 
         private void BuildFieldWalls(Dictionary<Vector2Int, FieldTile> tiles, TownRoadsideWall[] walls)
@@ -172,6 +210,7 @@ namespace Motu.Towns
             public readonly Vector3 Origin;
             public readonly FieldMesh Stone = new FieldMesh();
             public readonly FieldMesh Timber = new FieldMesh();
+            public BushMeshBuilder Bushes;
             public readonly List<(Vector3 centre, Quaternion rotation, Vector3 size)> Gates = new();
 
             public FieldTile(Vector3 origin) { Origin = origin; }

@@ -186,11 +186,16 @@ namespace Motu.Tests
                 {
                     centre = new[] { 1100f, 1100f }, half_extents = new[] { 4f, 4f }
                 } },
-                roadsideFields = new TownRoadsideFieldPlan { fields = new[]
+                roadsideFields = new TownRoadsideFieldPlan
                 {
-                    new TownRoadsideField { id = 1, wheat = true, outline = outline },
-                    new TownRoadsideField { id = 2, wheat = false }
-                } }
+                    fields = new[]
+                    {
+                        new TownRoadsideField { id = 1, wheat = true, outline = outline },
+                        new TownRoadsideField { id = 2, wheat = false }
+                    },
+                    windbreaks = new[] { new TownRoadsidePlanting { position = new[] { 1001.5f, 1002f, 1f }, clearance_radius = .8f } },
+                    bushes = new[] { new TownRoadsidePlanting { position = new[] { 1002.5f, 1004f, 2f }, clearance_radius = 1f } },
+                }
             };
 
             var preparation = IslandPreparedWheat.Prepare(town, 42, 1000f, default);
@@ -200,7 +205,18 @@ namespace Motu.Tests
             Assert.That(crop.Centre, Is.EqualTo(new Vector2(1f, 1.5f)));
             Assert.That(crop.InwardDistance(0, 0), Is.EqualTo(1f));
             Assert.That(crop.InwardDistance(1.1, 0), Is.Zero);
-            Assert.That(preparation.Mask, Is.Not.Null);
+            Assert.That(preparation.Fields[0].Exclusions, Is.Empty);
+            Assert.That(crop.Exclusions.Select(exclusion => exclusion.Centre),
+                Is.EqualTo(new[] { new Vector2(.75f, 1f), new Vector2(1.25f, 2f) }));
+            var bounds = new WheatTileBounds(0f, 0f, 3f, 4f);
+            var terrain = Terrain(bounds, Ground);
+            var original = WheatFieldOutline.FromNative(outline, .5f, crop.Seed);
+            var full = WheatTileGeometry.Build(terrain, new[] { original }, 0, default, bounds).Plants;
+            var cleared = WheatTileGeometry.Build(terrain, new[] { crop }, 0, default, bounds).Plants;
+            Assert.That(cleared.Length, Is.LessThan(full.Length));
+            Assert.That(cleared.Select(plant => plant.Root),
+                Is.EqualTo(full.Where(plant => !crop.Excludes(plant.Root)).Select(plant => plant.Root)));
+            Assert.That(preparation.Mask.HasExclusions, Is.True);
         }
 
         [Test]

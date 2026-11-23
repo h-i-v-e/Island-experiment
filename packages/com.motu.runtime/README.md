@@ -117,10 +117,11 @@ The bake follows the island transform, is released on unload, and follows the
 forest visibility toggle. It approximates an overhead sun, independent of time
 of day; it does not replace nearby moving shadows.
 
-Native snapshot version 20 stores climate and compact catalog metadata, restoring
-shared prototypes on load. Climate, variants and catalog version participate in
-cache identity; older caches regenerate automatically. Restart Unity after
-replacing the native plugin.
+Native snapshots store climate and compact catalog metadata and restore shared
+prototypes on load. Version 21 also stores forest-edge shrubs and rebuilds their
+anchors when loading version 20 caches. Climate, variants and catalog version
+participate in cache identity. Snapshots earlier than version 20 regenerate
+automatically. Restart Unity after replacing the native plugin.
 
 Reeds and rushes store compact native placements and share one 32-vertex clump
 mesh across islands. Only the nearby 3x3 LOD0 owner tiles acquire draw batches,

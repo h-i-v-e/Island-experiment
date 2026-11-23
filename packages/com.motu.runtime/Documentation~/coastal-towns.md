@@ -199,8 +199,14 @@ The planner leaves intervening ground open where it cannot fit an accessible fie
 
 The town profile's **Roadside Field Wind** is the prevailing wind travel direction
 in world X/Z. Windbreaks shelter exposed boundaries; the existing woods provide
-shelter where they are close enough. New windbreak trees use the same forest
-models, streaming, shadow mask and trunk collision as the surrounding woodland.
+shelter where they are close enough. New trees sit about 1.5 metres inside the
+wall centreline. Pairs of overlapping bushes fill the gaps between them.
+The trees use the surrounding woodland's models, streaming, shadow mask and
+trunk collision. Wheat leaves open ground around the trunks and bushes at
+every visible detail level. Bushes use four broadleaf canopies between two
+and four metres tall, with a leafless branch mesh inside each canopy at the
+closest detail level. They also grow in scattered patches along natural
+forest edges and stream with the forest.
 Some fields remain pasture and others use the same streamed wheat as the town.
 Walls share the settlement stone material. Walls and closed gates block movement
 and navigation. Select the generated town in the Unity Scene view to inspect

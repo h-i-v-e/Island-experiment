@@ -18,4 +18,13 @@ half MotuWheatGroundCoverage(float2 islandXZ)
     return SAMPLE_TEXTURE2D_GRAD(_MotuWheatGroundMask, sampler_LinearClamp, uv, dx, dy).r;
 }
 
+half MotuWheatCanopyExclusion(float2 islandXZ)
+{
+    UNITY_BRANCH
+    if (_MotuWheatGroundUV.x <= 0.0) return 0.0h;
+    float2 uv = islandXZ * _MotuWheatGroundUV.xy + _MotuWheatGroundUV.zw;
+    // Keep small trunk openings at distance even when the soil mask is mipmapped.
+    return SAMPLE_TEXTURE2D_LOD(_MotuWheatGroundMask, sampler_LinearClamp, uv, 0).g;
+}
+
 #endif
