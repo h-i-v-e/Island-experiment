@@ -1,5 +1,8 @@
 //! Conforming local refinement of the resident terrain before any town exports.
-use super::{Island, Terrain, TriangleIndex, forest_edge_shrubs::SHRUB_RADIUS_METRES};
+use super::{
+    Island, Terrain, TriangleIndex, coastal_strip::CoastalStripField,
+    forest_edge_shrubs::SHRUB_RADIUS_METRES, lod::simplify_graded_lods,
+};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, mesh::EdgeSplitStencil, roads::RoadNetwork};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -82,7 +85,7 @@ impl Island {
     ///
     /// # Errors
     /// Rejects invalid or already-applied grades, unsafe cuts, protected areas,
-    /// or refinement exceeding the per-mesh vertex budget.
+    /// or collision-surface refinement exceeding the vertex budget.
     pub fn apply_town_roads(&mut self, roads: &RoadNetwork) -> Result<(), String> {
         roads.validate()?;
         if roads.is_empty() {
@@ -98,16 +101,31 @@ impl Island {
             return Err("road grading must stay inside this island tile".into());
         }
         let corridor = CorridorIndex::new(roads, min, max);
-        self.validate_road_corridor(&corridor)?;
+        let protected = self.town_protected_terrain();
+        self.validate_road_corridor(&corridor, &protected)?;
 
         let GradedMesh {
             mesh,
             additions,
             mut disturbance,
-        } = grade_mesh(self.terrain.mesh(), roads, &corridor, true)?;
-        let [first, second] = &self.coarser_lods;
-        let lod1 = grade_mesh(first, roads, &corridor, false)?.mesh;
-        let lod2 = grade_mesh(second, roads, &corridor, false)?.mesh;
+        } = grade_mesh(self.terrain.mesh(), roads, &corridor)?;
+        let preserve = |point: crate::Vec3| {
+            let location = point.truncate() * ISLAND_WORLD_METRES;
+            CoastalStripField::is_blend_vertex(point)
+                || protected.iter().any(|area| {
+                    let (min, max) = area.bounds();
+                    location.cmpge(min).all() && location.cmple(max).all()
+                })
+        };
+        let lods = simplify_graded_lods(
+            &mesh,
+            &self.coarser_lods,
+            &preserve,
+            &|point| corridor.material_profile(point * ISLAND_WORLD_METRES),
+            &|min, max| {
+                corridor.overlaps(min * ISLAND_WORLD_METRES, max * ISLAND_WORLD_METRES, false)
+            },
+        );
         let index = TriangleIndex::new(&mesh);
         let bounds = [min, max].map(|point| point / ISLAND_WORLD_METRES);
         let mut terrain = Terrain::with_index(mesh, index);
@@ -135,8 +153,15 @@ impl Island {
                 )
             });
         }
+        let [old_lod1, _] = std::mem::replace(&mut self.coarser_lods, lods);
+        // Track routing needs the original terrain-wide sampling density.
+        // Edge costs still use the newly graded LOD0 for all heights and surfaces.
+        terrain.cart_track_routing_mesh = Some(Mesh {
+            vertices: old_lod1.vertices,
+            triangles: old_lod1.triangles,
+            ..Mesh::default()
+        });
         self.terrain = terrain;
-        self.coarser_lods = [lod1, lod2];
         #[cfg(feature = "surface-atlas")]
         {
             self.surface_atlases = super::surface_atlas::SurfaceAtlasCache::default();
@@ -144,8 +169,12 @@ impl Island {
         Ok(())
     }
 
-    fn validate_road_corridor(&self, corridor: &CorridorIndex) -> Result<(), String> {
-        if self.town_protected_terrain().iter().any(|area| {
+    fn validate_road_corridor(
+        &self,
+        corridor: &CorridorIndex,
+        protected: &[TownProtectedTerrain],
+    ) -> Result<(), String> {
+        if protected.iter().any(|area| {
             let (min, max) = area.bounds();
             corridor.overlaps(min, max, false)
         }) {
@@ -186,7 +215,6 @@ fn grade_mesh(
     source: &Mesh,
     roads: &RoadNetwork,
     corridor: &CorridorIndex,
-    validate_grade: bool,
 ) -> Result<GradedMesh, String> {
     // A working copy keeps the base topology available for rollback, preserves
     // the original vertex indices, and retains the source seam normals.
@@ -200,55 +228,37 @@ fn grade_mesh(
         if mesh.vertices.len() - source.vertices.len() + edges.len() > MAXIMUM_ADDED_VERTICES {
             return Err("road grading exceeded the localized refinement budget".into());
         }
-        let splits = mesh.split_edges(&edges);
-        if validate_grade {
-            additions.extend(splits);
-        }
+        additions.extend(mesh.split_edges(&edges));
     }
-    let mut disturbance = if validate_grade {
-        vec![0.; mesh.vertices.len()]
-    } else {
-        Vec::new()
-    };
+    let mut disturbance = vec![0.; mesh.vertices.len()];
     for (index, point) in mesh.vertices.iter_mut().enumerate() {
         let location = point.truncate() * ISLAND_WORLD_METRES;
         if !corridor.overlaps(location, location, false) {
             continue;
         }
         let natural = point.z * ISLAND_WORLD_METRES;
-        // A coarser source can miss an entire low bank beneath a dry native
-        // road. Render LODs inherit the grade already validated against LOD0.
-        let maximum_raise = if validate_grade {
-            MAXIMUM_SUBGRID_RAISE_METRES
-        } else {
-            f32::INFINITY
-        };
-        let graded = roads.terrain_support_height(location, natural, maximum_raise);
-        if validate_grade {
-            if roads.surface_height(location).is_some() && (natural <= 0. || graded <= 0.) {
-                return Err("road pavement reaches below sea level on the native terrain".into());
-            }
-            if natural - graded > MAXIMUM_NATIVE_CUT_METRES {
-                return Err(format!(
-                    "road grading exceeds the native cut limit at {:.2}, {:.2} metres",
-                    location.x, location.y
-                ));
-            }
-            if natural > 0. && graded > 0. {
-                // Paint the dry shoulder into the base ground. Excavations
-                // can extend beyond that band and expose bare earth as well.
-                let shoulder = (2. * corridor.material_profile(location)).min(1.);
-                disturbance[index] = if natural - graded > 0.005 {
-                    1.
-                } else {
-                    shoulder * shoulder * (3. - 2. * shoulder)
-                };
-            }
+        let graded = roads.terrain_support_height(location, natural, MAXIMUM_SUBGRID_RAISE_METRES);
+        if roads.surface_height(location).is_some() && (natural <= 0. || graded <= 0.) {
+            return Err("road pavement reaches below sea level on the native terrain".into());
         }
-        if (natural > 0. || !validate_grade)
-            && graded > 0.
-            && (graded - natural).abs() > f32::EPSILON
-        {
+        if natural - graded > MAXIMUM_NATIVE_CUT_METRES {
+            return Err(format!(
+                "road grading exceeds the native cut limit at {:.2}, {:.2} metres",
+                location.x, location.y
+            ));
+        }
+        if natural <= 0. || graded <= 0. {
+            continue;
+        }
+        // Paint the dry shoulder into the base ground. Excavations
+        // can extend beyond that band and expose bare earth as well.
+        let shoulder = (2. * corridor.material_profile(location)).min(1.);
+        disturbance[index] = if natural - graded > 0.005 {
+            1.
+        } else {
+            shoulder * shoulder * (3. - 2. * shoulder)
+        };
+        if (graded - natural).abs() > f32::EPSILON {
             point.z = graded / ISLAND_WORLD_METRES;
         }
     }
@@ -705,6 +715,7 @@ mod tests {
     fn a_road_inside_coarse_faces_refines_collision_and_render_meshes() {
         let mut island = fixture();
         let old_vertex_count = island.terrain().vertex_count();
+        let original_routing_triangles = island.coarser_lods[0].triangles.clone();
         let route = road(Vec2::new(645., 646.), Vec2::new(674., 648.), 39.);
         let station = route.strips[0].stations[0]
             .point
@@ -723,11 +734,18 @@ mod tests {
         assert_eq!(island.distance_to_land.len(), vertex_count);
         assert_eq!(island.submerged_river_carve.len(), vertex_count);
         assert!((island.terrain().sample_height_map(far.x, far.y) - old_height).abs() < 1.0e-7);
+        let fine = island.terrain();
+        assert_eq!(
+            fine.cart_track_routing_mesh.as_ref().unwrap().triangles,
+            original_routing_triangles
+        );
+        let render_surfaces = island.coarser_lods.clone().map(Terrain::new);
+        assert!(render_surfaces[0].mesh.triangles.len() < fine.mesh.triangles.len());
+        assert!(render_surfaces[1].mesh.triangles.len() <= render_surfaces[0].mesh.triangles.len());
         for offset in [-1.99, -1.5, 0., 1.5, 1.99, 3., 4.5] {
             let location = station + direction * offset;
             let point = location / ISLAND_WORLD_METRES;
             let expected = route.graded_height(location, 40.);
-            let fine = island.terrain();
             let hit = fine.sample_accurate_surface(point).unwrap().position.z;
             assert!((hit * ISLAND_WORLD_METRES - expected).abs() < 0.07);
             assert!((fine.sample_height_map(point.x, point.y) - hit).abs() < 1.0e-6);
@@ -740,20 +758,46 @@ mod tests {
             if offset > 4. {
                 assert!(fine.road_coverage_at(point) < 0.02, "unaltered ground");
             }
-            for mesh in &island.coarser_lods {
-                let value = Terrain::new(mesh.clone())
-                    .sample_accurate_surface(point)
-                    .unwrap();
-                assert!((value.position.z - hit).abs() < 1.0e-7);
+            for surface in &render_surfaces {
+                let value = surface.sample_accurate_surface(point).unwrap();
+                let error = (value.position.z - hit).abs() * ISLAND_WORLD_METRES;
+                assert!(
+                    error < 0.0002,
+                    "render height error of {error} m at {offset} m"
+                );
             }
         }
+        // Unity interpolates the road weights sampled at exported vertices.
+        let displayed_paving = |surface: &Terrain, point| {
+            surface
+                .triangle_index
+                .candidates(point)
+                .iter()
+                .find_map(|&face| {
+                    let start = face as usize * 3;
+                    let paving = [start, start + 1, start + 2].map(|index| {
+                        let vertex = surface.mesh.triangles[index] as usize;
+                        let xy = surface.vertices()[vertex].truncate();
+                        xy.extend(fine.road_coverage_at(xy))
+                    });
+                    super::super::sampling::precise_height(point, paving)
+                })
+                .unwrap()
+        };
         for (offset, expected) in [(1.8, 0.75), (2., 0.5), (2.4, 0.25), (2.85, 0.)] {
             let point = (station + direction * offset) / ISLAND_WORLD_METRES;
-            let profile = island.terrain().road_coverage_at(point);
+            let profile = fine.road_coverage_at(point);
             assert!(
                 (profile - expected).abs() < 0.001,
                 "profile at {offset}: {profile}"
             );
+            for surface in &render_surfaces {
+                assert!(
+                    (displayed_paving(surface, point) - displayed_paving(fine, point)).abs()
+                        < 0.001,
+                    "rendered pavement at {offset} m differs from LOD0"
+                );
+            }
         }
         assert!(island.apply_town_roads(&route).is_err());
         assert_eq!(

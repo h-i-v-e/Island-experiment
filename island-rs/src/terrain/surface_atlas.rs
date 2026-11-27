@@ -12,6 +12,7 @@ use crate::{forest::ForestMeshKind, profiling::StageTimer};
 const PADDING: u32 = 8;
 const EMPTY: u32 = u32::MAX;
 const MAX_TEXTURE_DIMENSION: u32 = 8192;
+const ROAD_ATLAS_CHART_GRID: u32 = 8;
 // Keep the same physical AO radius across atlas resolutions and LODs: one
 // sample step is about one metre on the 2 km island (legacy 2048px spacing).
 const AO_SAMPLE_SPACING: f32 = 1.0 / 2047.0;
@@ -147,7 +148,27 @@ fn combined_page_size(width: u32, height: u32, pages: u32) -> Result<[u32; 2], S
         })
 }
 
-fn unwrap_mesh(source: &Mesh, dimension: u32) -> Result<(Mesh, Vec<u32>, [u32; 2]), String> {
+fn road_atlas_chart_groups(source: &Mesh) -> Vec<u32> {
+    source
+        .triangles
+        .chunks_exact(3)
+        .map(|triangle| {
+            let [a, b, c] = [triangle[0], triangle[1], triangle[2]]
+                .map(|index| source.vertices[index as usize].truncate());
+            let centre = (a + b + c) / 3.0;
+            let [column, row] = centre.to_array().map(|coordinate| {
+                ((coordinate * ROAD_ATLAS_CHART_GRID as f32) as u32).min(ROAD_ATLAS_CHART_GRID - 1)
+            });
+            row * ROAD_ATLAS_CHART_GRID + column
+        })
+        .collect()
+}
+
+fn unwrap_mesh(
+    source: &Mesh,
+    dimension: u32,
+    face_groups: Option<&[u32]>,
+) -> Result<(Mesh, Vec<u32>, [u32; 2]), String> {
     validate_dimension(dimension)?;
     if source.vertices.is_empty() || source.triangles.is_empty() {
         return Err("cannot unwrap an empty terrain mesh".into());
@@ -163,11 +184,11 @@ fn unwrap_mesh(source: &Mesh, dimension: u32) -> Result<(Mesh, Vec<u32>, [u32; 2
         packing: uvunwrap::Packing::Fast,
         ..Default::default()
     };
-    let atlas = uvunwrap::generate(
-        &[uvunwrap::MeshInput::new(&positions, &source.triangles)],
-        &options,
-    )
-    .map_err(|error| format!("terrain UV unwrap failed: {error}"))?;
+    // Keep the chart solver local when road grading leaves dense terrain.
+    let mut input = uvunwrap::MeshInput::new(&positions, &source.triangles);
+    input.face_materials = face_groups;
+    let atlas = uvunwrap::generate(&[input], &options)
+        .map_err(|error| format!("terrain UV unwrap failed: {error}"))?;
     let size = combined_page_size(atlas.width, atlas.height, atlas.page_count)?;
     let columns = size[0] / atlas.width;
     let page_scale = Vec2::new(
@@ -222,7 +243,10 @@ fn bake_atlas(
             },
         });
     }
-    let (mesh, charts, [width, height]) = unwrap_mesh(target, dimension)?;
+    let face_groups = high_detail
+        .has_road_coverage()
+        .then(|| road_atlas_chart_groups(target));
+    let (mesh, charts, [width, height]) = unwrap_mesh(target, dimension, face_groups.as_deref())?;
     let maps = bake_unwrapped_maps(
         high_detail,
         &mesh,
@@ -617,9 +641,9 @@ mod tests {
     #[test]
     fn steep_slope_unwrap_preserves_surface_lengths_and_is_deterministic() {
         let source = slope_mesh();
-        let (unwrapped, charts, size) = unwrap_mesh(&source, 128).unwrap();
+        let (unwrapped, charts, size) = unwrap_mesh(&source, 128, None).unwrap();
         assert_eq!(
-            unwrap_mesh(&source, 128).unwrap(),
+            unwrap_mesh(&source, 128, None).unwrap(),
             (unwrapped.clone(), charts, size)
         );
         assert_eq!(source.vertices, unwrapped.vertices);
@@ -1027,9 +1051,9 @@ mod tests {
 
     #[test]
     fn invalid_dimensions_and_empty_meshes_are_rejected() {
-        assert!(unwrap_mesh(&slope_mesh(), 0).is_err());
-        assert!(unwrap_mesh(&slope_mesh(), 16).is_err());
-        assert!(unwrap_mesh(&Mesh::default(), 128).is_err());
+        assert!(unwrap_mesh(&slope_mesh(), 0, None).is_err());
+        assert!(unwrap_mesh(&slope_mesh(), 16, None).is_err());
+        assert!(unwrap_mesh(&Mesh::default(), 128, None).is_err());
     }
 
     #[test]

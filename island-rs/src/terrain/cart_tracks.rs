@@ -127,7 +127,11 @@ pub(crate) struct CartTrackPlanner<'a> {
 impl<'a> CartTrackPlanner<'a> {
     pub(crate) fn new(island: &'a Island, blockers: &[CartTrackBlocker]) -> Self {
         Self {
-            mesh: &island.coarser_lods[0],
+            mesh: island
+                .terrain
+                .cart_track_routing_mesh
+                .as_ref()
+                .unwrap_or(&island.coarser_lods[0]),
             surface: Surface::new(island, blockers),
         }
     }

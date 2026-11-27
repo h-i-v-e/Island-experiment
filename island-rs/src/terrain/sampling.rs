@@ -141,6 +141,9 @@ pub struct Terrain {
     pub(super) road_coverage: Option<super::road_grade::CorridorIndex>,
     #[serde(skip)]
     pub(super) footpaths: Option<super::town_footpaths::FootpathPaint>,
+    /// Original LOD1 topology, retained until cart tracks have been installed.
+    #[serde(skip)]
+    pub(super) cart_track_routing_mesh: Option<Mesh>,
     #[serde(skip)]
     pub(super) cart_tracks: Option<super::cart_track_install::InstalledCartTracks>,
     /// LOD0 disturbed ground: 0 is natural ground, 1 is bare dirt.
@@ -215,6 +218,7 @@ impl Terrain {
             road_sampling_bounds: None,
             road_coverage: None,
             footpaths: None,
+            cart_track_routing_mesh: None,
             cart_tracks: None,
             disturbed_ground: Vec::new(),
         }

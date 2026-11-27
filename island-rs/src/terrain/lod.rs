@@ -3,7 +3,11 @@ use meshopt::{SimplifyOptions, simplify_with_attributes_and_locks_decoder};
 use super::{Mesh, TriangleIndex, Vec2, Vec3};
 
 const NORMAL_ATTRIBUTE_WEIGHT: f32 = 0.1;
+const PAVEMENT_ATTRIBUTE_WEIGHT: f32 = 0.1;
 const MAXIMUM_SIMPLIFICATION_ERROR: f32 = 1.0;
+const MAXIMUM_GRADED_LOD_ERROR_METRES: f32 = 2.0;
+
+type LockFeatures<'a> = dyn Fn(&Mesh, &mut [bool]) + 'a;
 
 /// Rebuilds both coarser render meshes from the finished LOD0 surface.
 ///
@@ -36,17 +40,58 @@ pub(super) fn regenerate_coastal_lods(
     let lod2_target = refined_index_budget(lod2).saturating_add(collar_indices);
     refresh_surface_attributes(lod0);
     field.apply_boundary_normals(lod0);
-    *lod1 = simplify_mesh_preserving(
-        lod0,
-        lod1_target,
-        Some(super::coastal_strip::CoastalStripField::is_blend_vertex),
-    );
-    *lod2 = simplify_mesh_preserving(
-        lod1,
-        lod2_target,
-        Some(super::coastal_strip::CoastalStripField::is_blend_vertex),
-    );
+    *lod1 = simplify_mesh_preserving(lod0, lod1_target, Some(&lock_coastal_vertices), None);
+    *lod2 = simplify_mesh_preserving(lod1, lod2_target, Some(&lock_coastal_vertices), None);
     TriangleIndex::new(lod0)
+}
+
+/// Derive the render hierarchy from the graded collision surface. The staged
+/// render meshes from before road grading set the triangle-count targets.
+pub(super) fn simplify_graded_lods(
+    graded: &Mesh,
+    previous: &[Mesh; 2],
+    preserve: &dyn Fn(Vec3) -> bool,
+    pavement: &dyn Fn(Vec2) -> f32,
+    road_corridor: &dyn Fn(Vec2, Vec2) -> bool,
+) -> [Mesh; 2] {
+    let lock_features = |mesh: &Mesh, locks: &mut [bool]| {
+        for (locked, &point) in locks.iter_mut().zip(&mesh.vertices) {
+            *locked |= preserve(point);
+        }
+        for face in mesh.triangles.chunks_exact(3) {
+            let corners = [face[0], face[1], face[2]].map(|index| index as usize);
+            let [a, b, c] = corners.map(|index| mesh.vertices[index].truncate());
+            if road_corridor(a.min(b).min(c), a.max(b).max(c)) {
+                // Keep all three corners so the exported vertex paint and
+                // geometry retain the same cross section across the road and its banks.
+                for index in corners {
+                    locks[index] = true;
+                }
+            }
+        }
+    };
+    let simplify = |source: &Mesh, target: &Mesh| {
+        let coverage: Vec<_> = source
+            .vertices
+            .iter()
+            .map(|vertex| pavement(vertex.truncate()))
+            .collect();
+        simplify_mesh_preserving(
+            source,
+            target.triangles.len(),
+            Some(&lock_features),
+            Some(&coverage),
+        )
+    };
+    let lod1 = simplify(graded, &previous[0]);
+    let lod2 = simplify(&lod1, &previous[1]);
+    [lod1, lod2]
+}
+
+fn lock_coastal_vertices(mesh: &Mesh, locks: &mut [bool]) {
+    for (locked, &point) in locks.iter_mut().zip(&mesh.vertices) {
+        *locked |= super::coastal_strip::CoastalStripField::is_blend_vertex(point);
+    }
 }
 
 fn coastal_collar_index_count(mesh: &Mesh) -> usize {
@@ -75,24 +120,30 @@ fn refined_index_budget(mesh: &Mesh) -> usize {
 }
 
 fn simplify_mesh(source: &Mesh, target_index_count: usize) -> Mesh {
-    simplify_mesh_preserving(source, target_index_count, None)
+    simplify_mesh_preserving(source, target_index_count, None, None)
 }
 
 fn simplify_mesh_preserving(
     source: &Mesh,
     target_index_count: usize,
-    preserve: Option<fn(Vec3) -> bool>,
+    lock_features: Option<&LockFeatures<'_>>,
+    pavement: Option<&[f32]>,
 ) -> Mesh {
-    let mut simplified = simplify_mesh_inner(source, target_index_count, false, preserve);
-    repair_coastal_simplification(&mut simplified, preserve);
+    let mut vertex_locks = source.perimeter_mask();
+    if let Some(lock_features) = lock_features {
+        lock_features(source, &mut vertex_locks);
+    }
+    let mut simplified =
+        simplify_mesh_inner(source, target_index_count, false, &vertex_locks, pavement);
+    repair_coastal_simplification(&mut simplified, lock_features.is_some());
     if projected_triangles_valid(&simplified) {
         return simplified;
     }
     // A valid 3D collapse can invert a height-field triangle in XY. Retry in
     // the support plane with height as a weighted attribute rather than move
     // generated vertices or repair rivers after they have been built.
-    let mut planar = simplify_mesh_inner(source, target_index_count, true, preserve);
-    repair_coastal_simplification(&mut planar, preserve);
+    let mut planar = simplify_mesh_inner(source, target_index_count, true, &vertex_locks, pavement);
+    repair_coastal_simplification(&mut planar, lock_features.is_some());
     if projected_triangles_valid(&planar) {
         planar
     } else {
@@ -100,8 +151,8 @@ fn simplify_mesh_preserving(
     }
 }
 
-fn repair_coastal_simplification(mesh: &mut Mesh, preserve: Option<fn(Vec3) -> bool>) {
-    if preserve.is_some() && !projected_triangles_valid(mesh) {
+fn repair_coastal_simplification(mesh: &mut Mesh, preserve: bool) {
+    if preserve && !projected_triangles_valid(mesh) {
         // Repair a reduced mesh by flipping its shared diagonals. Positions,
         // including every locked collar sample, remain unchanged. Avoid
         // retaining the entire fine mesh for a few projected foldovers.
@@ -139,7 +190,8 @@ fn simplify_mesh_inner(
     source: &Mesh,
     target_index_count: usize,
     planar: bool,
-    preserve: Option<fn(Vec3) -> bool>,
+    vertex_locks: &[bool],
+    pavement: Option<&[f32]>,
 ) -> Mesh {
     let target_index_count = target_index_count
         .min(source.triangles.len())
@@ -159,33 +211,41 @@ fn simplify_mesh_inner(
             }
         })
         .collect::<Vec<_>>();
-    let normal_attributes = source
-        .normals
-        .iter()
-        .zip(&source.vertices)
-        .flat_map(|(normal, position)| [normal.x, normal.y, normal.z, position.z])
-        .collect::<Vec<_>>();
-    let mut vertex_locks = source.perimeter_mask();
-    if let Some(preserve) = preserve {
-        for (locked, &point) in vertex_locks.iter_mut().zip(&source.vertices) {
-            *locked |= preserve(point);
+    let weights = [
+        NORMAL_ATTRIBUTE_WEIGHT,
+        NORMAL_ATTRIBUTE_WEIGHT,
+        NORMAL_ATTRIBUTE_WEIGHT,
+        if planar { 1.0 } else { 0.0 },
+        PAVEMENT_ATTRIBUTE_WEIGHT,
+    ];
+    let attribute_count = weights.len() - usize::from(pavement.is_none());
+    let mut attributes = Vec::with_capacity(source.vertices.len() * attribute_count);
+    for (index, (normal, position)) in source.normals.iter().zip(&source.vertices).enumerate() {
+        attributes.extend([normal.x, normal.y, normal.z, position.z]);
+        if let Some(pavement) = pavement {
+            attributes.push(pavement[index]);
         }
     }
+    // A dense locked road corridor can fill the target by itself. Limit the
+    // error in island-space units so the rest of the terrain keeps its shape.
+    let (maximum_error, options) = if pavement.is_some() {
+        (
+            MAXIMUM_GRADED_LOD_ERROR_METRES / super::ISLAND_WORLD_METRES,
+            SimplifyOptions::Regularize | SimplifyOptions::ErrorAbsolute,
+        )
+    } else {
+        (MAXIMUM_SIMPLIFICATION_ERROR, SimplifyOptions::Regularize)
+    };
     let triangles = simplify_with_attributes_and_locks_decoder(
         &source.triangles,
         &positions,
-        &normal_attributes,
-        &[
-            NORMAL_ATTRIBUTE_WEIGHT,
-            NORMAL_ATTRIBUTE_WEIGHT,
-            NORMAL_ATTRIBUTE_WEIGHT,
-            if planar { 1.0 } else { 0.0 },
-        ],
-        size_of::<[f32; 4]>(),
-        &vertex_locks,
+        &attributes,
+        &weights[..attribute_count],
+        attribute_count * size_of::<f32>(),
+        vertex_locks,
         target_index_count,
-        MAXIMUM_SIMPLIFICATION_ERROR,
-        SimplifyOptions::Regularize,
+        maximum_error,
+        options,
         None,
     );
 
@@ -296,7 +356,7 @@ mod tests {
             normals: vec![normal; 4],
             ..Mesh::default()
         };
-        repair_coastal_simplification(&mut mesh, Some(|_| true));
+        repair_coastal_simplification(&mut mesh, true);
         assert!(projected_triangles_valid(&mesh));
         assert!(mesh.normals.iter().all(|&value| value == normal));
     }
@@ -315,7 +375,7 @@ mod tests {
         };
         let positions = mesh.vertices.clone();
         assert!(!projected_triangles_valid(&mesh));
-        repair_coastal_simplification(&mut mesh, Some(|_| false));
+        repair_coastal_simplification(&mut mesh, true);
         assert!(projected_triangles_valid(&mesh));
         assert_eq!(mesh.vertices, positions);
         assert_eq!(mesh.normals, vec![Vec3::Z; 3]);
@@ -399,6 +459,46 @@ mod tests {
         );
         assert!(boundary.iter().all(|p| simplified.vertices.contains(p)));
         assert!(projected_triangles_valid(&simplified));
+    }
+
+    #[test]
+    fn a_locked_road_does_not_stretch_the_surrounding_terrain() {
+        let mut source = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
+        for _ in 0..6 {
+            source = source.tessellated();
+        }
+        source.calculate_normals();
+        let previous = std::array::from_fn(|_| Mesh {
+            triangles: vec![0; 24],
+            ..Mesh::default()
+        });
+        let lods = simplify_graded_lods(
+            &source,
+            &previous,
+            &|_| false,
+            &|point| {
+                if (point.x - 0.5).abs() <= 0.01 {
+                    1.0
+                } else {
+                    0.0
+                }
+            },
+            &|min, max| min.x <= 0.51 && max.x >= 0.49,
+        );
+
+        for mesh in lods {
+            let longest_edge = mesh
+                .triangles
+                .chunks_exact(3)
+                .map(|face| {
+                    let [a, b, c] = [face[0], face[1], face[2]]
+                        .map(|index| mesh.vertices[index as usize].truncate());
+                    a.distance(b).max(b.distance(c)).max(c.distance(a))
+                })
+                .fold(0.0, f32::max)
+                * crate::ISLAND_WORLD_METRES;
+            assert!(longest_edge < 100.0, "terrain edge spans {longest_edge} m");
+        }
     }
 
     #[test]

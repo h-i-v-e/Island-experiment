@@ -188,6 +188,7 @@ impl Island {
                 #[cfg(feature = "surface-atlas")]
                 atlas: Default::default(),
             });
+            self.terrain.cart_track_routing_mesh = None;
         }
         Ok(CartTrackReport {
             run_count: runs.len(),
